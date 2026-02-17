@@ -35,6 +35,7 @@ interface CreateIntroductionModalProps {
   onSuccess: () => void
   prefillMemberA?: string
   prefillMemberB?: string
+  prefillMatchReason?: string
 }
 
 function MemberPicker({
@@ -131,6 +132,7 @@ export function CreateIntroductionModal({
   onSuccess,
   prefillMemberA,
   prefillMemberB,
+  prefillMatchReason,
 }: CreateIntroductionModalProps) {
   const [members, setMembers] = useState<MemberOption[]>([])
   const [events, setEvents] = useState<EventOption[]>([])
@@ -160,11 +162,11 @@ export function CreateIntroductionModal({
         member_a_id: prefillMemberA ?? '',
         member_b_id: prefillMemberB ?? '',
         event_id: '',
-        match_reason: '',
+        match_reason: prefillMatchReason ?? '',
       })
       setError(null)
     }
-  }, [open, reset, prefillMemberA, prefillMemberB])
+  }, [open, reset, prefillMemberA, prefillMemberB, prefillMatchReason])
 
   async function fetchData() {
     const [membersRes, eventsRes] = await Promise.all([

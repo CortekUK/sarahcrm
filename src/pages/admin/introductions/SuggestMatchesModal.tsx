@@ -11,18 +11,30 @@ interface MemberOption {
   company: string | null
 }
 
+interface MemberTag {
+  tagId: string
+  name: string
+  category: string
+}
+
 interface MemberWithTags {
   id: string
   name: string
   company: string | null
-  tagIds: string[]
-  tagNames: string[]
+  tags: MemberTag[]
 }
 
 interface MatchResult {
   member: MemberWithTags
   score: number
   sharedTags: string[]
+  matchReason: string
+}
+
+const CATEGORY_STYLES: Record<string, string> = {
+  industry: 'bg-gold-muted text-gold border border-border-gold',
+  interest: 'bg-[rgba(90,123,150,0.1)] text-[#5A7B96] border border-[rgba(90,123,150,0.25)]',
+  need: 'bg-[rgba(111,143,122,0.1)] text-[#5C8A6B] border border-[rgba(111,143,122,0.3)]',
 }
 
 interface SuggestMatchesModalProps {
@@ -45,6 +57,7 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
   const [createOpen, setCreateOpen] = useState(false)
   const [prefillA, setPrefillA] = useState('')
   const [prefillB, setPrefillB] = useState('')
+  const [prefillMatchReason, setPrefillMatchReason] = useState('')
 
   useEffect(() => {
     if (open) {
@@ -94,10 +107,10 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
     setNoTags(false)
     setHasSearched(true)
 
-    // Fetch all active members with their tags
+    // Fetch all active members with their tags (including category)
     const { data: allMemberTags } = await supabase
       .from('member_tags')
-      .select('member_id, tag_id, tags(name)')
+      .select('member_id, tag_id, tags(name, category)')
 
     if (!allMemberTags) {
       setLoading(false)
@@ -105,16 +118,15 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
     }
 
     // Build member → tags map
-    const memberTagMap = new Map<string, { tagIds: string[]; tagNames: string[] }>()
-    for (const row of allMemberTags as unknown as Array<{ member_id: string; tag_id: string; tags: { name: string } }>) {
-      const existing = memberTagMap.get(row.member_id) ?? { tagIds: [], tagNames: [] }
-      existing.tagIds.push(row.tag_id)
-      existing.tagNames.push(row.tags?.name ?? '')
+    const memberTagMap = new Map<string, MemberTag[]>()
+    for (const row of allMemberTags as unknown as Array<{ member_id: string; tag_id: string; tags: { name: string; category: string } }>) {
+      const existing = memberTagMap.get(row.member_id) ?? []
+      existing.push({ tagId: row.tag_id, name: row.tags?.name ?? '', category: row.tags?.category ?? '' })
       memberTagMap.set(row.member_id, existing)
     }
 
     const targetTags = memberTagMap.get(selectedMemberId)
-    if (!targetTags || targetTags.tagIds.length === 0) {
+    if (!targetTags || targetTags.length === 0) {
       setNoTags(true)
       setResults([])
       setLoading(false)
@@ -134,40 +146,106 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
       }
     }
 
-    // Score all other members using Jaccard similarity
-    const targetSet = new Set(targetTags.tagIds)
+    // Split target's tags by category
+    const targetIndustry = targetTags.filter((t) => t.category === 'industry')
+    const targetInterest = targetTags.filter((t) => t.category === 'interest')
+    const targetNeed = targetTags.filter((t) => t.category === 'need')
+    const targetInterestIds = new Set(targetInterest.map((t) => t.tagId))
+    const targetIndustryIds = new Set(targetIndustry.map((t) => t.tagId))
+
+    const selectedMemberObj = members.find((m) => m.id === selectedMemberId)
+    const targetName = selectedMemberObj?.name ?? 'Member'
+
+    // Score all other members using weighted algorithm
     const scored: MatchResult[] = []
+    let maxRaw = 0
 
     for (const member of members) {
       if (member.id === selectedMemberId) continue
       if (pairedIds.has(member.id)) continue
 
       const otherTags = memberTagMap.get(member.id)
-      if (!otherTags || otherTags.tagIds.length === 0) continue
+      if (!otherTags || otherTags.length === 0) continue
 
-      const otherSet = new Set(otherTags.tagIds)
-      const shared: string[] = []
-      for (const tagId of targetSet) {
-        if (otherSet.has(tagId)) {
-          const idx = otherTags.tagIds.indexOf(tagId)
-          shared.push(otherTags.tagNames[idx])
+      const otherIndustry = otherTags.filter((t) => t.category === 'industry')
+      const otherInterest = otherTags.filter((t) => t.category === 'interest')
+      const otherNeed = otherTags.filter((t) => t.category === 'need')
+      // Need-to-industry matching (both directions)
+      let needToIndustryCount = 0
+      const needMatchDescriptions: string[] = []
+
+      // Target's needs vs other's industries
+      for (const need of targetNeed) {
+        const needLower = need.name.toLowerCase()
+        for (const ind of otherIndustry) {
+          if (needLower.includes(ind.name.toLowerCase())) {
+            needToIndustryCount++
+            needMatchDescriptions.push(
+              `${targetName} is looking for ${need.name}; ${member.name} is in ${ind.name}`
+            )
+          }
+        }
+      }
+      // Other's needs vs target's industries
+      for (const need of otherNeed) {
+        const needLower = need.name.toLowerCase()
+        for (const ind of targetIndustry) {
+          if (needLower.includes(ind.name.toLowerCase())) {
+            needToIndustryCount++
+            needMatchDescriptions.push(
+              `${member.name} is looking for ${need.name}; ${targetName} is in ${ind.name}`
+            )
+          }
         }
       }
 
-      if (shared.length === 0) continue
+      // Shared industry tags
+      let sharedIndustryCount = 0
+      const sharedTagNames: string[] = []
+      for (const ind of otherIndustry) {
+        if (targetIndustryIds.has(ind.tagId)) {
+          sharedIndustryCount++
+          sharedTagNames.push(ind.name)
+        }
+      }
 
-      const union = new Set([...targetSet, ...otherSet])
-      const score = shared.length / union.size
+      // Shared interest tags
+      let sharedInterestCount = 0
+      for (const int of otherInterest) {
+        if (targetInterestIds.has(int.tagId)) {
+          sharedInterestCount++
+          sharedTagNames.push(int.name)
+        }
+      }
+
+      const rawScore = needToIndustryCount * 3 + sharedIndustryCount * 1 + sharedInterestCount * 0.5
+      if (rawScore === 0) continue
+
+      if (rawScore > maxRaw) maxRaw = rawScore
+
+      // Build match reason from need-to-industry descriptions
+      const matchReason = needMatchDescriptions.length > 0
+        ? needMatchDescriptions.join('. ') + '.'
+        : sharedTagNames.length > 0
+          ? `Both share: ${sharedTagNames.join(', ')}`
+          : ''
 
       scored.push({
         member: {
           ...member,
-          tagIds: otherTags.tagIds,
-          tagNames: otherTags.tagNames,
+          tags: otherTags,
         },
-        score,
-        sharedTags: shared,
+        score: rawScore,
+        sharedTags: sharedTagNames,
+        matchReason,
       })
+    }
+
+    // Normalise scores so top match = 1 (100%)
+    if (maxRaw > 0) {
+      for (const s of scored) {
+        s.score = s.score / maxRaw
+      }
     }
 
     scored.sort((a, b) => b.score - a.score)
@@ -175,9 +253,10 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
     setLoading(false)
   }, [selectedMemberId, members])
 
-  function openCreateFromMatch(matchMemberId: string) {
+  function openCreateFromMatch(matchMemberId: string, matchReason: string) {
     setPrefillA(selectedMemberId)
     setPrefillB(matchMemberId)
+    setPrefillMatchReason(matchReason)
     setCreateOpen(true)
   }
 
@@ -277,18 +356,18 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
                     <p className="text-sm text-text-muted mb-2">{result.member.company}</p>
                   )}
                   <div className="flex flex-wrap gap-1.5">
-                    {result.member.tagNames.map((tag, i) => {
-                      const isShared = result.sharedTags.includes(tag)
+                    {result.member.tags.map((tag, i) => {
+                      const isShared = result.sharedTags.includes(tag.name)
                       return (
                         <span
                           key={i}
                           className={
                             isShared
-                              ? 'px-2 py-0.5 text-xs rounded-full bg-gold-muted text-gold border border-border-gold'
+                              ? `px-2 py-0.5 text-xs rounded-full ${CATEGORY_STYLES[tag.category] ?? 'bg-gold-muted text-gold border border-border-gold'}`
                               : 'px-2 py-0.5 text-xs rounded-full bg-surface-2 text-text-dim border border-border'
                           }
                         >
-                          {tag}
+                          {tag.name}
                         </span>
                       )
                     })}
@@ -297,7 +376,7 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => openCreateFromMatch(result.member.id)}
+                  onClick={() => openCreateFromMatch(result.member.id, result.matchReason)}
                   className="ml-4 shrink-0"
                 >
                   Introduce
@@ -317,6 +396,7 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
         }}
         prefillMemberA={prefillA}
         prefillMemberB={prefillB}
+        prefillMatchReason={prefillMatchReason}
       />
     </>
   )

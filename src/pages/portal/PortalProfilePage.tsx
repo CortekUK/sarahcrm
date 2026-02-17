@@ -218,17 +218,16 @@ export function PortalProfilePage() {
 
         {/* Tags */}
         <Card>
-          <CardHeader><CardTitle>Interests & Expertise</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Your Tags</CardTitle></CardHeader>
           <CardContent>
             <p className="text-sm text-text-muted mb-4">
-              Select tags that represent your industry, interests, and what you're looking for.
-              These help us find the best introductions for you.
+              These drive your introductions — the more specific, the better your matches.
             </p>
             <div className="space-y-4">
               {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
                 <div key={category}>
-                  <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-2 capitalize">
-                    {category}
+                  <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-2">
+                    {{ industry: 'Your Industry', interest: 'Your Interests', need: "What You're Looking For" }[category] ?? category}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {categoryTags.map((tag) => {

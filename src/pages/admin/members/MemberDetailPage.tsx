@@ -122,6 +122,18 @@ const paymentStatusBadge: Record<PaymentStatus, 'active' | 'upcoming' | 'draft' 
 }
 
 const tierLabels: Record<MemberTier, string> = { tier_1: 'Tier 1', tier_2: 'Tier 2', tier_3: 'Tier 3' }
+
+const CATEGORY_LABELS: Record<string, string> = {
+  industry: 'Industry',
+  interest: 'Interests',
+  need: 'Looking For',
+}
+const CATEGORY_ORDER = ['industry', 'interest', 'need']
+const CATEGORY_STYLES: Record<string, string> = {
+  industry: 'bg-gold-muted text-gold border border-border-gold',
+  interest: 'bg-[rgba(90,123,150,0.1)] text-[#5A7B96] border border-[rgba(90,123,150,0.25)]',
+  need: 'bg-[rgba(111,143,122,0.1)] text-[#5C8A6B] border border-[rgba(111,143,122,0.3)]',
+}
 const typeOptions = [{ value: 'individual', label: 'Individual' }, { value: 'business', label: 'Business' }]
 const tierOptions = [{ value: 'tier_1', label: 'Tier 1' }, { value: 'tier_2', label: 'Tier 2' }, { value: 'tier_3', label: 'Tier 3' }]
 const statusOptions = [{ value: 'active', label: 'Active' }, { value: 'pending', label: 'Pending' }, { value: 'expired', label: 'Expired' }, { value: 'cancelled', label: 'Cancelled' }]
@@ -382,26 +394,43 @@ export function MemberDetailPage() {
         </CardHeader>
         <CardContent>
           {!editing ? (
-            <div className="flex flex-wrap gap-1.5">
-              {allTags
-                .filter((t) => memberTagIds.includes(t.id))
-                .map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="px-2.5 py-1 text-xs rounded-full bg-gold-muted text-gold border border-border-gold"
-                  >
-                    {tag.name}
-                  </span>
-                ))}
-              {memberTagIds.length === 0 && (
-                <span className="text-sm text-text-dim">No tags assigned</span>
-              )}
+            <div className="space-y-3">
+              {(() => {
+                const memberTags = allTags.filter((t) => memberTagIds.includes(t.id))
+                if (memberTags.length === 0) {
+                  return <span className="text-sm text-text-dim">No tags assigned</span>
+                }
+                const grouped: Record<string, Tag[]> = {}
+                for (const tag of memberTags) {
+                  if (!grouped[tag.category]) grouped[tag.category] = []
+                  grouped[tag.category].push(tag)
+                }
+                return CATEGORY_ORDER
+                  .filter((cat) => grouped[cat]?.length > 0)
+                  .map((category) => (
+                    <div key={category}>
+                      <p className="text-xs font-medium text-text-muted mb-1.5">
+                        {CATEGORY_LABELS[category] ?? category} ({grouped[category].length})
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {grouped[category].map((tag) => (
+                          <span
+                            key={tag.id}
+                            className={`px-2.5 py-1 text-xs rounded-full ${CATEGORY_STYLES[category] ?? 'bg-gold-muted text-gold border border-border-gold'}`}
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+              })()}
             </div>
           ) : (
             <div className="space-y-3">
               {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
                 <div key={category}>
-                  <p className="text-xs font-medium text-text-muted capitalize mb-1.5">{category}</p>
+                  <p className="text-xs font-medium text-text-muted mb-1.5">{CATEGORY_LABELS[category] ?? category}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {categoryTags.map((tag) => {
                       const selected = memberTagIds.includes(tag.id)
