@@ -15,6 +15,7 @@ import { IntroductionsListPage } from './pages/admin/introductions/Introductions
 import { IntroductionDetailPage } from './pages/admin/introductions/IntroductionDetailPage'
 import { CommunicationsPage } from './pages/admin/communications/CommunicationsPage'
 import { FinancePage } from './pages/admin/finance/FinancePage'
+import { SettingsPage } from './pages/admin/settings/SettingsPage'
 import { PortalDashboard } from './pages/portal/PortalDashboard'
 import { PortalEventsPage } from './pages/portal/PortalEventsPage'
 import { PortalProfilePage } from './pages/portal/PortalProfilePage'
@@ -22,18 +23,6 @@ import { PortalEventDetailPage } from './pages/portal/PortalEventDetailPage'
 import { PortalBookingConfirmationPage } from './pages/portal/PortalBookingConfirmationPage'
 import { PortalIntroductionsPage } from './pages/portal/PortalIntroductionsPage'
 import { PortalNetworkPage } from './pages/portal/PortalNetworkPage'
-
-// Placeholder pages — will be built out in later steps
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="p-8">
-      <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text mb-4">
-        {title}
-      </h1>
-      <p className="text-text-muted">Coming soon</p>
-    </div>
-  )
-}
 
 function HomePage() {
   return (
@@ -81,7 +70,7 @@ export default function App() {
               <Route path="/dashboard/introductions/:id" element={<IntroductionDetailPage />} />
               <Route path="/dashboard/communications" element={<CommunicationsPage />} />
               <Route path="/dashboard/finance" element={<FinancePage />} />
-              <Route path="/dashboard/settings" element={<PlaceholderPage title="Settings" />} />
+              <Route path="/dashboard/settings" element={<SettingsPage />} />
             </Route>
           </Route>
 
