@@ -11,7 +11,9 @@ import {
   TableHead,
   TableCell,
 } from '../../../components/ui/Table'
-import { formatCurrency, formatDate } from '../../../lib/utils'
+import { Modal } from '../../../components/ui/Modal'
+import { Button } from '../../../components/ui/Button'
+import { formatCurrency, formatDate, formatDateTime } from '../../../lib/utils'
 import { AlertTriangle } from 'lucide-react'
 import type { Database } from '../../../types/database'
 
@@ -71,6 +73,7 @@ export function FinancePage() {
   const [recentPayments, setRecentPayments] = useState<PaymentRow[]>([])
   const [overduePayments, setOverduePayments] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null)
 
   useEffect(() => {
     fetchFinanceData()
@@ -201,7 +204,7 @@ export function FinancePage() {
               </TableHeader>
               <TableBody>
                 {overduePayments.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className="cursor-pointer" onClick={() => setSelectedPayment(p)}>
                     <TableCell>
                       <p className="font-medium text-text">
                         {memberName(p.members?.profiles)}
@@ -258,7 +261,7 @@ export function FinancePage() {
               </TableHeader>
               <TableBody>
                 {recentPayments.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className="cursor-pointer" onClick={() => setSelectedPayment(p)}>
                     <TableCell>
                       <p className="font-medium text-text">
                         {memberName(p.members?.profiles)}
@@ -301,6 +304,99 @@ export function FinancePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Payment Detail Modal ───────────────────────────── */}
+      {selectedPayment && (
+        <Modal
+          open={!!selectedPayment}
+          onClose={() => setSelectedPayment(null)}
+          title="Payment Details"
+          size="lg"
+        >
+          <div className="space-y-6">
+            {/* Member + Status */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-lg font-medium text-text">
+                  {memberName(selectedPayment.members?.profiles)}
+                </p>
+                {selectedPayment.members?.company_name && (
+                  <p className="text-sm text-text-dim">{selectedPayment.members.company_name}</p>
+                )}
+              </div>
+              <Badge variant={paymentStatusBadge[selectedPayment.status]} dot>
+                {selectedPayment.status}
+              </Badge>
+            </div>
+
+            {/* Amount highlight */}
+            <div className="bg-surface-2 rounded-lg p-4 text-center">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Amount</p>
+              <p className="text-2xl font-semibold text-text">
+                {formatCurrency(selectedPayment.amount_pence)}
+              </p>
+            </div>
+
+            {/* Metadata grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Payment Type</p>
+                <p className="text-sm text-text capitalize">{selectedPayment.payment_type}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Method</p>
+                {selectedPayment.payment_method ? (
+                  <Badge variant={methodBadge[selectedPayment.payment_method] ?? 'draft'}>
+                    {methodLabels[selectedPayment.payment_method] ?? selectedPayment.payment_method}
+                  </Badge>
+                ) : (
+                  <p className="text-sm text-text-dim">—</p>
+                )}
+              </div>
+            </div>
+
+            {/* Description */}
+            {selectedPayment.description && (
+              <div>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Description</p>
+                <p className="text-sm text-text">{selectedPayment.description}</p>
+              </div>
+            )}
+
+            {/* Dates */}
+            <div>
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">Dates</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-text">Created</p>
+                  <p className="text-sm text-text-muted">{formatDateTime(selectedPayment.created_at)}</p>
+                </div>
+                {selectedPayment.due_date && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-text">Due Date</p>
+                    <p className={`text-sm ${selectedPayment.status === 'overdue' ? 'text-accent-warm font-medium' : 'text-text-muted'}`}>
+                      {formatDate(selectedPayment.due_date)}
+                    </p>
+                  </div>
+                )}
+                {selectedPayment.paid_at && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-text">Paid</p>
+                    <p className="text-sm text-text-muted">{formatDateTime(selectedPayment.paid_at)}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Close */}
+            <div className="flex justify-end pt-2">
+              <Button variant="ghost" onClick={() => setSelectedPayment(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
