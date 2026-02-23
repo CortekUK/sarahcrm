@@ -46,7 +46,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             )}
             <input ref={ref} id={inputId} className={inputClasses} {...props} />
             {suffix && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
                 {suffix}
               </div>
             )}
