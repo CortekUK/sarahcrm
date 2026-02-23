@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { supabase } from '../../lib/supabase/client'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
+import { Eye, EyeOff } from 'lucide-react'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -18,6 +19,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const {
     register,
@@ -117,10 +119,20 @@ export function LoginPage() {
 
             <Input
               label="Password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="Enter your password"
               autoComplete="current-password"
               error={errors.password?.message}
+              suffix={
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="text-text-dim hover:text-text transition-colors"
+                >
+                  {showPassword ? <EyeOff size={18} strokeWidth={1.5} /> : <Eye size={18} strokeWidth={1.5} />}
+                </button>
+              }
               {...register('password')}
             />
 

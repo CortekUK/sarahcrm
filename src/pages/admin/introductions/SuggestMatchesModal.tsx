@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase/client'
 import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
-import { Search, Sparkles } from 'lucide-react'
+import { Search, Sparkles, X } from 'lucide-react'
 import { CreateIntroductionModal } from './CreateIntroductionModal'
 
 interface MemberOption {
@@ -285,8 +285,22 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
                 }}
                 onFocus={() => setShowDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-                className="w-full pl-9 pr-3.5 py-2.5 bg-surface text-text text-sm rounded-[var(--radius-md)] border border-border outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-text-dim focus:border-gold focus:shadow-[0_0_0_3px_var(--color-gold-muted)]"
+                className={`w-full pl-9 ${selectedMember && !query ? 'pr-9' : 'pr-3.5'} py-2.5 bg-surface text-text text-sm rounded-[var(--radius-md)] border border-border outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-text-dim focus:border-gold focus:shadow-[0_0_0_3px_var(--color-gold-muted)]`}
               />
+              {selectedMember && !query && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMemberId('')
+                    setQuery('')
+                    setResults([])
+                    setHasSearched(false)
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-dim hover:text-text transition-colors"
+                >
+                  <X size={14} strokeWidth={1.5} />
+                </button>
+              )}
               {showDropdown && (
                 <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-surface border border-border rounded-[var(--radius-md)] shadow-lg max-h-48 overflow-y-auto">
                   {filteredMembers.length === 0 ? (
@@ -324,8 +338,17 @@ export function SuggestMatchesModal({ open, onClose, onIntroCreated }: SuggestMa
         </div>
 
         {/* Results */}
+        {!hasSearched && !loading && !noTags && (
+          <div className="py-8 text-center">
+            <Sparkles size={24} className="mx-auto mb-2 text-text-dim" />
+            <p className="text-sm text-text-dim">
+              Select a member and click Find Matches to discover potential introductions.
+            </p>
+          </div>
+        )}
+
         {noTags && (
-          <div className="px-6 py-10 text-center">
+          <div className="py-8 text-center">
             <p className="text-sm text-text-dim">
               This member has no tags. Add tags to their profile to enable matching.
             </p>
