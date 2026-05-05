@@ -251,6 +251,117 @@ export type Database = {
           },
         ]
       }
+      curated_experiences: {
+        Row: {
+          created_at: string
+          description: string | null
+          display_order: number
+          id: string
+          image_url: string | null
+          is_active: boolean
+          link_url: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          link_url?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          link_url?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      documents: {
+        Row: {
+          created_at: string
+          file_url: string
+          id: string
+          is_active: boolean
+          page_slug: string | null
+          slug: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          file_url: string
+          id?: string
+          is_active?: boolean
+          page_slug?: string | null
+          slug: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          file_url?: string
+          id?: string
+          is_active?: boolean
+          page_slug?: string | null
+          slug?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      enquiries: {
+        Row: {
+          company: string | null
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          intent: string[] | null
+          last_name: string
+          message: string
+          phone: string | null
+          position: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company?: string | null
+          created_at?: string
+          email: string
+          first_name: string
+          id?: string
+          intent?: string[] | null
+          last_name: string
+          message: string
+          phone?: string | null
+          position?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          intent?: string[] | null
+          last_name?: string
+          message?: string
+          phone?: string | null
+          position?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           accommodation_available: boolean
@@ -361,6 +472,119 @@ export type Database = {
           },
         ]
       }
+      galleries: {
+        Row: {
+          category: string | null
+          cover_image_url: string | null
+          created_at: string
+          event_date: string | null
+          id: string
+          is_published: boolean
+          location: string | null
+          slug: string
+          title: string
+          updated_at: string
+          venue_name: string | null
+        }
+        Insert: {
+          category?: string | null
+          cover_image_url?: string | null
+          created_at?: string
+          event_date?: string | null
+          id?: string
+          is_published?: boolean
+          location?: string | null
+          slug: string
+          title: string
+          updated_at?: string
+          venue_name?: string | null
+        }
+        Update: {
+          category?: string | null
+          cover_image_url?: string | null
+          created_at?: string
+          event_date?: string | null
+          id?: string
+          is_published?: boolean
+          location?: string | null
+          slug?: string
+          title?: string
+          updated_at?: string
+          venue_name?: string | null
+        }
+        Relationships: []
+      }
+      gallery_photos: {
+        Row: {
+          caption: string | null
+          created_at: string
+          display_order: number
+          gallery_id: string
+          id: string
+          image_url: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          display_order?: number
+          gallery_id: string
+          id?: string
+          image_url: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          display_order?: number
+          gallery_id?: string
+          id?: string
+          image_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gallery_photos_gallery_id_fkey"
+            columns: ["gallery_id"]
+            isOneToOne: false
+            referencedRelation: "galleries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hero_slides: {
+        Row: {
+          alt_text: string
+          created_at: string
+          display_order: number
+          id: string
+          image_url: string
+          is_active: boolean
+          overlay_text: string | null
+          page_slug: string
+          updated_at: string
+        }
+        Insert: {
+          alt_text?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url: string
+          is_active?: boolean
+          overlay_text?: string | null
+          page_slug?: string
+          updated_at?: string
+        }
+        Update: {
+          alt_text?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url?: string
+          is_active?: boolean
+          overlay_text?: string | null
+          page_slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       introductions: {
         Row: {
           accepted_at: string | null
@@ -465,6 +689,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mailing_list: {
+        Row: {
+          email: string
+          first_name: string
+          id: string
+          last_name: string
+          subscribed_at: string
+        }
+        Insert: {
+          email: string
+          first_name: string
+          id?: string
+          last_name: string
+          subscribed_at?: string
+        }
+        Update: {
+          email?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          subscribed_at?: string
+        }
+        Relationships: []
       }
       member_tags: {
         Row: {
@@ -591,6 +839,111 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      membership_applications: {
+        Row: {
+          bio: string | null
+          company: string | null
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          industry: string | null
+          interests: string[] | null
+          last_name: string
+          linkedin_url: string | null
+          notes: string | null
+          phone: string | null
+          position: string | null
+          preferred_location: string | null
+          preferred_tier: string | null
+          referral_name: string | null
+          referral_source: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          bio?: string | null
+          company?: string | null
+          created_at?: string
+          email: string
+          first_name: string
+          id?: string
+          industry?: string | null
+          interests?: string[] | null
+          last_name: string
+          linkedin_url?: string | null
+          notes?: string | null
+          phone?: string | null
+          position?: string | null
+          preferred_location?: string | null
+          preferred_tier?: string | null
+          referral_name?: string | null
+          referral_source?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          bio?: string | null
+          company?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          industry?: string | null
+          interests?: string[] | null
+          last_name?: string
+          linkedin_url?: string | null
+          notes?: string | null
+          phone?: string | null
+          position?: string | null
+          preferred_location?: string | null
+          preferred_tier?: string | null
+          referral_name?: string | null
+          referral_source?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      partner_logos: {
+        Row: {
+          created_at: string
+          display_order: number
+          id: string
+          image_url: string
+          is_visible: boolean
+          name: string
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url: string
+          is_visible?: boolean
+          name: string
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url?: string
+          is_visible?: boolean
+          name?: string
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: []
       }
       payments: {
         Row: {
@@ -786,6 +1139,72 @@ export type Database = {
           id?: string
           name?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      testimonials: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          display_order: number
+          id: string
+          is_active: boolean
+          person_name: string
+          person_title: string | null
+          quote_text: string
+          updated_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          person_name: string
+          person_title?: string | null
+          quote_text: string
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          person_name?: string
+          person_title?: string | null
+          quote_text?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      video_gallery: {
+        Row: {
+          created_at: string
+          display_order: number
+          id: string
+          is_active: boolean
+          page_slug: string
+          title: string
+          youtube_url: string
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          page_slug?: string
+          title: string
+          youtube_url: string
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          page_slug?: string
+          title?: string
+          youtube_url?: string
         }
         Relationships: []
       }
