@@ -7,7 +7,7 @@ import { useAuth } from '@/providers/AuthProvider'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { formatDate } from '@/lib/utils'
-import { CalendarDays, Handshake, Users, ArrowRight, Crown, TrendingUp } from 'lucide-react'
+import { CalendarDays, Handshake, Users, ArrowRight, Crown, TrendingUp, CreditCard } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type MemberTier = Database['public']['Enums']['membership_tier']
@@ -22,6 +22,7 @@ interface MemberRecord {
   monthly_intro_quota: number
   membership_start_date: string | null
   renewal_date: string | null
+  stripe_subscription_id: string | null
 }
 
 interface UpcomingBooking {
@@ -79,7 +80,7 @@ export function PortalDashboard() {
     // Fetch member record
     const { data: memberData } = await supabase
       .from('members')
-      .select('id, membership_tier, membership_type, membership_status, intros_used_this_month, monthly_intro_quota, membership_start_date, renewal_date')
+      .select('id, membership_tier, membership_type, membership_status, intros_used_this_month, monthly_intro_quota, membership_start_date, renewal_date, stripe_subscription_id')
       .eq('profile_id', profileId)
       .single()
 
@@ -163,6 +164,33 @@ export function PortalDashboard() {
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       </div>
+
+      {/* Payment setup CTA */}
+      {member && member.membership_status === 'active' && !member.stripe_subscription_id && (
+        <Card className="mb-6 border-gold/20 bg-gold-muted/30">
+          <CardContent className="py-5">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-gold-muted flex items-center justify-center shrink-0">
+                <CreditCard size={22} className="text-gold" strokeWidth={1.5} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-text">
+                  Set up your membership payment
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Activate recurring billing for your membership to keep your account in good standing.
+                </p>
+              </div>
+              <Link
+                href="/portal/billing"
+                className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-gold rounded-[var(--radius-md)] hover:bg-gold/90 transition-colors"
+              >
+                Set Up <ArrowRight size={14} />
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8">

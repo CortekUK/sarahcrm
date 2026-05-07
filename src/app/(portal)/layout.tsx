@@ -11,6 +11,7 @@ import {
   User,
   Handshake,
   Users,
+  CreditCard,
   LogOut,
 } from 'lucide-react'
 
@@ -19,6 +20,7 @@ const navItems = [
   { to: '/portal/events', label: 'Events', icon: CalendarDays, end: false },
   { to: '/portal/introductions', label: 'Introductions', icon: Handshake, end: false },
   { to: '/portal/network', label: 'Network', icon: Users, end: false },
+  { to: '/portal/billing', label: 'Billing', icon: CreditCard, end: false },
   { to: '/portal/profile', label: 'My Profile', icon: User, end: false },
 ]
 

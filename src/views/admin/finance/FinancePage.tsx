@@ -72,6 +72,8 @@ export function FinancePage() {
   const [totalRevenue, setTotalRevenue] = useState(0)
   const [outstanding, setOutstanding] = useState(0)
   const [activeMemberships, setActiveMemberships] = useState(0)
+  const [activeSubscriptions, setActiveSubscriptions] = useState(0)
+  const [mrr, setMrr] = useState(0)
   const [recentPayments, setRecentPayments] = useState<PaymentRow[]>([])
   const [overduePayments, setOverduePayments] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,7 +84,7 @@ export function FinancePage() {
   }, [])
 
   async function fetchFinanceData() {
-    const [revenueRes, outstandingRes, membersRes, recentRes, overdueRes] =
+    const [revenueRes, outstandingRes, membersRes, recentRes, overdueRes, subsRes, mrrRes] =
       await Promise.all([
         // Total revenue (all paid)
         supabase
@@ -122,6 +124,22 @@ export function FinancePage() {
           `)
           .eq('status', 'overdue')
           .order('due_date', { ascending: true }),
+
+        // Active subscriptions count
+        supabase
+          .from('members')
+          .select('id', { count: 'exact', head: true })
+          .not('stripe_subscription_id', 'is', null)
+          .eq('membership_status', 'active')
+          .is('deleted_at', null),
+
+        // MRR — sum price_pence for all active subscribed members via their tier
+        supabase
+          .from('members')
+          .select('membership_tier, membership_type')
+          .not('stripe_subscription_id', 'is', null)
+          .eq('membership_status', 'active')
+          .is('deleted_at', null),
       ])
 
     setTotalRevenue(
@@ -131,8 +149,31 @@ export function FinancePage() {
       (outstandingRes.data ?? []).reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
     )
     setActiveMemberships(membersRes.count ?? 0)
+    setActiveSubscriptions(subsRes.count ?? 0)
     setRecentPayments((recentRes.data ?? []) as unknown as PaymentRow[])
     setOverduePayments((overdueRes.data ?? []) as unknown as PaymentRow[])
+
+    // Calculate MRR from tier pricing
+    if (mrrRes.data && mrrRes.data.length > 0) {
+      const { data: tiers } = await supabase
+        .from('membership_tiers')
+        .select('tier, membership_type, price_pence')
+        .eq('billing_interval', 'month')
+        .eq('is_active', true)
+
+      if (tiers) {
+        const priceMap = new Map<string, number>()
+        for (const t of tiers) {
+          priceMap.set(`${t.tier}:${t.membership_type}`, t.price_pence)
+        }
+        const totalMrr = mrrRes.data.reduce((sum, m) => {
+          const key = `${m.membership_tier}:${m.membership_type}`
+          return sum + (priceMap.get(key) ?? 0)
+        }, 0)
+        setMrr(totalMrr)
+      }
+    }
+
     setLoading(false)
   }
 
@@ -160,7 +201,7 @@ export function FinancePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-5 mb-8">
         <StatCard
           label="Total Revenue"
           value={formatCurrency(totalRevenue)}
@@ -178,6 +219,18 @@ export function FinancePage() {
           value={activeMemberships.toLocaleString('en-GB')}
           changeText="currently active"
           changeType="neutral"
+        />
+        <StatCard
+          label="Active Subscriptions"
+          value={activeSubscriptions.toLocaleString('en-GB')}
+          changeText="paying via Stripe"
+          changeType="positive"
+        />
+        <StatCard
+          label="MRR"
+          value={formatCurrency(mrr)}
+          changeText="monthly recurring"
+          changeType="positive"
         />
       </div>
 

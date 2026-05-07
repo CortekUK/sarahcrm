@@ -22,7 +22,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { formatDate, formatCurrency, cn } from '@/lib/utils'
-import { ArrowLeft, Pencil, X, Save } from 'lucide-react'
+import { ArrowLeft, Pencil, X, Save, CreditCard } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type Tag = Database['public']['Tables']['tags']['Row']
@@ -43,6 +43,8 @@ interface MemberDetail {
   company_name: string | null
   company_description: string | null
   company_website: string | null
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
   showcase_enabled: boolean
   sponsor_aligned: boolean
   membership_start_date: string | null
@@ -388,6 +390,58 @@ export function MemberDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Subscription */}
+      {!editing && (
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <CreditCard size={16} className="text-gold" />
+              <CardTitle>Subscription</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Status
+                </p>
+                <div className="mt-1">
+                  {member.stripe_subscription_id ? (
+                    <Badge variant="active" dot>Active</Badge>
+                  ) : (
+                    <Badge variant="draft" dot>No Subscription</Badge>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Stripe Subscription
+                </p>
+                <p className="text-sm text-text-muted mt-1 font-mono truncate">
+                  {member.stripe_subscription_id || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Stripe Customer
+                </p>
+                <p className="text-sm text-text-muted mt-1 font-mono truncate">
+                  {member.stripe_customer_id || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Next Renewal
+                </p>
+                <p className="text-sm font-medium text-text mt-1">
+                  {member.renewal_date ? formatDate(member.renewal_date) : '—'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tags */}
       <Card className="mb-6">

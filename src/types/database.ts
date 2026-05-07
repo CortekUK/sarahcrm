@@ -768,6 +768,7 @@ export type Database = {
           source: string | null
           sponsor_aligned: boolean
           stripe_customer_id: string | null
+          stripe_subscription_id: string | null
           updated_at: string
           xero_contact_id: string | null
         }
@@ -794,6 +795,7 @@ export type Database = {
           source?: string | null
           sponsor_aligned?: boolean
           stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
           updated_at?: string
           xero_contact_id?: string | null
         }
@@ -820,6 +822,7 @@ export type Database = {
           source?: string | null
           sponsor_aligned?: boolean
           stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
           updated_at?: string
           xero_contact_id?: string | null
         }
@@ -912,6 +915,51 @@ export type Database = {
         }
         Relationships: []
       }
+      membership_tiers: {
+        Row: {
+          billing_interval: string
+          created_at: string
+          id: string
+          intro_quota: number
+          is_active: boolean
+          membership_type: Database["public"]["Enums"]["membership_type"]
+          name: string
+          price_pence: number
+          stripe_price_id: string | null
+          stripe_product_id: string | null
+          tier: Database["public"]["Enums"]["membership_tier"]
+          updated_at: string
+        }
+        Insert: {
+          billing_interval?: string
+          created_at?: string
+          id?: string
+          intro_quota?: number
+          is_active?: boolean
+          membership_type: Database["public"]["Enums"]["membership_type"]
+          name: string
+          price_pence: number
+          stripe_price_id?: string | null
+          stripe_product_id?: string | null
+          tier: Database["public"]["Enums"]["membership_tier"]
+          updated_at?: string
+        }
+        Update: {
+          billing_interval?: string
+          created_at?: string
+          id?: string
+          intro_quota?: number
+          is_active?: boolean
+          membership_type?: Database["public"]["Enums"]["membership_type"]
+          name?: string
+          price_pence?: number
+          stripe_price_id?: string | null
+          stripe_product_id?: string | null
+          tier?: Database["public"]["Enums"]["membership_tier"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       partner_logos: {
         Row: {
           created_at: string
@@ -960,6 +1008,7 @@ export type Database = {
           payment_type: string
           reference_id: string | null
           status: Database["public"]["Enums"]["payment_status"]
+          stripe_invoice_id: string | null
           stripe_payment_intent_id: string | null
           updated_at: string
           xero_invoice_id: string | null
@@ -978,6 +1027,7 @@ export type Database = {
           payment_type: string
           reference_id?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
+          stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
           updated_at?: string
           xero_invoice_id?: string | null
@@ -996,6 +1046,7 @@ export type Database = {
           payment_type?: string
           reference_id?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
+          stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
           updated_at?: string
           xero_invoice_id?: string | null
