@@ -8,5 +8,12 @@ export function createClient() {
   )
 }
 
-// Singleton for use throughout the app
-export const supabase = createClient()
+// Lazy singleton — deferred so it doesn't throw during static page generation
+// when NEXT_PUBLIC_* env vars aren't available at build time
+let _supabase: ReturnType<typeof createClient> | null = null
+export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_target, prop) {
+    if (!_supabase) _supabase = createClient()
+    return (_supabase as unknown as Record<string | symbol, unknown>)[prop]
+  },
+})
