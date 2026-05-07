@@ -162,31 +162,29 @@ export function LoginPage() {
         </p>
 
         {/* Dev quick-login buttons */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-6 pt-4 border-t border-dashed border-border">
-            <p className="text-[0.625rem] uppercase tracking-widest text-text-dim text-center mb-3">
-              Dev Quick Login
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => quickLogin('admin@sarahrestrick.com', 'Admin12345')}
-                disabled={loading}
-                className="flex-1 px-4 py-2 text-xs font-medium rounded-full border border-border text-text-muted hover:border-gold hover:text-gold transition-colors disabled:opacity-50"
-              >
-                Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => quickLogin('member@sarahrestrick.com', 'Member12345')}
-                disabled={loading}
-                className="flex-1 px-4 py-2 text-xs font-medium rounded-full border border-border text-text-muted hover:border-gold hover:text-gold transition-colors disabled:opacity-50"
-              >
-                Member
-              </button>
-            </div>
+        <div className="mt-6 pt-4 border-t border-dashed border-border">
+          <p className="text-[0.625rem] uppercase tracking-widest text-text-dim text-center mb-3">
+            Dev Quick Login
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => quickLogin('dev@sarahrestrick.com', 'DevTest2026!')}
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 text-xs font-medium rounded-[var(--radius-md)] border border-border text-text-muted hover:border-gold hover:text-gold transition-colors disabled:opacity-50"
+            >
+              Admin Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={() => quickLogin('devmember@sarahrestrick.com', 'DevTest2026!')}
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 text-xs font-medium rounded-[var(--radius-md)] border border-border text-text-muted hover:border-gold hover:text-gold transition-colors disabled:opacity-50"
+            >
+              Member Portal
+            </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
