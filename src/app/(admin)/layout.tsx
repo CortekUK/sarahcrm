@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { AuthProvider, useAuth } from '@/providers/AuthProvider'
@@ -10,6 +11,8 @@ import {
   Handshake,
   Mail,
   PoundSterling,
+  Globe,
+  ChevronDown,
   Settings,
   LogOut,
 } from 'lucide-react'
@@ -23,6 +26,67 @@ const navItems = [
   { to: '/dashboard/communications', label: 'Communications', icon: Mail },
   { to: '/dashboard/finance', label: 'Finance', icon: PoundSterling },
 ]
+
+const websiteSubItems = [
+  { to: '/dashboard/website/galleries', label: 'Galleries' },
+  { to: '/dashboard/website/hero-slides', label: 'Hero Slides' },
+  { to: '/dashboard/website/testimonials', label: 'Testimonials' },
+  { to: '/dashboard/website/partners', label: 'Partners' },
+  { to: '/dashboard/website/experiences', label: 'Experiences' },
+  { to: '/dashboard/website/videos', label: 'Videos' },
+  { to: '/dashboard/website/documents', label: 'Documents' },
+]
+
+function WebsiteNavGroup({ pathname }: { pathname: string }) {
+  const isWebsiteActive = pathname.startsWith('/dashboard/website')
+  const [expanded, setExpanded] = useState(isWebsiteActive)
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={cn(
+          'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-md)] text-sm transition-colors relative w-full',
+          isWebsiteActive
+            ? 'text-gold font-medium bg-[rgba(184,151,90,0.06)]'
+            : 'text-text-muted hover:text-text hover:bg-surface-3'
+        )}
+      >
+        {isWebsiteActive && (
+          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gold" />
+        )}
+        <Globe size={18} strokeWidth={1.5} />
+        <span className="flex-1 text-left">Website</span>
+        <ChevronDown
+          size={14}
+          strokeWidth={1.5}
+          className={cn('transition-transform', expanded && 'rotate-180')}
+        />
+      </button>
+      {expanded && (
+        <div className="ml-4 mt-0.5 space-y-0.5">
+          {websiteSubItems.map((item) => {
+            const active = pathname.startsWith(item.to)
+            return (
+              <Link
+                key={item.to}
+                href={item.to}
+                className={cn(
+                  'block px-3 py-1.5 rounded-[var(--radius-md)] text-[0.8125rem] transition-colors',
+                  active
+                    ? 'text-gold font-medium'
+                    : 'text-text-dim hover:text-text hover:bg-surface-3'
+                )}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { signOut, profile } = useAuth()
@@ -74,6 +138,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
               <span>{item.label}</span>
             </Link>
           ))}
+
+          {/* Website expandable group */}
+          <WebsiteNavGroup pathname={pathname} />
         </nav>
 
         {/* Bottom section */}
