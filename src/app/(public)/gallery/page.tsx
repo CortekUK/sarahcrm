@@ -3,6 +3,11 @@ import { GalleryContent } from './GalleryContent'
 
 export const revalidate = 60
 
+// Fallback content shown on a fresh install before the admin has
+// published any real galleries. Drops out automatically once the
+// `galleries` table has rows with `is_published = true`. Categories
+// use the DB enum keys so the public filter chips work the same way
+// regardless of which source the page is reading from.
 const fallbackGalleries = [
   {
     id: '1',
@@ -12,7 +17,7 @@ const fallbackGalleries = [
     event_date: '2025-06-20',
     venue_name: 'The Ivy, Manchester',
     location: 'Manchester',
-    category: 'Curated Experience',
+    category: 'curated_experience',
   },
   {
     id: '2',
@@ -22,7 +27,7 @@ const fallbackGalleries = [
     event_date: '2025-11-19',
     venue_name: 'Stock Exchange Hotel',
     location: 'Manchester',
-    category: 'Members Event',
+    category: 'members_event',
   },
   {
     id: '3',
@@ -32,7 +37,7 @@ const fallbackGalleries = [
     event_date: '2025-04-22',
     venue_name: 'The Ivy, Leeds',
     location: 'Leeds',
-    category: 'Private Dining',
+    category: 'private_dining',
   },
   {
     id: '4',
@@ -42,7 +47,7 @@ const fallbackGalleries = [
     event_date: '2024-12-14',
     venue_name: 'The Midland Hotel',
     location: 'Manchester',
-    category: 'Curated Experience',
+    category: 'curated_experience',
   },
   {
     id: '5',
@@ -52,7 +57,7 @@ const fallbackGalleries = [
     event_date: '2024-11-05',
     venue_name: 'Flannels, Leeds',
     location: 'Leeds',
-    category: 'Sponsored Event',
+    category: 'sponsored_event',
   },
   {
     id: '6',
@@ -62,7 +67,7 @@ const fallbackGalleries = [
     event_date: '2025-03-18',
     venue_name: 'ONE London Road',
     location: 'Manchester',
-    category: 'Members Event',
+    category: 'members_event',
   },
   {
     id: '7',
@@ -72,7 +77,7 @@ const fallbackGalleries = [
     event_date: '2024-06-22',
     venue_name: 'Hurlingham Club',
     location: 'London',
-    category: 'Curated Experience',
+    category: 'curated_experience',
   },
   {
     id: '8',
@@ -82,7 +87,7 @@ const fallbackGalleries = [
     event_date: '2025-02-12',
     venue_name: 'The Alchemist',
     location: 'Manchester',
-    category: 'Business Enrichment',
+    category: 'business_enrichment',
   },
   {
     id: '9',
@@ -92,7 +97,7 @@ const fallbackGalleries = [
     event_date: '2025-04-10',
     venue_name: 'Harvey Nichols',
     location: 'Leeds',
-    category: 'Members Event',
+    category: 'members_event',
   },
   {
     id: '10',
@@ -102,7 +107,7 @@ const fallbackGalleries = [
     event_date: '2024-08-16',
     venue_name: 'Cheshire Polo Club',
     location: 'Manchester',
-    category: 'Curated Experience',
+    category: 'curated_experience',
   },
   {
     id: '11',
@@ -112,7 +117,7 @@ const fallbackGalleries = [
     event_date: '2025-01-24',
     venue_name: 'The Ned',
     location: 'London',
-    category: 'Private Dining',
+    category: 'private_dining',
   },
   {
     id: '12',
@@ -122,7 +127,7 @@ const fallbackGalleries = [
     event_date: '2024-10-18',
     venue_name: 'Flannels',
     location: 'Manchester',
-    category: 'Sponsored Event',
+    category: 'sponsored_event',
   },
 ]
 

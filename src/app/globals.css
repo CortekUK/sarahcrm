@@ -52,6 +52,51 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
   --radius-full: 9999px;
+
+  /* Shadcn-compatible aliases — mapped to sarah's brand palette so the
+     shadcn primitives shipped in components/ui-shadcn/ render in keeping
+     with The Club's visual language. NB: these intentionally do NOT
+     override --color-accent — that token belongs to the brand palette
+     above (sage green #5B7B6A) and the website Badge / accent classes
+     depend on it. Shadcn looks for the bare names (--background,
+     --primary, --accent, etc.) without the --color- prefix anyway. */
+  --background: #FAFAF7;
+  --foreground: #2C2825;
+  --card: #FFFFFF;
+  --card-foreground: #2C2825;
+  --popover: #FFFFFF;
+  --popover-foreground: #2C2825;
+  --primary: #B8975A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F3F0EA;
+  --secondary-foreground: #2C2825;
+  --muted: #F7F5F0;
+  --muted-foreground: #6B6560;
+  --accent: #F3F0EA;
+  --accent-foreground: #2C2825;
+  --destructive: #C4694A;
+  --destructive-foreground: #FFFFFF;
+  --input: #E5E0D8;
+  --ring: rgba(184, 151, 90, 0.4);
+
+  /* Tailwind v4 `bg-primary` / `text-primary-foreground` classes resolve
+     from these `--color-*` tokens. We point the shadcn ones at the same
+     hex values via different tokens to avoid clobbering the brand palette. */
+  --color-background: #FAFAF7;
+  --color-foreground: #2C2825;
+  --color-primary: #B8975A;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F3F0EA;
+  --color-secondary-foreground: #2C2825;
+  --color-muted: #F7F5F0;
+  --color-muted-foreground: #6B6560;
+  --color-destructive: #C4694A;
+  --color-destructive-foreground: #FFFFFF;
+  --color-input: #E5E0D8;
+  --color-ring: rgba(184, 151, 90, 0.4);
+
+  /* Radius alias the shadcn primitives reference. */
+  --radius: 8px;
 }
 
 /* ============================================================

@@ -270,23 +270,41 @@ export function EventDetailContent({ event, isPast }: EventDetailContentProps) {
                   </p>
                 ) : (
                   <>
+                    {/*
+                      Deep-link to the member portal booking page. Auth-gated
+                      via middleware — non-members get bounced to /login with
+                      a redirect param back to this booking page. Avoids the
+                      old "Book as Member → /login (orphan)" dead-end.
+                    */}
                     <MagneticButton strength={0.2}>
                       <Link
-                        href="/login"
-                        className="block w-full text-center px-6 py-3.5 bg-[#B8975A] hover:bg-[#D4B978] text-white text-sm font-medium tracking-wide transition-all duration-500"
+                        href={`/portal/events/${event.id}`}
+                        className="group block w-full text-center px-6 py-3.5 bg-[#B8975A] hover:bg-[#D4B978] text-white text-sm font-medium tracking-wide transition-all duration-500 inline-flex items-center justify-center gap-2"
                       >
-                        Book as Member
+                        Book your place
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="transition-transform group-hover:translate-x-0.5">
+                          <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
                       </Link>
                     </MagneticButton>
                     <p
-                      className="text-xs text-center mt-3 transition-colors duration-[400ms]"
+                      className="text-[11px] text-center mt-3 leading-relaxed transition-colors duration-[400ms]"
                       style={{ color: t.textMuted }}
                     >
-                      Not a member?{' '}
+                      Members book directly · Not yet a member?{' '}
                       <Link href="/membership-application" className="text-[#B8975A] hover:underline">
                         Apply here
                       </Link>
                     </p>
+                    {event.event_type === 'curated_luxury' && (
+                      <Link
+                        href="/contact-us"
+                        className="block text-center mt-4 pt-4 border-t text-[11px] font-[family-name:var(--font-label)] uppercase tracking-[0.2em] hover:text-[#B8975A] transition-colors"
+                        style={{ borderColor: t.border, color: t.textDim }}
+                      >
+                        Or enquire about a bespoke version →
+                      </Link>
+                    )}
                   </>
                 )}
               </div>

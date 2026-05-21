@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import {
   Table,
   TableHeader,
@@ -13,22 +16,28 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { Modal } from '@/components/ui/Modal'
-import { Input } from '@/components/ui/Input'
-import { Textarea } from '@/components/ui/Textarea'
-import { Button } from '@/components/ui/Button'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Mail, Zap, Clock, Send, Eye, MousePointerClick, FileText } from 'lucide-react'
+import {
+  Sparkles,
+  Mail,
+  Send,
+  Eye,
+  MousePointerClick,
+  FileText,
+  ChevronRight,
+  Plus,
+  AlertCircle,
+  TrendingUp,
+} from 'lucide-react'
+import { useTemplates, useDeleteTemplate, useDuplicateTemplate } from '@/lib/hooks/useTemplates'
+import { useTemplateStats } from '@/lib/hooks/useTemplateStats'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { toast } from '@/lib/hooks/use-toast'
+import { SendTemplateModal } from '@/components/templates/SendTemplateModal'
+import type { Template } from '@/lib/templates/types'
 
 // ── Types ───────────────────────────────────────────────
-
-interface EmailTemplate {
-  name: string
-  trigger: string
-  active: boolean
-  subject: string
-  body: string
-}
 
 interface CommRow {
   id: string
@@ -46,143 +55,28 @@ interface CommRow {
     profiles: {
       first_name: string | null
       last_name: string | null
-    }
-  }
+    } | null
+  } | null
 }
 
-type CommStatus = 'sent' | 'delivered' | 'opened' | 'draft'
+type CommStatus = 'sent' | 'delivered' | 'opened' | 'failed' | 'queued' | 'draft'
 
-// ── Static data ─────────────────────────────────────────
-
-const EMAIL_TEMPLATES: EmailTemplate[] = [
-  {
-    name: 'Booking Confirmation',
-    trigger: 'Sent automatically when a member completes an event booking',
-    active: true,
-    subject: 'Your booking for {{event_name}} is confirmed',
-    body: `Dear {{first_name}},
-
-Thank you for booking your place at {{event_name}} on {{event_date}}.
-
-Venue: {{venue_name}}
-Time: {{event_time}}
-
-We look forward to seeing you there. If you need to make any changes to your booking, please contact us.
-
-Warm regards,
-The Club by Sarah Restrick`,
-  },
-  {
-    name: 'Introduction Notification',
-    trigger: 'Sent to both members when a new introduction is created',
-    active: true,
-    subject: 'Introduction: Meet {{other_member_name}}',
-    body: `Dear {{first_name}},
-
-I'm delighted to introduce you to {{other_member_name}}, who I think you'll find a wonderful connection.
-
-{{introduction_note}}
-
-I've copied you both on this email so you can arrange a time to connect at your convenience.
-
-Warm regards,
-Sarah Restrick`,
-  },
-  {
-    name: 'Event Reminder 7-Day',
-    trigger: 'Sent 7 days before a booked event',
-    active: true,
-    subject: 'Reminder: {{event_name}} is in one week',
-    body: `Dear {{first_name}},
-
-Just a gentle reminder that {{event_name}} is taking place in one week on {{event_date}}.
-
-Venue: {{venue_name}}
-Time: {{event_time}}
-Dress code: {{dress_code}}
-
-We look forward to welcoming you.
-
-Warm regards,
-The Club by Sarah Restrick`,
-  },
-  {
-    name: 'Event Reminder 1-Day',
-    trigger: 'Sent 1 day before a booked event',
-    active: true,
-    subject: 'Tomorrow: {{event_name}}',
-    body: `Dear {{first_name}},
-
-This is a friendly reminder that {{event_name}} is tomorrow, {{event_date}}.
-
-Venue: {{venue_name}}
-Time: {{event_time}}
-
-If you have any last-minute questions, don't hesitate to reach out.
-
-See you there!
-
-Warm regards,
-The Club by Sarah Restrick`,
-  },
-  {
-    name: 'Monthly Introduction Report',
-    trigger: 'Sent on the 1st of each month with a summary of introductions',
-    active: true,
-    subject: 'Your Introduction Report for {{month_name}}',
-    body: `Dear {{first_name}},
-
-Here's your monthly introduction summary for {{month_name}}:
-
-Introductions made: {{intro_count}}
-Connections accepted: {{accepted_count}}
-
-{{intro_summary}}
-
-If you'd like to explore new connections, do let me know.
-
-Warm regards,
-Sarah Restrick`,
-  },
-  {
-    name: 'Welcome New Member',
-    trigger: 'Sent when a new member account is created',
-    active: false,
-    subject: 'Welcome to The Club, {{first_name}}!',
-    body: `Dear {{first_name}},
-
-Welcome to The Club by Sarah Restrick. We're thrilled to have you join our community of exceptional individuals.
-
-Your member portal is now active and you can access it at any time to view upcoming events, manage your introductions, and update your profile.
-
-As a next step, I'd love to arrange an introductory call to learn more about your interests and how we can best serve you.
-
-Warm regards,
-Sarah Restrick`,
-  },
-]
-
-const AUTOMATION_RULES = [
-  { name: 'Send booking confirmation when payment received', enabled: true, lastTriggered: '2026-02-14T10:30:00Z' },
-  { name: 'Send intro follow-up 48hrs after introduction sent', enabled: true, lastTriggered: '2026-02-13T14:00:00Z' },
-  { name: 'Send event reminder 7 days before event', enabled: true, lastTriggered: '2026-02-09T08:00:00Z' },
-  { name: 'Send monthly intro report on 1st of month', enabled: false, lastTriggered: '2026-02-01T06:00:00Z' },
-]
-
-const commStatusBadge: Record<CommStatus, 'active' | 'upcoming' | 'draft' | 'info'> = {
+const commStatusBadge: Record<CommStatus, 'active' | 'upcoming' | 'draft' | 'info' | 'urgent'> = {
   sent: 'info',
   delivered: 'upcoming',
   opened: 'active',
+  failed: 'urgent',
+  queued: 'draft',
   draft: 'draft',
 }
 
 function deriveStatus(row: CommRow): CommStatus {
   if (row.opened_at) return 'opened'
+  if (row.status === 'failed') return 'failed'
+  if (row.status === 'queued') return 'queued'
   if (row.sent_at) return 'sent'
   return 'draft'
 }
-
-// ── Timeline helpers ────────────────────────────────────
 
 interface TimelineEvent {
   label: string
@@ -202,164 +96,263 @@ function buildTimeline(comm: CommRow): TimelineEvent[] {
 // ── Component ───────────────────────────────────────────
 
 export function CommunicationsPage() {
+  const router = useRouter()
+  const { data: user } = useCurrentUser()
+  const isAdmin = user?.role === 'admin'
+
   const [comms, setComms] = useState<CommRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [toggleStates, setToggleStates] = useState<Record<number, boolean>>(
-    Object.fromEntries(AUTOMATION_RULES.map((r, i) => [i, r.enabled]))
-  )
-
-  // Template modal state
-  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null)
-  const [templateEdits, setTemplateEdits] = useState<Record<string, { subject: string; body: string; active: boolean }>>({})
-
-  // Send detail modal state
+  const [commsLoading, setCommsLoading] = useState(true)
   const [selectedComm, setSelectedComm] = useState<CommRow | null>(null)
+  const [sendTarget, setSendTarget] = useState<Template | null>(null)
+
+  const { data: templates = [], isLoading: templatesLoading } = useTemplates({})
+  const { data: stats } = useTemplateStats()
+  const deleteTemplate = useDeleteTemplate()
+  const duplicateTemplate = useDuplicateTemplate()
 
   useEffect(() => {
     fetchComms()
   }, [])
 
   async function fetchComms() {
+    setCommsLoading(true)
     const { data } = await supabase
       .from('communications')
-      .select(`
+      .select(
+        `
         id, template_name, subject, status, sent_at, opened_at, created_at,
         member_id, channel, body_preview, clicked_at,
         members(profiles(first_name, last_name))
-      `)
+        `,
+      )
       .order('created_at', { ascending: false })
-      .limit(10)
-
+      .limit(15)
     if (data) setComms(data as unknown as CommRow[])
-    setLoading(false)
+    setCommsLoading(false)
   }
 
-  // Get current template values (edited or original)
-  function getTemplateValues(tpl: EmailTemplate) {
-    const edits = templateEdits[tpl.name]
-    return {
-      subject: edits?.subject ?? tpl.subject,
-      body: edits?.body ?? tpl.body,
-      active: edits?.active ?? tpl.active,
-    }
+  // Stats derived from real data
+  const derivedStats = useMemo(() => {
+    const totalTemplates = stats?.totalTemplates ?? templates.length
+    const drafts = stats?.draftTemplates ?? templates.filter((t) => t.is_draft).length
+    const last30 = new Date()
+    last30.setDate(last30.getDate() - 30)
+    const sentLast30 = comms.filter((c) => c.sent_at && new Date(c.sent_at) >= last30).length
+    const opened = comms.filter((c) => c.opened_at).length
+    const openRate = sentLast30 > 0 ? Math.round((opened / sentLast30) * 100) : null
+    return { totalTemplates, drafts, sentLast30, openRate }
+  }, [stats, templates, comms])
+
+  if (!user) {
+    return (
+      <div className="p-8 flex items-center gap-3 text-text-muted">
+        <span className="text-sm">Loading…</span>
+      </div>
+    )
   }
 
-  function handleTemplateSave() {
-    // Values are already in templateEdits — just close the modal
-    setSelectedTemplate(null)
-  }
-
-  if (loading) {
+  if (!isAdmin) {
     return (
       <div className="p-8">
-        <div className="flex items-center gap-3">
-          <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-          <span className="text-sm text-text-muted">Loading communications...</span>
-        </div>
+        <Card>
+          <CardContent className="p-12 text-center">
+            <p className="text-sm text-text-muted">Communications is admin-only.</p>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
   return (
-    <div className="p-8">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
-          Communications
-        </h1>
-        <p className="text-sm text-text-muted mt-1">
-          Email templates, automations, and send history
-        </p>
+    <div className="p-8 space-y-6 max-w-7xl">
+      {/* ── Header ──────────────────────────────────────── */}
+      <div className="flex items-end justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
+            Communications
+          </h1>
+          <p className="text-sm text-text-muted mt-1">
+            Member email templates, sends, and engagement
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => router.push('/dashboard/communications/templates/editor')}
+          >
+            <Plus size={16} />
+            New template
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => router.push('/dashboard/communications/templates/editor')}
+          >
+            <Sparkles size={16} />
+            Build with AI
+          </Button>
+        </div>
       </div>
 
-      {/* Email Templates + Automation Rules — two column */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Email Templates */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Mail size={16} className="text-gold" />
-              <CardTitle>Email Templates</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y divide-border">
-              {EMAIL_TEMPLATES.map((tpl) => {
-                const values = getTemplateValues(tpl)
-                return (
-                  <div
-                    key={tpl.name}
-                    className="px-6 py-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-surface-2 transition-colors"
-                    onClick={() => setSelectedTemplate(tpl)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text">{tpl.name}</p>
-                      <p className="text-xs text-text-dim mt-0.5">{tpl.trigger}</p>
-                    </div>
-                    <Badge variant={values.active ? 'active' : 'draft'} dot>
-                      {values.active ? 'Active' : 'Draft'}
-                    </Badge>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Automation Rules */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Zap size={16} className="text-gold" />
-              <CardTitle>Automation Rules</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y divide-border">
-              {AUTOMATION_RULES.map((rule, idx) => (
-                <div key={idx} className="px-6 py-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-text">{rule.name}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <Clock size={12} className="text-text-dim" />
-                      <p className="text-xs text-text-dim">
-                        Last triggered: {formatDate(rule.lastTriggered)}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setToggleStates((s) => ({ ...s, [idx]: !s[idx] }))
-                    }
-                    className={cn(
-                      'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
-                      toggleStates[idx] ? 'bg-gold' : 'bg-border'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-[var(--shadow-sm)] transition-transform duration-200',
-                        toggleStates[idx] ? 'translate-x-5' : 'translate-x-0'
-                      )}
-                    />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── Stats row ───────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatTile label="Templates" value={derivedStats.totalTemplates} icon={<Mail size={14} />} />
+        <StatTile
+          label="Drafts"
+          value={derivedStats.drafts}
+          icon={<FileText size={14} />}
+          tone={derivedStats.drafts > 0 ? 'warn' : 'neutral'}
+        />
+        <StatTile label="Sent (30 days)" value={derivedStats.sentLast30} icon={<Send size={14} />} />
+        <StatTile
+          label="Open rate"
+          value={derivedStats.openRate !== null ? `${derivedStats.openRate}%` : '—'}
+          icon={<TrendingUp size={14} />}
+          tone={derivedStats.openRate !== null && derivedStats.openRate >= 30 ? 'success' : 'neutral'}
+        />
       </div>
 
-      {/* Recent Sends */}
+      {/* ── AI builder hero CTA ─────────────────────────── */}
+      <Link
+        href="/dashboard/communications/templates/editor"
+        className="block group relative overflow-hidden rounded-[var(--radius-lg)] border border-border bg-gradient-to-br from-[rgba(184,151,90,0.10)] via-[rgba(184,151,90,0.04)] to-transparent p-6 transition-all hover:shadow-[var(--shadow-card-hover)] hover:border-gold/40"
+      >
+        <div className="flex items-center gap-5">
+          <div className="flex-shrink-0 w-14 h-14 rounded-[var(--radius-lg)] bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center shadow-[var(--shadow-md)]">
+            <Sparkles size={24} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text">
+              AI Email Template Builder
+            </p>
+            <p className="text-sm text-text-muted mt-1">
+              Describe an email in plain English. The assistant drafts it on a visual canvas with
+              your merge tags, brand colours, and Sarah&apos;s voice — ready to send to members.
+            </p>
+          </div>
+          <ChevronRight
+            size={20}
+            className="text-text-dim group-hover:text-gold group-hover:translate-x-1 transition-all"
+          />
+        </div>
+      </Link>
+
+      {/* ── Templates ───────────────────────────────────── */}
       <Card>
-        <CardHeader>
-          <CardTitle>Recent Sends</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Templates</CardTitle>
+            <p className="text-xs text-text-dim mt-0.5">Your saved email designs</p>
+          </div>
+          <Link
+            href="/dashboard/communications/templates"
+            className="text-xs text-gold hover:text-gold-dark font-medium flex items-center gap-1"
+          >
+            Manage all
+            <ChevronRight size={12} />
+          </Link>
         </CardHeader>
         <CardContent className="p-0">
-          {comms.length === 0 ? (
+          {templatesLoading ? (
+            <div className="p-12 text-center text-sm text-text-dim">Loading…</div>
+          ) : templates.length === 0 ? (
             <div className="px-6 py-12 text-center">
-              <p className="text-sm text-text-dim">No communications sent yet</p>
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gold-muted mb-3">
+                <Mail size={18} className="text-gold" />
+              </div>
+              <p className="text-sm font-medium text-text">No templates yet</p>
+              <p className="text-xs text-text-dim mt-1 max-w-sm mx-auto">
+                Build your first member email with the AI assistant.
+              </p>
+              <Button
+                variant="primary"
+                className="mt-4"
+                onClick={() => router.push('/dashboard/communications/templates/editor')}
+              >
+                <Sparkles size={14} />
+                Build with AI
+              </Button>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Name</TableHead>
+                  <TableHead>Subject</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="text-right pr-4">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {templates.slice(0, 6).map((tpl) => (
+                  <TableRow
+                    key={tpl.id}
+                    className="cursor-pointer"
+                    onClick={() =>
+                      router.push(`/dashboard/communications/templates/editor?id=${tpl.id}`)
+                    }
+                  >
+                    <TableCell className="font-medium text-text">{tpl.name}</TableCell>
+                    <TableCell className="text-text-muted max-w-[240px] truncate">
+                      {tpl.subject || <span className="text-text-dim italic">No subject</span>}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="info" dot>
+                        {tpl.category}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={tpl.is_draft ? 'draft' : 'active'} dot>
+                        {tpl.is_draft ? 'Draft' : 'Active'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-text-muted">{formatDate(tpl.updated_at)}</TableCell>
+                    <TableCell className="text-right pr-4" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => setSendTarget(tpl)}
+                        disabled={tpl.is_draft}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                          tpl.is_draft
+                            ? 'text-text-dim cursor-not-allowed bg-surface-2'
+                            : 'text-white bg-gold hover:bg-gold-dark',
+                        )}
+                        title={tpl.is_draft ? 'Drafts cannot be sent — finish the template first' : 'Send to members'}
+                      >
+                        <Send size={12} />
+                        Send
+                      </button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Recent Sends ────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent sends</CardTitle>
+          <p className="text-xs text-text-dim mt-0.5">
+            Latest emails delivered to members — opens and clicks track via Resend webhooks
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          {commsLoading ? (
+            <div className="p-12 text-center text-sm text-text-dim">Loading…</div>
+          ) : comms.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-surface-2 mb-3">
+                <Send size={18} className="text-text-dim" />
+              </div>
+              <p className="text-sm font-medium text-text">No sends yet</p>
+              <p className="text-xs text-text-dim mt-1 max-w-sm mx-auto">
+                When you send a template to members, the activity will show up here.
+              </p>
             </div>
           ) : (
             <Table>
@@ -374,7 +367,9 @@ export function CommunicationsPage() {
               </TableHeader>
               <TableBody>
                 {comms.map((comm) => {
-                  const name = `${comm.members?.profiles?.first_name ?? ''} ${comm.members?.profiles?.last_name ?? ''}`.trim() || 'Unknown'
+                  const name =
+                    `${comm.members?.profiles?.first_name ?? ''} ${comm.members?.profiles?.last_name ?? ''}`.trim() ||
+                    'Unknown'
                   const status = deriveStatus(comm)
                   return (
                     <TableRow
@@ -406,173 +401,93 @@ export function CommunicationsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Template Detail Modal ──────────────────────────── */}
-      {selectedTemplate && (() => {
-        const values = getTemplateValues(selectedTemplate)
-        return (
-          <Modal
-            open={!!selectedTemplate}
-            onClose={() => setSelectedTemplate(null)}
-            title={selectedTemplate.name}
-            size="lg"
-          >
-            <div className="space-y-6">
-              {/* Status toggle */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Badge variant={values.active ? 'active' : 'draft'} dot>
-                    {values.active ? 'Active' : 'Draft'}
-                  </Badge>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTemplateEdits((prev) => ({
-                      ...prev,
-                      [selectedTemplate.name]: {
-                        subject: values.subject,
-                        body: values.body,
-                        active: !values.active,
-                      },
-                    }))
-                  }
-                  className={cn(
-                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
-                    values.active ? 'bg-gold' : 'bg-border'
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-[var(--shadow-sm)] transition-transform duration-200',
-                      values.active ? 'translate-x-5' : 'translate-x-0'
-                    )}
-                  />
-                </button>
-              </div>
+      {/* ── Send modal ──────────────────────────────────── */}
+      <SendTemplateModal
+        template={sendTarget}
+        open={!!sendTarget}
+        onClose={() => {
+          setSendTarget(null)
+          // refresh sends after a possible send completes
+          fetchComms()
+        }}
+      />
 
-              {/* Trigger (read-only) */}
-              <div>
-                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Trigger</p>
-                <p className="text-sm text-text-dim">{selectedTemplate.trigger}</p>
-              </div>
-
-              {/* Subject */}
-              <Input
-                label="Subject Line"
-                value={values.subject}
-                hint="Use {{variable}} for merge tags"
-                onChange={(e) =>
-                  setTemplateEdits((prev) => ({
-                    ...prev,
-                    [selectedTemplate.name]: {
-                      subject: e.target.value,
-                      body: values.body,
-                      active: values.active,
-                    },
-                  }))
-                }
-              />
-
-              {/* Body */}
-              <Textarea
-                label="Email Body"
-                value={values.body}
-                rows={12}
-                hint="Use {{variable}} for merge tags like {{first_name}}, {{event_name}}"
-                onChange={(e) =>
-                  setTemplateEdits((prev) => ({
-                    ...prev,
-                    [selectedTemplate.name]: {
-                      subject: values.subject,
-                      body: e.target.value,
-                      active: values.active,
-                    },
-                  }))
-                }
-              />
-
-              {/* Actions */}
-              <div className="flex justify-end gap-3 pt-2">
-                <Button variant="ghost" onClick={() => setSelectedTemplate(null)}>
-                  Close
-                </Button>
-                <Button variant="primary" onClick={handleTemplateSave}>
-                  Save Changes
-                </Button>
-              </div>
-            </div>
-          </Modal>
-        )
-      })()}
-
-      {/* ── Send Detail Modal ──────────────────────────────── */}
+      {/* ── Send detail modal ───────────────────────────── */}
       {selectedComm && (() => {
-        const name = `${selectedComm.members?.profiles?.first_name ?? ''} ${selectedComm.members?.profiles?.last_name ?? ''}`.trim() || 'Unknown'
+        const name =
+          `${selectedComm.members?.profiles?.first_name ?? ''} ${selectedComm.members?.profiles?.last_name ?? ''}`.trim() ||
+          'Unknown'
         const status = deriveStatus(selectedComm)
         const timeline = buildTimeline(selectedComm)
-
         return (
           <Modal
             open={!!selectedComm}
             onClose={() => setSelectedComm(null)}
-            title="Send Details"
+            title="Send details"
             size="lg"
           >
             <div className="space-y-6">
-              {/* Recipient + Status */}
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-lg font-medium text-text">{name}</p>
-                </div>
+                <p className="text-lg font-medium text-text">{name}</p>
                 <Badge variant={commStatusBadge[status]} dot>
                   {status}
                 </Badge>
               </div>
 
-              {/* Metadata grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Template</p>
+                  <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">
+                    Template
+                  </p>
                   <p className="text-sm text-text">{selectedComm.template_name || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Channel</p>
+                  <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">
+                    Channel
+                  </p>
                   <p className="text-sm text-text capitalize">{selectedComm.channel || 'Email'}</p>
                 </div>
               </div>
 
-              {/* Subject */}
               <div>
-                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Subject</p>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">
+                  Subject
+                </p>
                 <p className="text-sm text-text">{selectedComm.subject || '—'}</p>
               </div>
 
-              {/* Body preview */}
               {selectedComm.body_preview && (
                 <div>
-                  <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Body Preview</p>
+                  <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">
+                    Body preview
+                  </p>
                   <div className="bg-surface-2 rounded-lg p-4">
-                    <p className="text-sm text-text-muted whitespace-pre-wrap">{selectedComm.body_preview}</p>
+                    <p className="text-sm text-text-muted whitespace-pre-wrap">
+                      {selectedComm.body_preview}
+                    </p>
                   </div>
                 </div>
               )}
 
-              {/* Event timeline */}
               <div>
-                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">Timeline</p>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">
+                  Timeline
+                </p>
                 <div className="space-y-3">
                   {timeline.map((event) => (
                     <div
                       key={event.label}
                       className={cn(
                         'flex items-center gap-3',
-                        !event.timestamp && 'opacity-40'
+                        !event.timestamp && 'opacity-40',
                       )}
                     >
-                      <div className={cn(
-                        'flex items-center justify-center w-7 h-7 rounded-full',
-                        event.timestamp ? 'bg-gold/10 text-gold' : 'bg-surface-2 text-text-dim'
-                      )}>
+                      <div
+                        className={cn(
+                          'flex items-center justify-center w-7 h-7 rounded-full',
+                          event.timestamp ? 'bg-gold/10 text-gold' : 'bg-surface-2 text-text-dim',
+                        )}
+                      >
                         {event.icon}
                       </div>
                       <div className="flex-1">
@@ -586,7 +501,6 @@ export function CommunicationsPage() {
                 </div>
               </div>
 
-              {/* Close */}
               <div className="flex justify-end pt-2">
                 <Button variant="ghost" onClick={() => setSelectedComm(null)}>
                   Close
@@ -599,3 +513,39 @@ export function CommunicationsPage() {
     </div>
   )
 }
+
+function StatTile({
+  label,
+  value,
+  icon,
+  tone = 'neutral',
+}: {
+  label: string
+  value: number | string
+  icon: ReactNode
+  tone?: 'neutral' | 'success' | 'warn'
+}) {
+  const toneClass = {
+    neutral: 'text-text-muted',
+    success: 'text-accent',
+    warn: 'text-gold',
+  }[tone]
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center gap-1.5">
+          <span className={toneClass}>{icon}</span>
+          <p className="text-[10px] font-medium uppercase tracking-[0.15em] text-text-muted">
+            {label}
+          </p>
+        </div>
+        <p className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text mt-2">
+          {value}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// Silence unused warning since AlertCircle is reserved for future error states
+void AlertCircle

@@ -5,16 +5,11 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@/components/ui/Table'
+import { Thumbnail } from '@/components/admin/Thumbnail'
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { formatDate, cn } from '@/lib/utils'
-import { Plus } from 'lucide-react'
+import { Plus, ImagePlus, Image as ImageIcon, MapPin } from 'lucide-react'
 
 interface GalleryRow {
   id: string
@@ -22,6 +17,7 @@ interface GalleryRow {
   slug: string
   event_date: string | null
   venue_name: string | null
+  location: string | null
   category: string | null
   is_published: boolean
   cover_image_url: string | null
@@ -58,7 +54,9 @@ export function GalleriesListPage() {
   async function fetchGalleries() {
     const { data } = await supabase
       .from('galleries')
-      .select('id, title, slug, event_date, venue_name, category, is_published, cover_image_url, gallery_photos(count)')
+      .select(
+        'id, title, slug, event_date, venue_name, location, category, is_published, cover_image_url, gallery_photos(count)',
+      )
       .order('event_date', { ascending: false })
 
     if (data) setGalleries(data as unknown as GalleryRow[])
@@ -82,40 +80,43 @@ export function GalleriesListPage() {
   }
 
   return (
-    <div className="p-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
-            Galleries
-          </h1>
-          <p className="text-sm text-text-muted mt-1">
+    <div className="p-8 max-w-7xl">
+      <AdminPageHeader
+        title="Galleries"
+        description="Curated event galleries shown on the public Gallery page and homepage strip. Each gallery has a cover image and any number of photos."
+        meta={
+          <span className="text-xs text-text-dim">
             {galleries.length} galler{galleries.length !== 1 ? 'ies' : 'y'} total
-          </p>
-        </div>
-        <Button
-          icon={<Plus size={16} />}
-          onClick={() => router.push('/dashboard/website/galleries/new')}
-        >
-          Create Gallery
-        </Button>
-      </div>
+            {' · '}
+            {galleries.filter((g) => g.is_published).length} published
+          </span>
+        }
+        actions={
+          <Button
+            icon={<Plus size={16} />}
+            onClick={() => router.push('/dashboard/website/galleries/new')}
+          >
+            Create gallery
+          </Button>
+        }
+      />
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-border">
+      {/* Category tabs */}
+      <div className="flex gap-1 mb-6 border-b border-border overflow-x-auto">
         {tabs.map((tab) => {
-          const count = tab.key === 'all'
-            ? galleries.length
-            : galleries.filter((g) => g.category === tab.key).length
+          const count =
+            tab.key === 'all'
+              ? galleries.length
+              : galleries.filter((g) => g.category === tab.key).length
           return (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                'px-4 py-2.5 text-sm transition-colors relative',
+                'px-4 py-2.5 text-sm transition-colors relative whitespace-nowrap',
                 activeTab === tab.key
                   ? 'text-gold font-medium'
-                  : 'text-text-muted hover:text-text'
+                  : 'text-text-muted hover:text-text',
               )}
             >
               {tab.label}
@@ -128,60 +129,82 @@ export function GalleriesListPage() {
         })}
       </div>
 
-      {/* Table */}
-      <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-[var(--shadow-card)]">
-        {filtered.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <p className="text-sm text-text-dim">No galleries found</p>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Title</TableHead>
-                <TableHead>Event Date</TableHead>
-                <TableHead>Venue</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Photos</TableHead>
-                <TableHead>Published</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((gallery) => {
-                const photoCount = gallery.gallery_photos?.[0]?.count ?? 0
-                return (
-                  <TableRow
-                    key={gallery.id}
-                    className="cursor-pointer"
-                    onClick={() => router.push(`/dashboard/website/galleries/${gallery.id}`)}
-                  >
-                    <TableCell className="font-medium">{gallery.title}</TableCell>
-                    <TableCell className="text-text-muted">
-                      {gallery.event_date ? formatDate(gallery.event_date) : '—'}
-                    </TableCell>
-                    <TableCell className="text-text-muted">
-                      {gallery.venue_name || '—'}
-                    </TableCell>
-                    <TableCell>
-                      {gallery.category ? (
-                        <Badge variant="info">
-                          {categoryLabels[gallery.category] ?? gallery.category}
-                        </Badge>
-                      ) : '—'}
-                    </TableCell>
-                    <TableCell>{photoCount}</TableCell>
-                    <TableCell>
-                      <Badge variant={gallery.is_published ? 'active' : 'draft'} dot>
-                        {gallery.is_published ? 'Published' : 'Draft'}
+      {/* Card grid */}
+      {filtered.length === 0 ? (
+        <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-[var(--shadow-card)]">
+          <AdminEmptyState
+            icon={ImageIcon}
+            title={activeTab === 'all' ? 'No galleries yet' : 'No galleries in this category'}
+            description="Create a gallery to showcase event photos publicly."
+            action={
+              <Button
+                icon={<Plus size={16} />}
+                onClick={() => router.push('/dashboard/website/galleries/new')}
+              >
+                Create first gallery
+              </Button>
+            }
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filtered.map((gallery) => {
+            const photoCount = gallery.gallery_photos?.[0]?.count ?? 0
+            return (
+              <button
+                key={gallery.id}
+                type="button"
+                onClick={() => router.push(`/dashboard/website/galleries/${gallery.id}`)}
+                className="group text-left bg-surface border border-border rounded-[var(--radius-lg)] overflow-hidden shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-card-hover)] hover:border-gold/40 transition-all"
+              >
+                <div className="relative">
+                  <Thumbnail
+                    src={gallery.cover_image_url}
+                    alt={gallery.title}
+                    aspect="4 / 3"
+                    width={400}
+                    className="w-full h-auto rounded-none border-none"
+                  />
+                  {!gallery.is_published && (
+                    <div className="absolute top-3 right-3">
+                      <Badge variant="draft" dot>
+                        Draft
                       </Badge>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+                    </div>
+                  )}
+                  {gallery.category && (
+                    <div className="absolute bottom-3 left-3">
+                      <span className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider rounded-full bg-black/50 backdrop-blur text-white">
+                        {categoryLabels[gallery.category] ?? gallery.category}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <h3 className="font-[family-name:var(--font-heading)] text-base font-semibold text-text group-hover:text-gold-dark transition-colors">
+                    {gallery.title}
+                  </h3>
+                  <div className="flex items-center gap-3 text-[11px] text-text-dim mt-1.5">
+                    {gallery.venue_name && (
+                      <span className="inline-flex items-center gap-1 truncate max-w-[150px]">
+                        <MapPin size={10} />
+                        {gallery.venue_name}
+                      </span>
+                    )}
+                    {gallery.event_date && (
+                      <span>{formatDate(gallery.event_date)}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-3 pt-3 border-t border-border">
+                    <ImagePlus size={11} />
+                    {photoCount} photo{photoCount === 1 ? '' : 's'}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

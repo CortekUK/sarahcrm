@@ -12,6 +12,7 @@ import { useReveal } from '@/components/website/home/useReveal'
 import { MagneticButton } from '@/components/website/MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { usePageHero } from '@/components/website/usePageHero'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -39,6 +40,7 @@ export default function ContactPage() {
   const helpReveal = useReveal({ threshold: 0.1, y: 30 })
   const locationReveal = useReveal({ threshold: 0.1, y: 30 })
   const ctaReveal = useReveal(0.2)
+  const heroOverride = usePageHero('contact-us')
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -129,12 +131,13 @@ export default function ContactPage() {
 
         <div ref={imageWrapRef} className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&q=80"
-            alt=""
+            src={heroOverride?.image_url ?? 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&q=80'}
+            alt={heroOverride?.alt_text ?? ''}
             fill
             className="object-cover"
             priority
             sizes="100vw"
+            unoptimized={!!heroOverride}
           />
           <div
             className="absolute inset-0 transition-all duration-[400ms]"

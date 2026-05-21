@@ -1259,6 +1259,123 @@ export type Database = {
         }
         Relationships: []
       }
+      email_templates: {
+        Row: {
+          id: string
+          name: string
+          subject: string
+          preheader: string | null
+          body_html: string
+          body_json: Json | null
+          theme: Json | null
+          category: "automation" | "campaign" | "transactional"
+          from_name_type: "sender" | "fixed"
+          fixed_from_name: string | null
+          fixed_from_email: string | null
+          attachments: Json
+          is_draft: boolean
+          created_by_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          subject: string
+          preheader?: string | null
+          body_html: string
+          body_json?: Json | null
+          theme?: Json | null
+          category?: "automation" | "campaign" | "transactional"
+          from_name_type?: "sender" | "fixed"
+          fixed_from_name?: string | null
+          fixed_from_email?: string | null
+          attachments?: Json
+          is_draft?: boolean
+          created_by_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          subject?: string
+          preheader?: string | null
+          body_html?: string
+          body_json?: Json | null
+          theme?: Json | null
+          category?: "automation" | "campaign" | "transactional"
+          from_name_type?: "sender" | "fixed"
+          fixed_from_name?: string | null
+          fixed_from_email?: string | null
+          attachments?: Json
+          is_draft?: boolean
+          created_by_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      template_ai_chats: {
+        Row: {
+          id: string
+          user_id: string
+          title: string | null
+          template_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title?: string | null
+          template_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string | null
+          template_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      template_ai_messages: {
+        Row: {
+          id: string
+          chat_id: string
+          role: "user" | "assistant"
+          content: string
+          blocks_snapshot: Json | null
+          subject_snapshot: string | null
+          preheader_snapshot: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          chat_id: string
+          role: "user" | "assistant"
+          content: string
+          blocks_snapshot?: Json | null
+          subject_snapshot?: string | null
+          preheader_snapshot?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          chat_id?: string
+          role?: "user" | "assistant"
+          content?: string
+          blocks_snapshot?: Json | null
+          subject_snapshot?: string | null
+          preheader_snapshot?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

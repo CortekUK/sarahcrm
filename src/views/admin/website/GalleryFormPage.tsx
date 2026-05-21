@@ -10,7 +10,9 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
-import { ArrowLeft, Save, Send } from 'lucide-react'
+import { ImageUpload } from '@/components/ui/ImageUpload'
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { Save, Send } from 'lucide-react'
 import { slugify } from '@/lib/utils'
 
 const gallerySchema = z.object({
@@ -142,41 +144,42 @@ export function GalleryFormPage() {
 
   return (
     <div className="p-8 max-w-4xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => router.push('/dashboard/website/galleries')}
-          className="flex items-center gap-2 text-sm text-text-muted hover:text-text transition-colors"
-        >
-          <ArrowLeft size={16} strokeWidth={1.5} />
-          Back to Galleries
-        </button>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            icon={<Save size={14} />}
-            size="sm"
-            loading={saving}
-            onClick={form.handleSubmit((d: GalleryFormData) => onSubmit(d, false))}
-          >
-            {isEdit ? 'Save Changes' : 'Save as Draft'}
-          </Button>
-          {!isEdit && (
+      <AdminPageHeader
+        title={isEdit ? 'Edit gallery' : 'Create gallery'}
+        description={
+          isEdit
+            ? 'Update gallery details, cover image, and publish state. Manage individual photos from the gallery detail page.'
+            : 'Create a new gallery to showcase event photos publicly. You can save as draft first, then add photos before publishing.'
+        }
+        backHref="/dashboard/website/galleries"
+        breadcrumbs={[
+          { label: 'Galleries', href: '/dashboard/website/galleries' },
+          { label: isEdit ? 'Edit' : 'New' },
+        ]}
+        actions={
+          <>
             <Button
-              icon={<Send size={14} />}
+              variant="secondary"
+              icon={<Save size={14} />}
               size="sm"
               loading={saving}
-              onClick={form.handleSubmit((d: GalleryFormData) => onSubmit(d, true))}
+              onClick={form.handleSubmit((d: GalleryFormData) => onSubmit(d, false))}
             >
-              Save & Publish
+              {isEdit ? 'Save changes' : 'Save as draft'}
             </Button>
-          )}
-        </div>
-      </div>
-
-      <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text mb-6">
-        {isEdit ? 'Edit Gallery' : 'Create Gallery'}
-      </h1>
+            {!isEdit && (
+              <Button
+                icon={<Send size={14} />}
+                size="sm"
+                loading={saving}
+                onClick={form.handleSubmit((d: GalleryFormData) => onSubmit(d, true))}
+              >
+                Save &amp; publish
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {error && (
         <div className="mb-5 px-4 py-3 rounded-[var(--radius-md)] bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">
@@ -194,7 +197,17 @@ export function GalleryFormPage() {
               <Input label="Slug" error={form.formState.errors.slug?.message} {...form.register('slug')} />
             </div>
             <Select label="Category" options={categoryOptions} {...form.register('category')} />
-            <Input label="Cover Image URL" placeholder="https://" {...form.register('cover_image_url')} />
+            <ImageUpload
+              label="Cover image"
+              value={form.watch('cover_image_url')}
+              onChange={(url) =>
+                form.setValue('cover_image_url', url ?? '', { shouldDirty: true })
+              }
+              bucket="gallery"
+              folder="covers"
+              aspect="4 / 3"
+              hint="Shown on the homepage strip and on the public Gallery list. Landscape works best."
+            />
           </CardContent>
         </Card>
 

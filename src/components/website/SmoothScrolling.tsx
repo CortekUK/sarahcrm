@@ -1,13 +1,24 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { usePathname } from 'next/navigation'
 import Lenis from 'lenis'
 import { gsap } from 'gsap'
 
+// Routes that should keep NATIVE scrolling. Lenis intercepts wheel events at
+// the document level and breaks nested scroll containers — the dashboard
+// sidebars, the AI panel, modals, dropdowns. So we only enable Lenis on the
+// public marketing site.
+const NATIVE_SCROLL_PREFIXES = ['/dashboard', '/portal', '/login']
+
 export function SmoothScrolling({ children }: { children: React.ReactNode }) {
   const lenisRef = useRef<Lenis | null>(null)
+  const pathname = usePathname()
 
   useEffect(() => {
+    const isAppRoute = NATIVE_SCROLL_PREFIXES.some((p) => pathname?.startsWith(p))
+    if (isAppRoute) return
+
     // Respect prefers-reduced-motion
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (prefersReducedMotion) return
@@ -23,7 +34,6 @@ export function SmoothScrolling({ children }: { children: React.ReactNode }) {
     })
     lenisRef.current = lenis
 
-    // Sync Lenis with GSAP's ticker for a single unified animation loop
     gsap.ticker.add((time) => {
       lenis.raf(time * 1000)
     })
@@ -33,7 +43,7 @@ export function SmoothScrolling({ children }: { children: React.ReactNode }) {
       lenis.destroy()
       lenisRef.current = null
     }
-  }, [])
+  }, [pathname])
 
   return <>{children}</>
 }

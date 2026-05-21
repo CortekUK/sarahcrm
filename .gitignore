@@ -29,3 +29,7 @@ dist-ssr
 .env.local
 .vercel
 .env*.local
+
+# Tooling / build artifacts
+.claude/
+tsconfig.tsbuildinfo

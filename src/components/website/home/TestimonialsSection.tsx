@@ -1,30 +1,82 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { useReveal } from './useReveal'
 import { useTheme, themeColors } from '../ThemeContext'
 import { gsap } from 'gsap'
+import { supabase } from '@/lib/supabase/client'
 
-const testimonials = [
+interface TestimonialItem {
+  quote: string
+  name: string
+  role: string
+}
+
+// Fallback content used when no `testimonials` rows exist in Supabase yet \u2014
+// keeps the section presentable on a fresh install. The admin dashboard
+// (Website \u2192 Testimonials) overrides these once published.
+const FALLBACK_TESTIMONIALS: TestimonialItem[] = [
   {
-    quote: 'The Club has introduced me to people who have genuinely changed the trajectory of my business. The quality of connections here is unlike anything else I\u2019ve experienced.',
+    quote:
+      'The Club has introduced me to people who have genuinely changed the trajectory of my business. The quality of connections here is unlike anything else I\u2019ve experienced.',
     name: 'James Hartley',
     role: 'CEO, Hartley Ventures',
   },
   {
-    quote: 'Sarah has an extraordinary gift for knowing exactly who you need to meet. Within my first quarter, I\u2019d secured two partnerships that would have taken years to build organically.',
+    quote:
+      'Sarah has an extraordinary gift for knowing exactly who you need to meet. Within my first quarter, I\u2019d secured two partnerships that would have taken years to build organically.',
     name: 'Victoria Chen',
     role: 'Founder, Maison Chen',
   },
   {
-    quote: 'It\u2019s not networking \u2014 it\u2019s relationship architecture. The events are impeccable, the members are genuine, and the introductions are always considered.',
+    quote:
+      'It\u2019s not networking \u2014 it\u2019s relationship architecture. The events are impeccable, the members are genuine, and the introductions are always considered.',
     name: 'Oliver Bradshaw',
     role: 'MD, Northern Capital Group',
   },
 ]
 
 export function TestimonialsSection() {
+  const [rows, setRows] = useState<TestimonialItem[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('testimonials')
+        .select('person_name, person_title, company_name, quote_text')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true })
+        .limit(8)
+      if (cancelled) return
+      if (data && data.length > 0) {
+        setRows(
+          data.map((r) => ({
+            quote: r.quote_text,
+            name: r.person_name,
+            role:
+              [r.person_title, r.company_name].filter(Boolean).join(', ') || '',
+          })),
+        )
+      } else {
+        setRows(FALLBACK_TESTIMONIALS)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const testimonials = useMemo(() => rows ?? FALLBACK_TESTIMONIALS, [rows])
+  return <TestimonialsSectionInner testimonials={testimonials} />
+}
+
+function TestimonialsSectionInner({
+  testimonials,
+}: {
+  testimonials: TestimonialItem[]
+}) {
   const { mode } = useTheme()
   const t = themeColors[mode].light
   const [active, setActive] = useState(0)

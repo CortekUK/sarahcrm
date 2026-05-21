@@ -4,6 +4,7 @@ import { LocationsSection } from '@/components/website/home/LocationsSection'
 import { EventsPreview } from '@/components/website/home/EventsPreview'
 import { TestimonialsSection } from '@/components/website/home/TestimonialsSection'
 import { GalleryStrip } from '@/components/website/home/GalleryStrip'
+import { PartnersStrip } from '@/components/website/home/PartnersStrip'
 import { CTASection } from '@/components/website/home/CTASection'
 
 export default function HomePage() {
@@ -15,6 +16,7 @@ export default function HomePage() {
       <EventsPreview />
       <TestimonialsSection />
       <GalleryStrip />
+      <PartnersStrip />
       <CTASection />
     </>
   )

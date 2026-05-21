@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -19,6 +19,16 @@ type LoginFormData = z.infer<typeof loginSchema>
 
 export function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // `?redirect=/portal/events/<id>` is set by middleware when an
+  // unauthenticated user tries to hit a /portal or /dashboard page.
+  // After successful login we send them where they meant to go.
+  // Guard against open-redirect attacks by only honouring same-origin paths.
+  const requestedRedirect = searchParams.get('redirect') ?? ''
+  const safeRedirect = requestedRedirect.startsWith('/') && !requestedRedirect.startsWith('//')
+    ? requestedRedirect
+    : null
+
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -65,11 +75,14 @@ export function LoginPage() {
         .eq('id', user.id)
         .single()
 
-      // Role-based redirect
+      // Send the user back to the page they came from (set by middleware
+      // when they hit an auth-gated route). Only members can use a
+      // /portal redirect; admins always go to /dashboard regardless,
+      // since /portal isn't their workspace.
       if (profile?.role === 'admin') {
-        router.replace('/dashboard')
+        router.replace(safeRedirect?.startsWith('/dashboard') ? safeRedirect : '/dashboard')
       } else {
-        router.replace('/portal')
+        router.replace(safeRedirect?.startsWith('/portal') ? safeRedirect : '/portal')
       }
     } catch {
       setError('An unexpected error occurred')

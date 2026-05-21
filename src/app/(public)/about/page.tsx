@@ -8,14 +8,37 @@ import { useReveal } from '@/components/website/home/useReveal'
 import { MagneticButton } from '@/components/website/MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { supabase } from '@/lib/supabase/client'
+import { usePageHero } from '@/components/website/usePageHero'
 
 gsap.registerPlugin(ScrollTrigger)
 
-const videos = [
+interface VideoItem {
+  id: string
+  title: string
+}
+
+const FALLBACK_VIDEOS: VideoItem[] = [
   { id: 'qIn7RdZYlWU', title: 'Lamborghini Experience' },
   { id: 'q9sSM1Oy-1Y', title: 'Boxing Gala Night' },
   { id: 'D8tPEyzZtjs', title: 'Gleneagles Retreat' },
 ]
+
+// Extract a YouTube video ID from any of the common URL shapes:
+//   youtube.com/watch?v=XYZ, youtu.be/XYZ, youtube.com/embed/XYZ
+function extractYouTubeId(url: string): string | null {
+  if (!url) return null
+  const patterns = [
+    /[?&]v=([A-Za-z0-9_-]{6,})/,
+    /youtu\.be\/([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/,
+  ]
+  for (const p of patterns) {
+    const m = url.match(p)
+    if (m) return m[1]
+  }
+  return null
+}
 
 export default function AboutPage() {
   const { mode } = useTheme()
@@ -33,6 +56,37 @@ export default function AboutPage() {
   const ctaReveal = useReveal(0.2)
 
   const [activeVideo, setActiveVideo] = useState(0)
+  const [videos, setVideos] = useState<VideoItem[]>(FALLBACK_VIDEOS)
+  const heroOverride = usePageHero('about')
+
+  // Load the About-page video gallery from Supabase. Falls back to the curated
+  // YouTube list when the admin hasn't published any rows under page_slug='about'.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('video_gallery')
+        .select('id, title, youtube_url')
+        .eq('is_active', true)
+        .eq('page_slug', 'about')
+        .order('display_order', { ascending: true })
+        .limit(12)
+      if (cancelled) return
+      const real = (data ?? [])
+        .map((v) => {
+          const id = extractYouTubeId(v.youtube_url)
+          return id ? { id, title: v.title } : null
+        })
+        .filter((v): v is VideoItem => !!v)
+      if (real.length > 0) {
+        setVideos(real)
+        setActiveVideo(0)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -94,12 +148,13 @@ export default function AboutPage() {
 
         <div ref={imageWrapRef} className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=1920&q=80"
-            alt="Elegant event venue"
+            src={heroOverride?.image_url ?? 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=1920&q=80'}
+            alt={heroOverride?.alt_text ?? 'Elegant event venue'}
             fill
             className="object-cover"
             priority
             sizes="100vw"
+            unoptimized={!!heroOverride}
           />
           <div
             className="absolute inset-0 transition-all duration-[400ms]"

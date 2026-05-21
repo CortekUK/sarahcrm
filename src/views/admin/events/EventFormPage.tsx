@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { ImageUpload } from '@/components/ui/ImageUpload'
 import { ArrowLeft, Plus, Trash2, Save, Send } from 'lucide-react'
 import { slugify } from '@/lib/utils'
 
@@ -265,7 +266,17 @@ export function EventFormPage() {
             </div>
             <Select label="Event Type" options={eventTypeOptions} {...form.register('event_type')} />
             <Textarea label="Description" rows={3} {...form.register('description')} />
-            <Input label="Cover Image URL" placeholder="https://" {...form.register('cover_image_url')} />
+            <ImageUpload
+              label="Cover image"
+              value={form.watch('cover_image_url')}
+              onChange={(url) =>
+                form.setValue('cover_image_url', url ?? '', { shouldDirty: true })
+              }
+              bucket="content"
+              folder="events"
+              aspect="16 / 10"
+              hint="Shown on event cards across the public site, the homepage strip, and admin lists. Landscape works best."
+            />
           </CardContent>
         </Card>
 

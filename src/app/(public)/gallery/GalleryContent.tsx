@@ -8,6 +8,7 @@ import { useReveal } from '@/components/website/home/useReveal'
 import { MagneticButton } from '@/components/website/MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { usePageHero } from '@/components/website/usePageHero'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -26,13 +27,17 @@ interface GalleryContentProps {
   galleries: GalleryItem[]
 }
 
-const CATEGORIES = [
-  'All',
-  'Private Dining',
-  'Members Event',
-  'Curated Experience',
-  'Sponsored Event',
-  'Business Enrichment',
+// Category filter chips. The DB stores the `key` (snake_case enum) on
+// galleries.category — we display the prettier `label`, but match on key.
+// The previous shape was a string[] of labels which always returned 0
+// galleries for any non-"All" filter (label !== DB key).
+const CATEGORIES: { key: string; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'private_dining', label: 'Private Dining' },
+  { key: 'members_event', label: 'Members Event' },
+  { key: 'curated_experience', label: 'Curated Experience' },
+  { key: 'sponsored_event', label: 'Sponsored Event' },
+  { key: 'business_enrichment', label: 'Business Enrichment' },
 ]
 
 export function GalleryContent({ galleries }: GalleryContentProps) {
@@ -49,12 +54,15 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const cardRefs = useRef<(HTMLAnchorElement | null)[]>([])
 
-  const [activeCategory, setActiveCategory] = useState('All')
+  const [activeCategory, setActiveCategory] = useState('all')
+  const heroOverride = usePageHero('gallery')
 
   const filtered = useMemo(() => {
-    if (activeCategory === 'All') return galleries
+    if (activeCategory === 'all') return galleries
     return galleries.filter((g) => g.category === activeCategory)
   }, [galleries, activeCategory])
+
+  const activeLabel = CATEGORIES.find((c) => c.key === activeCategory)?.label ?? 'All'
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -142,12 +150,13 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
 
         <div ref={imageWrapRef} className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=1920&q=80"
-            alt=""
+            src={heroOverride?.image_url ?? 'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=1920&q=80'}
+            alt={heroOverride?.alt_text ?? ''}
             fill
             className="object-cover"
             priority
             sizes="100vw"
+            unoptimized={!!heroOverride}
           />
           <div
             className="absolute inset-0 transition-all duration-[400ms]"
@@ -206,11 +215,11 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
               Event Style
             </span>
             {CATEGORIES.map((cat) => {
-              const isActive = activeCategory === cat
+              const isActive = activeCategory === cat.key
               return (
                 <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
+                  key={cat.key}
+                  onClick={() => setActiveCategory(cat.key)}
                   className="relative px-5 py-2 text-xs font-medium tracking-wide transition-all duration-300"
                   style={{
                     color: isActive ? '#FFFFFF' : warm.textMuted,
@@ -218,7 +227,7 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
                     border: `1px solid ${isActive ? '#B8975A' : warm.border}`,
                   }}
                 >
-                  {cat}
+                  {cat.label}
                 </button>
               )
             })}
@@ -253,7 +262,7 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
                   <a
                     key={gallery.id}
                     ref={(el) => { cardRefs.current[i] = el }}
-                    href={`/gallery#${gallery.slug}`}
+                    href={`/gallery/${gallery.slug}`}
                     className="group block"
                   >
                     <div className="relative overflow-hidden aspect-[4/3]">
@@ -347,7 +356,7 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
               style={{ color: light.textDim }}
             >
               {filtered.length} {filtered.length === 1 ? 'gallery' : 'galleries'}
-              {activeCategory !== 'All' ? ` in ${activeCategory}` : ''}
+              {activeCategory !== 'all' ? ` in ${activeLabel}` : ''}
             </p>
           </div>
         </div>

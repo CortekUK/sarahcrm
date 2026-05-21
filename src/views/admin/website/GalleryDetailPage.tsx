@@ -11,8 +11,10 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
+import { ImageUpload } from '@/components/ui/ImageUpload'
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { formatDate } from '@/lib/utils'
-import { ArrowLeft, Pencil, Plus, Trash2, Send, Image } from 'lucide-react'
+import { Pencil, Plus, Trash2, Send, Image } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type GalleryRow = Database['public']['Tables']['galleries']['Row']
@@ -166,39 +168,44 @@ export function GalleryDetailPage() {
   }
 
   return (
-    <div className="p-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => router.push('/dashboard/website/galleries')}
-          className="flex items-center gap-2 text-sm text-text-muted hover:text-text transition-colors"
-        >
-          <ArrowLeft size={16} strokeWidth={1.5} />
-          Back to Galleries
-        </button>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={gallery.is_published ? 'secondary' : 'primary'}
-            icon={<Send size={14} />}
-            size="sm"
-            loading={publishing}
-            onClick={handlePublishToggle}
-          >
-            {gallery.is_published ? 'Unpublish' : 'Publish'}
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Pencil size={14} />}
-            size="sm"
-            onClick={() => router.push(`/dashboard/website/galleries/${id}/edit`)}
-          >
-            Edit Gallery
-          </Button>
-          <Button variant="danger" size="sm" onClick={handleDeleteGallery}>
-            Delete
-          </Button>
-        </div>
-      </div>
+    <div className="p-8 max-w-6xl">
+      <AdminPageHeader
+        title={gallery.title}
+        description={
+          gallery.category
+            ? `${categoryLabels[gallery.category] ?? gallery.category} · /${gallery.slug}`
+            : `/${gallery.slug}`
+        }
+        backHref="/dashboard/website/galleries"
+        breadcrumbs={[
+          { label: 'Galleries', href: '/dashboard/website/galleries' },
+          { label: gallery.title },
+        ]}
+        actions={
+          <>
+            <Button
+              variant={gallery.is_published ? 'secondary' : 'primary'}
+              icon={<Send size={14} />}
+              size="sm"
+              loading={publishing}
+              onClick={handlePublishToggle}
+            >
+              {gallery.is_published ? 'Unpublish' : 'Publish'}
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<Pencil size={14} />}
+              size="sm"
+              onClick={() => router.push(`/dashboard/website/galleries/${id}/edit`)}
+            >
+              Edit
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleDeleteGallery}>
+              Delete
+            </Button>
+          </>
+        }
+      />
 
       {/* Gallery info card */}
       <Card className="mb-6">
@@ -325,11 +332,16 @@ export function GalleryDetailPage() {
         )}
 
         <form onSubmit={photoForm.handleSubmit(onPhotoSubmit)} className="space-y-4">
-          <Input
-            label="Image URL"
-            placeholder="https://"
+          <ImageUpload
+            label="Photo"
+            value={photoForm.watch('image_url')}
+            onChange={(url) =>
+              photoForm.setValue('image_url', url ?? '', { shouldValidate: true, shouldDirty: true })
+            }
+            bucket="gallery"
+            folder={`photos/${id}`}
+            aspect="4 / 3"
             error={photoForm.formState.errors.image_url?.message}
-            {...photoForm.register('image_url')}
           />
           <Input
             label="Caption"

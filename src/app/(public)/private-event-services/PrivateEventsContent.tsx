@@ -8,10 +8,32 @@ import { useReveal } from '@/components/website/home/useReveal'
 import { MagneticButton } from '@/components/website/MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { usePageHero } from '@/components/website/usePageHero'
+import { Resources } from '@/components/website/Resources'
 
 gsap.registerPlugin(ScrollTrigger)
 
-interface Experience {
+// Real bookable private events from the `events` table (event_type ∈
+// {curated_luxury, retreat}). Each one has its own /events/[slug] page.
+interface PrivateEvent {
+  id: string
+  slug: string
+  title: string
+  description: string | null
+  cover_image_url: string | null
+  venue_name: string | null
+  venue_city: string | null
+  start_date: string
+  event_type: string
+  member_price_pence: number
+  guest_price_pence: number
+  capacity: number | null
+}
+
+// Legacy CMS tiles from `curated_experiences` — kept as a "past highlights"
+// showcase below the bookable list. Marketing illustrations of the kind of
+// experiences the club has run; not bookable themselves.
+interface ShowcaseTile {
   id: string
   title: string
   description: string | null
@@ -26,8 +48,30 @@ interface Video {
 }
 
 interface PrivateEventsContentProps {
-  experiences: Experience[]
+  privateEvents: PrivateEvent[]
+  showcase: ShowcaseTile[]
   videos: Video[]
+}
+
+function formatPrice(pence: number): string {
+  if (pence === 0) return 'Complimentary'
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 0,
+  }).format(pence / 100)
+}
+
+function formatEventDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
 }
 
 function getYouTubeId(url: string): string | null {
@@ -35,7 +79,7 @@ function getYouTubeId(url: string): string | null {
   return match ? match[1] : null
 }
 
-export function PrivateEventsContent({ experiences, videos }: PrivateEventsContentProps) {
+export function PrivateEventsContent({ privateEvents, showcase, videos }: PrivateEventsContentProps) {
   const { mode } = useTheme()
   const dark = themeColors[mode].dark
   const light = themeColors[mode].light
@@ -48,6 +92,7 @@ export function PrivateEventsContent({ experiences, videos }: PrivateEventsConte
   const processReveal = useReveal({ threshold: 0.15, y: 30 })
   const videoReveal = useReveal({ threshold: 0.1, y: 30 })
   const ctaReveal = useReveal(0.2)
+  const heroOverride = usePageHero('private-event-services')
   const [activeVideo, setActiveVideo] = useState(0)
 
   useEffect(() => {
@@ -106,12 +151,13 @@ export function PrivateEventsContent({ experiences, videos }: PrivateEventsConte
 
         <div ref={imageWrapRef} className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?w=1920&q=80"
-            alt=""
+            src={heroOverride?.image_url ?? 'https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?w=1920&q=80'}
+            alt={heroOverride?.alt_text ?? ''}
             fill
             className="object-cover"
             priority
             sizes="100vw"
+            unoptimized={!!heroOverride}
           />
           <div
             className="absolute inset-0 transition-all duration-[400ms]"
@@ -197,64 +243,208 @@ export function PrivateEventsContent({ experiences, videos }: PrivateEventsConte
         </div>
       </section>
 
-      {/* Curated Luxury Events */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: light.bg }}
-      >
-        <div
-          ref={experiencesReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
+      {/* Curated Luxury Events — real bookable events */}
+      {privateEvents.length > 0 && (
+        <section
+          className="py-20 md:py-28 transition-colors duration-[400ms]"
+          style={{ backgroundColor: light.bg }}
         >
-          <div className="text-center mb-16">
-            <h2
-              className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-light transition-colors duration-[400ms]"
+          <div
+            ref={experiencesReveal.ref}
+            className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
+          >
+            <div className="text-center mb-14">
+              <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
+                Upcoming
+              </span>
+              <h2
+                className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-light transition-colors duration-[400ms]"
+                style={{ color: light.text }}
+              >
+                Curated <em className="italic text-[#B8975A]">Luxury</em> Events
+              </h2>
+              <p
+                className="mt-4 max-w-xl mx-auto text-[0.95rem] leading-[1.85]"
+                style={{ color: light.textMuted }}
+              >
+                Bookable directly from your member portal. Tap any event for full details, venue, and ticket options.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+              {privateEvents.map((event) => (
+                <Link
+                  key={event.id}
+                  href={`/events/${event.slug}`}
+                  className="group flex flex-col transition-all duration-[400ms] hover:shadow-[0_24px_60px_rgba(44,40,37,0.18)] hover:-translate-y-1"
+                  style={{
+                    backgroundColor: mode === 'evening' ? 'rgba(255,255,255,0.04)' : '#FFFFFF',
+                    border: `1px solid ${mode === 'evening' ? 'rgba(255,255,255,0.06)' : '#E5E0D8'}`,
+                  }}
+                >
+                  <div className="relative aspect-[4/3] overflow-hidden">
+                    <Image
+                      src={
+                        event.cover_image_url ||
+                        'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&q=80'
+                      }
+                      alt={event.title}
+                      fill
+                      className="object-cover transition-transform duration-700 group-hover:scale-105"
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                      unoptimized
+                    />
+                    <div className="absolute top-3 left-3 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.2em] rounded-full bg-black/45 backdrop-blur-sm text-white">
+                      {event.event_type === 'retreat' ? 'Retreat' : 'Curated Luxury'}
+                    </div>
+                  </div>
+                  <div className="p-6 flex-1 flex flex-col">
+                    <p
+                      className="font-[family-name:var(--font-label)] text-[10px] uppercase tracking-[0.2em] mb-2 transition-colors duration-[400ms]"
+                      style={{ color: light.textDim }}
+                    >
+                      {formatEventDate(event.start_date)}
+                      {event.venue_city && ` · ${event.venue_city}`}
+                    </p>
+                    <h3
+                      className="font-[family-name:var(--font-heading)] text-xl font-normal mb-2 transition-colors duration-[400ms] group-hover:text-[#B8975A]"
+                      style={{ color: light.text }}
+                    >
+                      {event.title}
+                    </h3>
+                    {event.description && (
+                      <p
+                        className="text-sm leading-relaxed flex-1 line-clamp-3 transition-colors duration-[400ms]"
+                        style={{ color: light.textMuted }}
+                      >
+                        {event.description}
+                      </p>
+                    )}
+                    <div className="mt-4 pt-4 border-t flex items-center justify-between" style={{ borderColor: light.border }}>
+                      <span
+                        className="font-[family-name:var(--font-heading)] text-base"
+                        style={{ color: '#B8975A' }}
+                      >
+                        {formatPrice(event.member_price_pence)}
+                        <span
+                          className="ml-1 text-[10px] uppercase tracking-[0.15em]"
+                          style={{ color: light.textDim }}
+                        >
+                          / Member
+                        </span>
+                      </span>
+                      <span
+                        className="font-[family-name:var(--font-label)] text-[10px] uppercase tracking-[0.2em] inline-flex items-center gap-1 group-hover:gap-2 transition-all"
+                        style={{ color: '#B8975A' }}
+                      >
+                        View
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Past curated experiences — legacy showcase tiles. Not bookable;
+          marketing illustrations of the kind of experience The Club runs. */}
+      {showcase.length > 0 && (
+        <section
+          className="py-20 md:py-28 transition-colors duration-[400ms]"
+          style={{
+            backgroundColor: privateEvents.length > 0 ? warm.bg : light.bg,
+          }}
+        >
+          <div className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24">
+            <div className="text-center mb-14">
+              <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
+                Past Highlights
+              </span>
+              <h2
+                className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-light"
+                style={{ color: warm.text }}
+              >
+                A taste of what we&apos;ve curated
+              </h2>
+              <p
+                className="mt-4 max-w-xl mx-auto text-[0.95rem] leading-[1.85]"
+                style={{ color: warm.textMuted }}
+              >
+                Past experiences we&apos;ve hosted. The next curated event could be tailored to your group — get in touch to discuss a bespoke programme.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+              {showcase.map((tile) => (
+                <div
+                  key={tile.id}
+                  className="group flex flex-col transition-all duration-[400ms]"
+                  style={{
+                    backgroundColor: mode === 'evening' ? 'rgba(255,255,255,0.04)' : '#FFFFFF',
+                    border: `1px solid ${mode === 'evening' ? 'rgba(255,255,255,0.06)' : '#E5E0D8'}`,
+                  }}
+                >
+                  <div className="relative aspect-[4/3] overflow-hidden">
+                    <Image
+                      src={
+                        tile.image_url ||
+                        'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&q=80'
+                      }
+                      alt={tile.title}
+                      fill
+                      className="object-cover transition-transform duration-700 group-hover:scale-105"
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                      unoptimized
+                    />
+                  </div>
+                  <div className="p-6 flex-1 flex flex-col">
+                    <h3
+                      className="font-[family-name:var(--font-heading)] text-xl font-normal mb-3 transition-colors duration-[400ms]"
+                      style={{ color: '#B8975A' }}
+                    >
+                      {tile.title}
+                    </h3>
+                    {tile.description && (
+                      <p
+                        className="text-sm leading-relaxed flex-1 transition-colors duration-[400ms]"
+                        style={{ color: warm.textMuted }}
+                      >
+                        {tile.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Empty state — no events AND no showcase. Renders a "coming soon"
+          panel + clear path to the contact form. */}
+      {privateEvents.length === 0 && showcase.length === 0 && (
+        <section
+          className="py-24 md:py-32 transition-colors duration-[400ms]"
+          style={{ backgroundColor: light.bg }}
+        >
+          <div className="max-w-2xl mx-auto px-6 text-center">
+            <p
+              className="font-[family-name:var(--font-heading)] text-2xl mb-3"
               style={{ color: light.text }}
             >
-              Curated <em className="italic text-[#B8975A]">Luxury</em> Events
-            </h2>
+              New private experiences in the works.
+            </p>
+            <p className="text-sm" style={{ color: light.textMuted }}>
+              Get in touch and we&apos;ll add you to the first-look list for the next curated programme.
+            </p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-            {experiences.map((exp) => (
-              <div
-                key={exp.id}
-                className="group flex flex-col transition-all duration-[400ms]"
-                style={{
-                  backgroundColor: mode === 'evening' ? 'rgba(255,255,255,0.04)' : '#FFFFFF',
-                  border: `1px solid ${mode === 'evening' ? 'rgba(255,255,255,0.06)' : '#E5E0D8'}`,
-                }}
-              >
-                <div className="relative aspect-[4/3] overflow-hidden">
-                  <Image
-                    src={exp.image_url || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&q=80'}
-                    alt={exp.title}
-                    fill
-                    className="object-cover transition-transform duration-700 group-hover:scale-105"
-                    sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                  />
-                </div>
-                <div className="p-6 flex-1 flex flex-col">
-                  <h3
-                    className="font-[family-name:var(--font-heading)] text-xl font-normal mb-3 transition-colors duration-[400ms]"
-                    style={{ color: '#B8975A' }}
-                  >
-                    {exp.title}
-                  </h3>
-                  {exp.description && (
-                    <p
-                      className="text-sm leading-relaxed flex-1 transition-colors duration-[400ms]"
-                      style={{ color: light.textMuted }}
-                    >
-                      {exp.description}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Plan Your Perfect Event CTA */}
       <section
@@ -420,6 +610,13 @@ export function PrivateEventsContent({ experiences, videos }: PrivateEventsConte
           </div>
         </section>
       )}
+
+      {/* Resources / downloads (brochures, sample menus, etc.) */}
+      <Resources
+        pageSlug="private-event-services"
+        heading="Event brochures"
+        subheading="Sample menus, venue specs, and partner sheets — for a closer look before you enquire."
+      />
 
       {/* Contact */}
       <section

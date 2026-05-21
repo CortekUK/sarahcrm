@@ -177,26 +177,38 @@ export function HeroSection() {
         />
       </div>
 
-      {/* Content */}
+      {/* Content.
+          `min-h-0` lets the flex column shrink under the natural height of
+          its children — otherwise the huge headline pushes the top of the
+          content past the hero, clipping "Where". */}
       <div
         ref={contentRef}
-        className="relative h-full max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24 flex flex-col justify-end pb-28 md:pb-36"
+        className="relative h-full max-w-[1440px] mx-auto px-6 md:px-12 lg:px-24 flex flex-col justify-end pb-20 sm:pb-24 md:pb-32 lg:pb-36 min-h-0"
       >
         {/* Gold accent + label */}
         <div>
-          <div ref={goldLineRef} className="w-12 h-px bg-[#B8975A] mb-6" style={{ transform: 'scaleX(0)' }} />
-          <span ref={labelRef} className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A]" style={{ opacity: 0 }}>
+          <div ref={goldLineRef} className="w-10 sm:w-12 h-px bg-[#B8975A] mb-4 sm:mb-6" style={{ transform: 'scaleX(0)' }} />
+          <span ref={labelRef} className="font-[family-name:var(--font-label)] text-[0.55rem] sm:text-[0.6rem] font-medium uppercase tracking-[0.25em] sm:tracking-[0.3em] text-[#B8975A]" style={{ opacity: 0 }}>
             By Invitation &amp; Application
           </span>
         </div>
 
-        {/* Headline — clipPath word reveal */}
-        <h1 className="mt-8 lg:max-w-[55%]">
+        {/*
+          Headline — clipPath word reveal.
+          Font-size scaling was too aggressive: `clamp(2.8rem, 7.5vw, 7rem)`
+          hit 7rem (112px) at any viewport ≥ 932px, which made
+          "exceptional" too wide for the 55% column on common laptop
+          breakpoints and pushed the first word ("Where") off the top of
+          the 100dvh hero. New ramp tops out at 5.5rem (88px) and grows
+          more gradually — fits comfortably on 1024–1920px wide screens
+          while still reading hero-scale on ultrawides.
+        */}
+        <h1 className="mt-6 sm:mt-8 max-w-[88%] sm:max-w-[80%] md:max-w-[70%] lg:max-w-[55%]">
           {['Where', 'exceptional', 'minds'].map((word, i) => (
             <span
               key={word}
               ref={(el) => { wordsRef.current[i] = el }}
-              className="block font-[family-name:var(--font-heading)] text-[clamp(2.8rem,7.5vw,7rem)] font-light leading-[0.92] tracking-[-0.02em] transition-colors duration-[400ms]"
+              className="block font-[family-name:var(--font-heading)] text-[clamp(2.25rem,5.5vw,5.5rem)] font-light leading-[0.95] tracking-[-0.02em] transition-colors duration-[400ms]"
               style={{
                 color: t.text,
                 clipPath: 'inset(0 0 100% 0)',
@@ -207,7 +219,7 @@ export function HeroSection() {
           ))}
           <span
             ref={connectRef}
-            className="block font-[family-name:var(--font-heading)] text-[clamp(2.8rem,7.5vw,7rem)] font-light italic text-[#B8975A] leading-[0.92] tracking-[-0.02em]"
+            className="block font-[family-name:var(--font-heading)] text-[clamp(2.25rem,5.5vw,5.5rem)] font-light italic text-[#B8975A] leading-[0.95] tracking-[-0.02em]"
             style={{ clipPath: 'inset(0 0 100% 0)' }}
           >
             connect
@@ -217,7 +229,7 @@ export function HeroSection() {
         {/* Subtext */}
         <p
           ref={subtextRef}
-          className="mt-8 font-[family-name:var(--font-body)] text-[clamp(1rem,1.25vw,1.25rem)] max-w-md leading-relaxed font-light lg:max-w-[40%] transition-colors duration-[400ms]"
+          className="mt-5 sm:mt-7 md:mt-8 font-[family-name:var(--font-body)] text-[clamp(0.9rem,1.15vw,1.15rem)] max-w-md leading-relaxed font-light lg:max-w-[40%] transition-colors duration-[400ms]"
           style={{ color: t.subtext, opacity: 0 }}
         >
           A private members club for business leaders,
@@ -227,13 +239,13 @@ export function HeroSection() {
         {/* CTAs */}
         <div
           ref={ctasRef}
-          className="mt-10 flex flex-wrap items-center gap-5"
+          className="mt-6 sm:mt-8 md:mt-10 flex flex-wrap items-center gap-3 sm:gap-5"
           style={{ opacity: 0 }}
         >
           <MagneticButton strength={0.3}>
             <Link
               href="/membership-application"
-              className="group inline-flex items-center gap-3 px-10 py-4 bg-[#B8975A] text-white text-[0.8rem] font-medium tracking-[0.1em] uppercase transition-all duration-500 hover:bg-[#D4B978] hover:tracking-[0.15em]"
+              className="group inline-flex items-center gap-3 px-6 sm:px-8 md:px-10 py-3 sm:py-3.5 md:py-4 bg-[#B8975A] text-white text-[0.7rem] sm:text-[0.75rem] md:text-[0.8rem] font-medium tracking-[0.1em] uppercase transition-all duration-500 hover:bg-[#D4B978] hover:tracking-[0.15em]"
             >
               Apply for Membership
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="transition-transform duration-500 group-hover:translate-x-1">
@@ -243,7 +255,7 @@ export function HeroSection() {
           </MagneticButton>
           <Link
             href="/events"
-            className="inline-flex items-center px-8 py-4 text-[0.8rem] font-medium tracking-[0.1em] uppercase transition-all duration-[400ms]"
+            className="inline-flex items-center px-5 sm:px-6 md:px-8 py-3 sm:py-3.5 md:py-4 text-[0.7rem] sm:text-[0.75rem] md:text-[0.8rem] font-medium tracking-[0.1em] uppercase transition-all duration-[400ms]"
             style={{
               color: t.ctaOutlineText,
               borderWidth: '1px',

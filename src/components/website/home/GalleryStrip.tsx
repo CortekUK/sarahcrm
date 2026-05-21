@@ -1,16 +1,40 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useReveal } from './useReveal'
 import { useTheme, themeColors } from '../ThemeContext'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { supabase } from '@/lib/supabase/client'
 
 gsap.registerPlugin(ScrollTrigger)
 
-const galleryImages = [
+interface GalleryCard {
+  src: string
+  alt: string
+  caption: string
+  href: string
+  aspect: string
+}
+
+// Alternate aspect ratios so the strip has visual rhythm.
+const STRIP_ASPECTS = ['aspect-[3/4]', 'aspect-[4/5]']
+
+const FALLBACK_IMAGES: GalleryCard[] = [
+  { href: '/gallery', src: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=85', alt: 'Fine dining setup', caption: 'Summer Soiree', aspect: 'aspect-[3/4]' },
+  { href: '/gallery', src: 'https://images.unsplash.com/photo-1608538242779-113f7b19baa1?w=600&q=85', alt: 'Candlelit table setting', caption: 'The Ivy, Manchester', aspect: 'aspect-[4/5]' },
+  { href: '/gallery', src: 'https://images.unsplash.com/photo-1630484179285-076074c31cc0?w=600&q=85', alt: 'Private members dining room', caption: 'Founders Dinner', aspect: 'aspect-[3/4]' },
+  { href: '/gallery', src: 'https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=600&q=85', alt: 'Cocktail craftsmanship', caption: 'Cocktail Reception', aspect: 'aspect-[4/5]' },
+  { href: '/gallery', src: 'https://images.unsplash.com/photo-1552960226-639240203497?w=600&q=85', alt: 'Warm restaurant ambiance', caption: 'The Ned, London', aspect: 'aspect-[3/4]' },
+  { href: '/gallery', src: 'https://images.unsplash.com/photo-1665575061295-bd3aa839ff8c?w=600&q=85', alt: 'Evening table setting', caption: 'Lake District Retreat', aspect: 'aspect-[4/5]' },
+]
+
+// Legacy preview list — kept around briefly during the dashboard wire-up
+// so designers could compare; replaced by FALLBACK_IMAGES above.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _legacyImages = [
   { src: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=85', alt: 'Fine dining setup', caption: 'Summer Soirée', aspect: 'aspect-[3/4]' },
   { src: 'https://images.unsplash.com/photo-1608538242779-113f7b19baa1?w=600&q=85', alt: 'Candlelit table setting', caption: 'The Ivy, Manchester', aspect: 'aspect-[4/5]' },
   { src: 'https://images.unsplash.com/photo-1630484179285-076074c31cc0?w=600&q=85', alt: 'Private members dining room', caption: 'Founders\u2019 Dinner', aspect: 'aspect-[3/4]' },
@@ -26,6 +50,35 @@ export function GalleryStrip() {
   const stripWrapRef = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   const imageRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [galleryImages, setGalleryImages] = useState<GalleryCard[]>(FALLBACK_IMAGES)
+
+  // Pull the latest published galleries to populate the strip. Falls back to
+  // the curated Unsplash set above when none exist.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('galleries')
+        .select('id, slug, title, cover_image_url, venue_name')
+        .eq('is_published', true)
+        .order('event_date', { ascending: false, nullsFirst: false })
+        .limit(8)
+      if (cancelled) return
+      const real = (data ?? [])
+        .filter((g) => !!g.cover_image_url)
+        .map<GalleryCard>((g, i) => ({
+          src: g.cover_image_url as string,
+          alt: g.title,
+          caption: g.venue_name || g.title,
+          href: `/gallery/${g.slug}`,
+          aspect: STRIP_ASPECTS[i % STRIP_ASPECTS.length],
+        }))
+      if (real.length > 0) setGalleryImages(real)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -104,9 +157,10 @@ export function GalleryStrip() {
           className="flex gap-4 md:gap-5 px-6 md:px-16 lg:px-24"
         >
           {galleryImages.map((img, i) => (
-            <div
+            <Link
               key={i}
-              ref={(el) => { imageRefs.current[i] = el }}
+              href={img.href}
+              ref={(el) => { imageRefs.current[i] = el as unknown as HTMLDivElement }}
               className={`relative flex-shrink-0 w-[260px] md:w-[320px] ${img.aspect} overflow-hidden group`}
               style={{ transform: `translateY(${i % 2 === 0 ? '0' : '24'}px)` }}
             >
@@ -131,7 +185,7 @@ export function GalleryStrip() {
                   {img.caption}
                 </span>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>
