@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, type ComponentType } from 'react'
+import { Suspense, useState, type ComponentType } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { AuthProvider, useAuth } from '@/providers/AuthProvider'
 import { QueryProvider } from '@/providers/QueryProvider'
 import { Toaster } from '@/components/ui-shadcn/toaster'
+import { ConfirmDialogProvider } from '@/components/admin/ConfirmDialog'
+import { ProgressProvider } from '@/components/admin/TopProgressBar'
 import {
   LayoutDashboard,
   Users,
@@ -392,8 +394,16 @@ export default function AdminGroupLayout({
   return (
     <AuthProvider>
       <QueryProvider>
-        <AdminLayoutInner>{children}</AdminLayoutInner>
-        <Toaster />
+        {/* Suspense is required because ProgressProvider reads
+            useSearchParams() to fire the bar on every nav change. */}
+        <Suspense fallback={null}>
+          <ProgressProvider>
+            <ConfirmDialogProvider>
+              <AdminLayoutInner>{children}</AdminLayoutInner>
+              <Toaster />
+            </ConfirmDialogProvider>
+          </ProgressProvider>
+        </Suspense>
       </QueryProvider>
     </AuthProvider>
   )

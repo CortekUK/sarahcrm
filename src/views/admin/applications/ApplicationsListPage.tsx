@@ -12,6 +12,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { formatDateTime, formatDate, cn } from '@/lib/utils'
 import { toast } from '@/lib/hooks/use-toast'
+import { useProgress } from '@/components/admin/TopProgressBar'
 import {
   ClipboardList,
   Search,
@@ -48,6 +49,7 @@ const statusBadge: Record<ApplicationStatus, 'active' | 'upcoming' | 'urgent' | 
 }
 
 export function ApplicationsListPage() {
+  const progress = useProgress()
   const [apps, setApps] = useState<ApplicationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | 'all'>('pending')
@@ -108,11 +110,13 @@ export function ApplicationsListPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await supabase.from('membership_applications').update({ notes } as any).eq('id', application.id)
       }
-      const res = await fetch('/api/admin/applications/approve', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ application_id: application.id }),
-      })
+      const res = await progress.track(
+        fetch('/api/admin/applications/approve', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ application_id: application.id }),
+        }),
+      )
       const json = await res.json()
       if (!res.ok) {
         toast({

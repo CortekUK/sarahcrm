@@ -16,6 +16,7 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { Thumbnail } from '@/components/admin/Thumbnail'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { SortableList, DragHandle } from '@/components/admin/SortableList'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, Sparkles, ExternalLink } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -33,6 +34,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 export function ExperiencesPage() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<Experience[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -124,7 +126,16 @@ export function ExperiencesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this experience?')) return
+    const item = items.find((i) => i.id === id)
+    const ok = await confirm({
+      title: 'Delete experience?',
+      description: item
+        ? `"${item.title}" will be removed from the Private Events page. This cannot be undone.`
+        : 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('curated_experiences').delete().eq('id', id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }

@@ -35,6 +35,7 @@ import { useTemplateStats } from '@/lib/hooks/useTemplateStats'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { toast } from '@/lib/hooks/use-toast'
 import { SendTemplateModal } from '@/components/templates/SendTemplateModal'
+import { previewMergeTags } from '@/lib/templates/preview-data'
 import type { Template } from '@/lib/templates/types'
 
 // ── Types ───────────────────────────────────────────────
@@ -293,9 +294,15 @@ export function CommunicationsPage() {
                       router.push(`/dashboard/communications/templates/editor?id=${tpl.id}`)
                     }
                   >
-                    <TableCell className="font-medium text-text">{tpl.name}</TableCell>
+                    <TableCell className="font-medium text-text">
+                      {previewMergeTags(tpl.name) || tpl.name}
+                    </TableCell>
                     <TableCell className="text-text-muted max-w-[240px] truncate">
-                      {tpl.subject || <span className="text-text-dim italic">No subject</span>}
+                      {tpl.subject ? (
+                        previewMergeTags(tpl.subject)
+                      ) : (
+                        <span className="text-text-dim italic">No subject</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="info" dot>

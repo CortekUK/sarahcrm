@@ -15,6 +15,7 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { Thumbnail } from '@/components/admin/Thumbnail'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { SortableList, DragHandle } from '@/components/admin/SortableList'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, Images } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -44,6 +45,7 @@ const PAGE_SLUGS: { value: string; label: string }[] = [
 ]
 
 export function HeroSlidesPage() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<HeroSlide[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -134,7 +136,16 @@ export function HeroSlidesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this hero slide?')) return
+    const slide = items.find((i) => i.id === id)
+    const ok = await confirm({
+      title: 'Delete hero slide?',
+      description: slide
+        ? `"${slide.alt_text}" will be removed from the ${slide.page_slug} hero. This cannot be undone.`
+        : 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('hero_slides').delete().eq('id', id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }

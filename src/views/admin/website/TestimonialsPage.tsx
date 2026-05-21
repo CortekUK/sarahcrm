@@ -14,6 +14,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { SortableList, DragHandle } from '@/components/admin/SortableList'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, Quote, MessageSquareQuote } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -44,6 +45,7 @@ function Initials({ name }: { name: string }) {
 }
 
 export function TestimonialsPage() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<Testimonial[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -132,7 +134,16 @@ export function TestimonialsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this testimonial?')) return
+    const item = items.find((i) => i.id === id)
+    const ok = await confirm({
+      title: 'Delete testimonial?',
+      description: item
+        ? `The quote from ${item.person_name} will no longer appear on the homepage. This cannot be undone.`
+        : 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('testimonials').delete().eq('id', id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }

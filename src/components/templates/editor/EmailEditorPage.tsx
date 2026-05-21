@@ -21,6 +21,8 @@ import { EditorCanvas } from './EditorCanvas'
 import { LeftSidebar } from './LeftSidebar'
 import { PreviewSlideout } from './PreviewSlideout'
 import { toast } from '@/lib/hooks/use-toast'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { useProgress } from '@/components/admin/TopProgressBar'
 import { cn } from '@/lib/utils'
 import type { TemplateTheme } from '@/lib/templates/editor-types'
 
@@ -34,29 +36,41 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
   const [mode, setMode] = useState<'build' | 'ai'>('build')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [sendingTest, setSendingTest] = useState(false)
+  const confirm = useConfirm()
+  const progress = useProgress()
 
   const selectedBlock = editor.blocks.find((b) => b.id === editor.selectedBlockId) ?? null
 
-  const handleClose = useCallback(() => {
+  const handleClose = useCallback(async () => {
     if (editor.hasUnsavedChanges) {
-      if (!confirm('You have unsaved changes. Leave anyway?')) return
+      const ok = await confirm({
+        title: 'Leave without saving?',
+        description:
+          'You have unsaved changes to this template. Leaving now will discard them.',
+        confirmLabel: 'Discard changes',
+        cancelLabel: 'Keep editing',
+        tone: 'warning',
+      })
+      if (!ok) return
     }
     router.push('/dashboard/communications/templates')
-  }, [editor.hasUnsavedChanges, router])
+  }, [editor.hasUnsavedChanges, router, confirm])
 
   const handleSendTest = useCallback(async () => {
     if (sendingTest) return
     setSendingTest(true)
     try {
-      const res = await fetch('/api/templates/send-test', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          blocks: editor.blocks,
-          subject: editor.settings.subject,
-          theme: editor.settings.theme ?? null,
+      const res = await progress.track(
+        fetch('/api/templates/send-test', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            blocks: editor.blocks,
+            subject: editor.settings.subject,
+            theme: editor.settings.theme ?? null,
+          }),
         }),
-      })
+      )
       const json = await res.json()
       if (!res.ok) {
         toast({
@@ -79,7 +93,7 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
     } finally {
       setSendingTest(false)
     }
-  }, [editor.blocks, editor.settings.subject, editor.settings.theme, sendingTest])
+  }, [editor.blocks, editor.settings.subject, editor.settings.theme, sendingTest, progress])
 
   const handleThemeUpdate = useCallback(
     (updates: Partial<TemplateTheme>) => {

@@ -132,7 +132,12 @@ export function ImageUpload({
   const hasImage = !!value
 
   return (
-    <div className={cn('w-full', className)}>
+    // `max-w-md` caps the upload preview to a sensible size when the
+    // widget sits inside a wide page form (Gallery / Event form,
+    // ~896px content area). At 4:3 that gives a 336px-tall preview —
+    // large enough to read but not dominating. Callers can pass
+    // `className="max-w-none w-full"` (or any other max-w) to override.
+    <div className={cn('w-full max-w-md', className)}>
       {label && (
         <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">
           {label}

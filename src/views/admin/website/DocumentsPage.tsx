@@ -13,6 +13,7 @@ import { FileUpload } from '@/components/ui/FileUpload'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, ExternalLink, FileText, Download } from 'lucide-react'
 import { slugify, formatDate } from '@/lib/utils'
 import type { Database } from '@/types/database'
@@ -48,6 +49,7 @@ function extFromUrl(url: string): string {
 }
 
 export function DocumentsPage() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -128,7 +130,16 @@ export function DocumentsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this document?')) return
+    const item = items.find((i) => i.id === id)
+    const ok = await confirm({
+      title: 'Delete document?',
+      description: item
+        ? `"${item.title}" will no longer be downloadable from the public site. This cannot be undone.`
+        : 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('documents').delete().eq('id', id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }

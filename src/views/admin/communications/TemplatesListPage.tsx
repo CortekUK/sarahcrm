@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Sparkles, Search, Loader2, Mail, MoreVertical, Trash2, Copy, Edit, Send } from 'lucide-react'
 import { SendTemplateModal } from '@/components/templates/SendTemplateModal'
+import { previewMergeTags } from '@/lib/templates/preview-data'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button as SarahButton } from '@/components/ui/Button'
@@ -26,6 +28,7 @@ import type { Template } from '@/lib/templates/types'
 
 export function TemplatesListPage() {
   const router = useRouter()
+  const confirm = useConfirm()
   const { data: user } = useCurrentUser()
   const isAdmin = user?.role === 'admin'
 
@@ -75,7 +78,13 @@ export function TemplatesListPage() {
   }
 
   const handleDelete = async (template: Template) => {
-    if (!confirm(`Delete "${template.name}"? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: 'Delete template?',
+      description: `"${template.name}" will be permanently removed. Any campaigns or automations using it will need a new template. This cannot be undone.`,
+      confirmLabel: 'Delete template',
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       await deleteTemplate.mutateAsync(template.id)
       toast({ title: 'Template deleted', description: `"${template.name}" has been removed.` })
@@ -209,9 +218,15 @@ export function TemplatesListPage() {
                     className="cursor-pointer"
                     onClick={() => handleEdit(tpl)}
                   >
-                    <TableCell className="font-medium text-text">{tpl.name}</TableCell>
+                    <TableCell className="font-medium text-text">
+                      {previewMergeTags(tpl.name) || tpl.name}
+                    </TableCell>
                     <TableCell className="text-text-muted max-w-[280px] truncate">
-                      {tpl.subject || <span className="text-text-dim italic">No subject</span>}
+                      {tpl.subject ? (
+                        previewMergeTags(tpl.subject)
+                      ) : (
+                        <span className="text-text-dim italic">No subject</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="info" dot>

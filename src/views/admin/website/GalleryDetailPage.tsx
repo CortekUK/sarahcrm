@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { ImageUpload } from '@/components/ui/ImageUpload'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { formatDate } from '@/lib/utils'
 import { Pencil, Plus, Trash2, Send, Image } from 'lucide-react'
 import type { Database } from '@/types/database'
@@ -39,6 +40,7 @@ type PhotoFormData = z.infer<typeof photoSchema>
 export function GalleryDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const confirm = useConfirm()
   const [gallery, setGallery] = useState<GalleryRow | null>(null)
   const [photos, setPhotos] = useState<PhotoRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -100,7 +102,16 @@ export function GalleryDetailPage() {
   }
 
   async function handleDeleteGallery() {
-    if (!id || !window.confirm('Are you sure you want to delete this gallery? This will also delete all photos.')) return
+    if (!id) return
+    const ok = await confirm({
+      title: 'Delete gallery?',
+      description: gallery
+        ? `"${gallery.title}" and all of its photos will be permanently removed from the public site. This cannot be undone.`
+        : 'This gallery and all of its photos will be permanently removed. This cannot be undone.',
+      confirmLabel: 'Delete gallery',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('gallery_photos').delete().eq('gallery_id', id)
     await supabase.from('galleries').delete().eq('id', id)
     router.push('/dashboard/website/galleries')
@@ -151,7 +162,14 @@ export function GalleryDetailPage() {
   }
 
   async function handleDeletePhoto(photoId: string) {
-    if (!id || !window.confirm('Delete this photo?')) return
+    if (!id) return
+    const ok = await confirm({
+      title: 'Delete photo?',
+      description: 'This photo will be removed from the gallery. This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('gallery_photos').delete().eq('id', photoId)
     setPhotos((prev) => prev.filter((p) => p.id !== photoId))
   }

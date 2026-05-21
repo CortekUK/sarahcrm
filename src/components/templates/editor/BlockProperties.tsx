@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui-shadcn/textarea'
 import { Label } from '@/components/ui-shadcn/label'
 import { Switch } from '@/components/ui-shadcn/switch'
 import { Slider } from '@/components/ui-shadcn/slider'
+import { ImageUpload } from '@/components/ui/ImageUpload'
 import {
   Select,
   SelectContent,
@@ -221,8 +222,17 @@ function ButtonProps({ block, update }: { block: ButtonBlockContent; update: (u:
 function ImageProps({ block, update }: { block: ImageBlockContent; update: (u: Record<string, unknown>) => void }) {
   return (
     <>
+      <ImageUpload
+        label="Image"
+        value={block.src}
+        onChange={(url) => update({ src: url ?? '' })}
+        bucket="content"
+        folder="email-images"
+        aspect="16 / 10"
+        hint="Drop a file or click to browse. You can also paste a hosted URL below."
+      />
       <div>
-        <Label className="text-xs">Source URL</Label>
+        <Label className="text-xs">Or paste a hosted URL</Label>
         <Input value={block.src} onChange={(e) => update({ src: e.target.value })} placeholder="https://..." />
       </div>
       <div>
@@ -393,8 +403,25 @@ function VideoProps({ block, update }: { block: VideoBlockContent; update: (u: R
     <>
       <div>
         <Label className="text-xs">Video URL (YouTube / Vimeo / Loom)</Label>
-        <Input value={block.url} onChange={(e) => update({ url: e.target.value })} />
+        <Input
+          value={block.url}
+          onChange={(e) => update({ url: e.target.value })}
+          placeholder="https://youtube.com/watch?v=…"
+        />
+        <p className="text-[10px] text-text-dim mt-1 leading-relaxed">
+          Email clients can&apos;t play videos inline. The block renders as a
+          tappable thumbnail that opens the URL above in a new tab.
+        </p>
       </div>
+      <ImageUpload
+        label="Custom thumbnail (optional)"
+        value={block.thumbnailUrl ?? null}
+        onChange={(url) => update({ thumbnailUrl: url ?? undefined })}
+        bucket="content"
+        folder="video-thumbnails"
+        aspect="16 / 9"
+        hint="Defaults to YouTube's auto-thumbnail when blank. Upload your own for Vimeo / Loom links or a branded cover."
+      />
       <div>
         <Label className="text-xs">Alignment</Label>
         <AlignmentSelect value={block.alignment} onChange={(v) => update({ alignment: v })} />

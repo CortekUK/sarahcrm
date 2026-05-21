@@ -24,6 +24,7 @@ import {
 } from '@/lib/ai/attachments'
 import type { AiAttachment } from '@/lib/ai/attachments'
 import { toast } from '@/lib/hooks/use-toast'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import type { EditorBlock, TemplateSettings, TemplateTheme } from '@/lib/templates/editor-types'
 
 interface AiPromptPanelProps {
@@ -79,6 +80,7 @@ export function AiPromptPanel({
   onUpdateTheme,
   onCategoryChange,
 }: AiPromptPanelProps) {
+  const confirm = useConfirm()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -182,7 +184,16 @@ export function AiPromptPanel({
   }
 
   async function deleteChat(id: string) {
-    if (!confirm('Delete this chat? This cannot be undone.')) return
+    const chat = chats.find((c) => c.id === id)
+    const ok = await confirm({
+      title: 'Delete chat?',
+      description: chat?.title
+        ? `"${chat.title}" and every turn in it will be removed. This cannot be undone.`
+        : 'This chat and every turn in it will be removed. This cannot be undone.',
+      confirmLabel: 'Delete chat',
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       await fetch(`/api/templates/ai-chats/${id}`, { method: 'DELETE' })
       setChats((prev) => prev.filter((c) => c.id !== id))

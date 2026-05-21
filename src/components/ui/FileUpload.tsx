@@ -126,7 +126,7 @@ export function FileUpload({
   const displayName = lastFilename ?? (value ? filenameFromUrl(value) : '')
 
   return (
-    <div className={cn('w-full', className)}>
+    <div className={cn('w-full max-w-md', className)}>
       {label && (
         <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">
           {label}

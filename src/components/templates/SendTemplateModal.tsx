@@ -21,6 +21,8 @@ import { ScrollArea } from '@/components/ui-shadcn/scroll-area'
 import { Loader2, Send, Eye, AlertCircle, Check, Users, Calendar } from 'lucide-react'
 import { toast } from '@/lib/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { useProgress } from '@/components/admin/TopProgressBar'
 import type { Template } from '@/lib/templates/types'
 
 interface SendTemplateModalProps {
@@ -60,6 +62,8 @@ export function SendTemplateModal({ template, open, onClose }: SendTemplateModal
   const [result, setResult] = useState<SendResponse | null>(null)
 
   const supabase = createClient()
+  const confirm = useConfirm()
+  const progress = useProgress()
 
   useEffect(() => {
     if (!open) return
@@ -120,16 +124,18 @@ export function SendTemplateModal({ template, open, onClose }: SendTemplateModal
       toast({ title: 'Pick recipients first', variant: 'destructive' })
       return null
     }
-    const res = await fetch('/api/communications/send-template', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        template_id: template!.id,
-        recipients,
-        event_id: eventId || null,
-        dry_run: dryRun,
+    const res = await progress.track(
+      fetch('/api/communications/send-template', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          template_id: template!.id,
+          recipients,
+          event_id: eventId || null,
+          dry_run: dryRun,
+        }),
       }),
-    })
+    )
     const json = await res.json()
     if (!res.ok) {
       toast({
@@ -153,9 +159,17 @@ export function SendTemplateModal({ template, open, onClose }: SendTemplateModal
   }
 
   async function handleSend() {
-    if (!confirm(`Send "${template?.name}" to ${expectedCount ?? '?'} recipient(s)? This cannot be undone.`)) {
-      return
-    }
+    const recipientLabel =
+      expectedCount === null
+        ? 'the selected recipients'
+        : `${expectedCount} recipient${expectedCount === 1 ? '' : 's'}`
+    const ok = await confirm({
+      title: 'Send this email?',
+      description: `"${template?.name}" will be delivered to ${recipientLabel} via Resend. You can't recall it once it's gone.`,
+      confirmLabel: `Send to ${expectedCount ?? '?'}`,
+      tone: 'warning',
+    })
+    if (!ok) return
     setSending(true)
     try {
       const json = await callApi(false)

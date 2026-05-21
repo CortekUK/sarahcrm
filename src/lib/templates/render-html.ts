@@ -248,9 +248,14 @@ function renderSocialBlock(content: SocialBlockContent): string {
   const iconElements = enabled
     .map((p) => {
       const url = content.platforms[p.key]?.url || '#'
-      const iconColor = (content.style === 'coloured' ? p.brandColor : '#6B6560').replace('#', '')
+      const iconColor = (content.style === 'coloured' ? p.brandColor : '#6B6560')
       const slug = p.cdnSlug ?? p.key
-      const iconUrl = `https://cdn.simpleicons.org/${slug}/${iconColor}`
+      // Iconify mirrors the simple-icons set and serves a coloured SVG via
+      // ?color=… — and importantly still hosts brand marks (LinkedIn etc.)
+      // that simpleicons.org now 404s on after their trademark takedowns.
+      // Falls back gracefully across email clients that strip svg+xml by
+      // also accepting a .png variant on the same URL pattern.
+      const iconUrl = `https://api.iconify.design/simple-icons:${slug}.svg?color=${encodeURIComponent(iconColor)}`
       return `
         <a href="${url}" target="_blank" style="display: inline-block; margin: 0 8px; text-decoration: none; line-height: 0;">
           <img src="${iconUrl}" width="22" height="22" alt="${p.label}" style="border: 0; display: inline-block; vertical-align: middle;" />
@@ -343,8 +348,12 @@ function renderSarahSignatureBlock(content: SarahSignatureBlockContent): string 
   const emailHtml = content.showEmail
     ? `<p style="margin: 0 0 2px 0; font-size: 13px;"><a href="mailto:{{sender_email|${FALLBACK_EMAIL}}}" style="color: ${c || '#B8975A'}; text-decoration: none;">{{sender_email|${FALLBACK_EMAIL}}}</a></p>`
     : ''
+  // Phone is wrapped in a {{#if}} so the whole <p> collapses when the
+  // sender's profile has no phone on record — otherwise the signature
+  // shows a blank line and (before this fix) a raw `{{sender_phone|}}`
+  // token because the merge-tag regex used to reject empty fallbacks.
   const phoneHtml = content.showPhone
-    ? `<p style="margin: 0 0 2px 0; font-size: 13px; color: ${c || '#374151'};">{{sender_phone|${FALLBACK_PHONE}}}</p>`
+    ? `{{#if sender_phone}}<p style="margin: 0 0 2px 0; font-size: 13px; color: ${c || '#374151'};">{{sender_phone|${FALLBACK_PHONE}}}</p>{{/if}}`
     : ''
   const websiteHtml = content.showWebsite
     ? `<p style="margin: 4px 0 0 0; font-size: 13px;"><a href="https://${FALLBACK_WEBSITE}" target="_blank" style="color: ${c || '#B8975A'}; text-decoration: none;">${FALLBACK_WEBSITE}</a></p>`

@@ -15,6 +15,7 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { Thumbnail } from '@/components/admin/Thumbnail'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { SortableList, DragHandle } from '@/components/admin/SortableList'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, ExternalLink, Handshake } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -31,6 +32,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 export function PartnersPage() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<PartnerLogo[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -103,7 +105,16 @@ export function PartnersPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this partner?')) return
+    const partner = items.find((p) => p.id === id)
+    const ok = await confirm({
+      title: 'Delete partner?',
+      description: partner
+        ? `"${partner.name}" will be removed from the homepage strip. This cannot be undone.`
+        : 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     await supabase.from('partner_logos').delete().eq('id', id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }

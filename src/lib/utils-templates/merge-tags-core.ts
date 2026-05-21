@@ -71,7 +71,11 @@ function processConditionalBlocks(template: string, data: MergeTagData): string 
 
 function replaceSimpleTags(template: string, data: MergeTagData): string {
   return template.replace(
-    /\{\{(\w+)(?:\|([^}]+))?\}\}/g,
+    // Accept `{{tag}}`, `{{tag|fallback}}`, AND `{{tag|}}` (empty fallback).
+    // The fallback group used to require one-or-more chars (`[^}]+`),
+    // which meant an empty fallback didn't match either branch and the
+    // raw token leaked through to the rendered email.
+    /\{\{(\w+)(?:\|([^}]*))?\}\}/g,
     (_, fieldName, fallback) => {
       const value = getFieldValue(fieldName, data)
       if (value !== null && value !== undefined && value !== '') {
