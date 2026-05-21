@@ -15,6 +15,7 @@ import {
   MapPin,
   Users,
   Ticket,
+  AlertCircle,
 } from 'lucide-react'
 import type { Database, Json } from '@/types/database'
 
@@ -138,17 +139,50 @@ export function PortalEventDetailPage() {
       )
 
       if (fnError || !data?.url) {
-        setError(fnError?.message || 'Failed to create checkout session')
+        // `supabase.functions.invoke` swallows the response body and just
+        // sets a generic "Edge Function returned a non-2xx status code"
+        // message. The actual JSON `{ error: ... }` payload is on
+        // `fnError.context.response` — read it to surface the real reason.
+        const friendly = await extractFunctionErrorMessage(fnError, data)
+        setError(friendly)
         setBooking(false)
         return
       }
 
       // Redirect to Stripe Checkout
       window.location.href = data.url
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       setBooking(false)
     }
+  }
+
+  // Pulls the JSON `{ error: "..." }` body out of a failed Edge Function
+  // response so we don't end up showing "Edge Function returned a non-2xx
+  // status code" to the user. Falls back to the generic message if the
+  // body isn't JSON.
+  async function extractFunctionErrorMessage(
+    fnError: { message?: string; context?: { response?: Response } } | null,
+    data: unknown,
+  ): Promise<string> {
+    if (data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)) {
+      return String((data as Record<string, unknown>).error)
+    }
+    try {
+      const response = fnError?.context?.response
+      if (response) {
+        const text = await response.clone().text()
+        try {
+          const json = JSON.parse(text)
+          if (json?.error) return String(json.error)
+        } catch {
+          if (text && text.length < 240) return text
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+    return fnError?.message || 'Failed to create checkout session'
   }
 
   async function handleBookComplimentary() {
@@ -323,6 +357,35 @@ export function PortalEventDetailPage() {
                 View confirmation
               </Link>
             </div>
+          ) : !memberId ? (
+            // The user is authenticated (middleware lets them through to
+            // /portal) but doesn't have a row in the `members` table.
+            // Almost always this is an admin browsing the portal for QA,
+            // or a freshly-invited account whose member row hasn't been
+            // provisioned yet. The checkout edge function would respond
+            // with "Member record not found" — surface that up front
+            // instead of letting them click a button that's guaranteed
+            // to fail.
+            <div className="text-center py-2">
+              <div className="w-10 h-10 mx-auto rounded-full bg-gold/15 flex items-center justify-center mb-3">
+                <AlertCircle size={16} className="text-gold" strokeWidth={1.6} />
+              </div>
+              <p className="text-sm font-medium text-text mb-1">
+                Bookings require a member account
+              </p>
+              <p className="text-xs text-text-muted leading-relaxed">
+                You&apos;re signed in as an admin / non-member. Switch to a
+                member account to book this event, or have an admin add
+                you via{' '}
+                <span className="font-medium text-text">Members → Add Member</span>.
+              </p>
+              <Link
+                href="/dashboard/members"
+                className="text-xs text-gold hover:underline mt-3 inline-block"
+              >
+                Open admin members →
+              </Link>
+            </div>
           ) : isFullyBooked ? (
             <Button disabled className="w-full">
               Fully Booked
@@ -339,9 +402,12 @@ export function PortalEventDetailPage() {
                 {isComplimentary ? 'Book Now' : `Book — ${formatCurrency(event.member_price_pence)}`}
               </Button>
               {error && (
-                <p className="text-xs text-accent-warm mt-2 text-center">
-                  {error}
-                </p>
+                <div className="mt-3 px-3 py-2 rounded-md bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">
+                  <p className="text-xs text-accent-warm leading-relaxed text-left">
+                    <span className="font-medium block mb-0.5">Couldn&apos;t start checkout</span>
+                    {error}
+                  </p>
+                </div>
               )}
             </>
           )}
