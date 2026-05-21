@@ -130,14 +130,14 @@ export function PortalBillingPage() {
       )
 
       if (fnError || !data?.url) {
-        setError(fnError?.message || 'Failed to create checkout session')
+        setError(await extractFunctionErrorMessage(fnError, data, 'Failed to create checkout session'))
         setActionLoading(null)
         return
       }
 
       window.location.href = data.url
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       setActionLoading(null)
     }
   }
@@ -153,16 +153,44 @@ export function PortalBillingPage() {
       )
 
       if (fnError || !data?.url) {
-        setError(fnError?.message || 'Failed to open billing portal')
+        setError(await extractFunctionErrorMessage(fnError, data, 'Failed to open billing portal'))
         setActionLoading(null)
         return
       }
 
       window.location.href = data.url
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       setActionLoading(null)
     }
+  }
+
+  // Same pattern as PortalEventDetailPage — pulls the JSON {error: "..."}
+  // body out of a failed Edge Function response so we don't end up
+  // showing "Edge Function returned a non-2xx status code" to the user.
+  async function extractFunctionErrorMessage(
+    fnError: { message?: string; context?: { response?: Response } } | null,
+    data: unknown,
+    fallback: string,
+  ): Promise<string> {
+    if (data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)) {
+      return String((data as Record<string, unknown>).error)
+    }
+    try {
+      const response = fnError?.context?.response
+      if (response) {
+        const text = await response.clone().text()
+        try {
+          const json = JSON.parse(text)
+          if (json?.error) return String(json.error)
+        } catch {
+          if (text && text.length < 240) return text
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+    return fnError?.message || fallback
   }
 
   if (loading) {
