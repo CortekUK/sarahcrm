@@ -82,10 +82,18 @@ export function NightHeader() {
               className="h-10 w-10 opacity-90 group-hover:opacity-100 transition-opacity"
             />
             <span className="flex flex-col leading-none">
-              <span className="font-[family-name:var(--font-display)] text-[20px] tracking-[0.02em] text-ivory transition-colors group-hover:text-bronze-light">
+              <span className="font-[family-name:var(--font-display)] text-[20px] tracking-[0.02em] text-ivory transition-colors duration-500 group-hover:text-bronze-light">
                 The Club
               </span>
-              <span className="font-[family-name:var(--font-meta)] text-[9px] font-medium uppercase tracking-[0.32em] text-slate-haze mt-[3px]">
+              {/* "by Sarah Restrick" gently warms to bronze-light as the
+                  header gains a background on scroll, and cools back to
+                  slate-haze when you return to the hero. 600ms ease. */}
+              <span
+                className={cn(
+                  'font-[family-name:var(--font-meta)] text-[9px] font-medium uppercase tracking-[0.32em] mt-[3px] transition-colors duration-600 ease-out',
+                  scrolled ? 'text-bronze-light' : 'text-slate-haze',
+                )}
+              >
                 by Sarah Restrick
               </span>
             </span>
@@ -100,14 +108,20 @@ export function NightHeader() {
                   key={l.href}
                   href={l.href}
                   className={cn(
-                    'relative font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.22em] transition-colors',
+                    'group relative font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.22em] transition-colors',
                     active ? 'text-bronze-light' : 'text-ivory/75 hover:text-ivory',
                   )}
                 >
                   {l.label}
-                  {active && (
-                    <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-bronze" />
-                  )}
+                  {/* Dot indicator — always rendered, fades in for active
+                      links and on hover for inactive ones. */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-bronze transition-opacity duration-300',
+                      active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                    )}
+                  />
                 </Link>
               )
             })}

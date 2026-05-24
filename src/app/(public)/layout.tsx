@@ -1,5 +1,6 @@
 import { NightHeader } from '@/components/website/night/NightHeader'
 import { NightFooter } from '@/components/website/night/NightFooter'
+import { JoinBadge } from '@/components/website/night/JoinBadge'
 import { SmoothScrolling } from '@/components/website/SmoothScrolling'
 import { ThemeProvider } from '@/components/website/ThemeContext'
 
@@ -31,6 +32,7 @@ export default function PublicLayout({
         <div className="theme-night min-h-screen w-full overflow-x-clip bg-ink text-ivory antialiased">
           <NightHeader />
           <main>{children}</main>
+          <JoinBadge />
           <NightFooter />
         </div>
       </SmoothScrolling>

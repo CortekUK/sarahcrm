@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
-import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
 // Asymmetric 5-tile bento grid with cinematic animation.
@@ -120,9 +119,10 @@ function Tile({
   // Stagger: 120ms between tiles
   const delay = revealed ? `${index * 120}ms` : '0ms'
 
+  // Pure photo tile — no link, no caption, no arrow button. Hover
+  // gets a slow image zoom + bronze border accent only.
   return (
-    <Link
-      href="/gallery"
+    <div
       className={cn(
         'group relative overflow-hidden bg-graphite-2',
         'border border-graphite-line/40 hover:border-bronze/60',
@@ -147,10 +147,7 @@ function Tile({
         className="object-cover transition-transform duration-[1400ms] ease-out group-hover:scale-[1.06]"
       />
 
-      {/* Base bottom gradient (always present for caption legibility) */}
-      <div className="absolute inset-0 bg-gradient-to-t from-ink/90 via-ink/15 to-transparent" />
-
-      {/* Hover-only dark wash that lifts (image is brighter on hover) */}
+      {/* Subtle dark wash that lifts slightly on hover (image brightens) */}
       <div className="absolute inset-0 bg-ink/15 opacity-100 group-hover:opacity-0 transition-opacity duration-700" />
 
       {/* Grain texture */}
@@ -161,19 +158,9 @@ function Tile({
         <span className="block w-6 h-px bg-bronze-light" />
         <span className="absolute top-0 right-0 w-px h-6 bg-bronze-light" />
       </div>
-
-      {/* Caption row — sits at the bottom, slides up + reveals an arrow
-          on hover. Hidden by default; gradient handles the empty state. */}
-      <div className="absolute inset-x-0 bottom-0 p-5 md:p-6 flex items-end justify-between gap-3 translate-y-2 group-hover:translate-y-0 transition-transform duration-500 ease-out">
-        <p className="font-[family-name:var(--font-editorial)] italic text-[13px] md:text-[15px] leading-snug text-ivory">
-          {photo.caption}
-        </p>
-        <span className="flex items-center justify-center w-8 h-8 rounded-full border border-bronze/60 group-hover:bg-bronze group-hover:border-bronze transition-all duration-500 flex-shrink-0">
-          <span className="text-bronze-light group-hover:text-ink text-[14px] leading-none transition-colors duration-500 -translate-y-px">
-            ↗
-          </span>
-        </span>
-      </div>
-    </Link>
+      {/* ── intentionally no caption row / arrow button / link wrapper.
+          Pure photographic display. Full captions live on the gallery
+          detail pages, not here. */}
+    </div>
   )
 }

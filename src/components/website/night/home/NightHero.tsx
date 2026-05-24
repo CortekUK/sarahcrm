@@ -121,7 +121,7 @@ export function NightHero({
         <span className="hero-eyebrow flex items-center gap-4 mb-7">
           <span className="block h-px bg-bronze/60 hero-line" />
           <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.42em] text-bronze-light">
-            London · Est. by Sarah Restrick
+            Est. by Sarah Restrick
           </span>
           <span className="block h-px bg-bronze/60 hero-line" />
         </span>
