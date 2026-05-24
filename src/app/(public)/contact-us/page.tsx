@@ -1,20 +1,35 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import Image from 'next/image'
-import Link from 'next/link'
+import { forwardRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { supabase } from '@/lib/supabase/client'
-import { useTheme, themeColors } from '@/components/website/ThemeContext'
-import { useReveal } from '@/components/website/home/useReveal'
-import { MagneticButton } from '@/components/website/MagneticButton'
-import { gsap } from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { usePageHero } from '@/components/website/usePageHero'
+import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
+import { Aurora } from '@/components/website/night/effects/Aurora'
+import { ArrowUpRight, Mail, MapPin, Phone, Check } from 'lucide-react'
 
-gsap.registerPlugin(ScrollTrigger)
+// ─────────────────────────────────────────────────────────────────────
+// Contact — minimal enquiry form on a dark editorial spread.
+//
+// Structure:
+//   00 Hero        — photograph + display title
+//   01 Form + meta — split layout: form left, contact details right
+//                    over a soft aurora glow
+//   02 Locations   — brief address card for One London Road
+// ─────────────────────────────────────────────────────────────────────
+
+const HERO_IMAGE =
+  'https://images.unsplash.com/photo-1604079628040-94301bb21b91?auto=format&fit=crop&w=2400&q=85'
+
+const INTENT_OPTIONS = [
+  { value: 'general', label: 'A general enquiry' },
+  { value: 'membership', label: 'About membership' },
+  { value: 'event', label: 'An upcoming event' },
+  { value: 'private_event', label: 'Hosting a private event' },
+  { value: 'press', label: 'Press / media' },
+]
 
 const enquirySchema = z.object({
   first_name: z.string().min(1, 'Required'),
@@ -23,24 +38,12 @@ const enquirySchema = z.object({
   phone: z.string().optional(),
   company: z.string().optional(),
   intent_type: z.string(),
-  message: z.string().min(10, 'Please provide more detail'),
+  message: z.string().min(10, 'Please provide a few more lines'),
 })
 
 type EnquiryData = z.infer<typeof enquirySchema>
 
 export default function ContactPage() {
-  const { mode } = useTheme()
-  const dark = themeColors[mode].dark
-  const light = themeColors[mode].light
-  const warm = themeColors[mode].warm
-  const sectionRef = useRef<HTMLElement>(null)
-  const imageWrapRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const formReveal = useReveal({ threshold: 0.05, y: 40 })
-  const helpReveal = useReveal({ threshold: 0.1, y: 30 })
-  const locationReveal = useReveal({ threshold: 0.1, y: 30 })
-  const ctaReveal = useReveal(0.2)
-  const heroOverride = usePageHero('contact-us')
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,483 +56,261 @@ export default function ContactPage() {
     defaultValues: { intent_type: 'general' },
   })
 
-  useEffect(() => {
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReducedMotion) return
-
-    const ctx = gsap.context(() => {
-      if (imageWrapRef.current) {
-        ScrollTrigger.create({
-          trigger: sectionRef.current,
-          start: 'top top',
-          end: 'bottom top',
-          scrub: true,
-          onUpdate: (self) => {
-            gsap.set(imageWrapRef.current, { y: self.progress * 100 })
-          },
-        })
-      }
-
-      if (contentRef.current) {
-        ScrollTrigger.create({
-          trigger: sectionRef.current,
-          start: 'top top',
-          end: '60% top',
-          scrub: true,
-          onUpdate: (self) => {
-            gsap.set(contentRef.current, {
-              opacity: 1 - self.progress,
-              y: self.progress * 50,
-            })
-          },
-        })
-      }
-
-      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
-      tl.fromTo('.contact-hero-label', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.6 })
-        .fromTo('.contact-hero-headline', { clipPath: 'inset(0 0 100% 0)', y: 30 }, { clipPath: 'inset(0 0 0% 0)', y: 0, duration: 1 }, '-=0.2')
-        .fromTo('.contact-hero-sub', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.6 }, '-=0.4')
-    }, sectionRef)
-
-    return () => ctx.revert()
-  }, [])
-
   async function onSubmit(data: EnquiryData) {
     setError(null)
     const { intent_type, ...rest } = data
     const { error: err } = await supabase
       .from('enquiries')
       .insert({ ...rest, intent: [intent_type] })
-
     if (err) {
-      setError('Something went wrong. Please try again.')
+      setError('Something went wrong. Please try again, or email us directly.')
       return
     }
     setSubmitted(true)
   }
 
-  const inputStyles: React.CSSProperties = {
-    backgroundColor: mode === 'evening' ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-    borderColor: warm.border,
-    color: warm.text,
-  }
-
   return (
     <>
-      {/* ═══════════════════════════════════════
-          HERO
-      ═══════════════════════════════════════ */}
-      <section
-        ref={sectionRef}
-        className="relative h-[60vh] min-h-[500px] flex items-end overflow-hidden transition-colors duration-[400ms]"
-        style={{ backgroundColor: dark.bg }}
-      >
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`,
-          backgroundSize: '128px 128px',
-        }} />
-
-        <div ref={imageWrapRef} className="absolute inset-0">
-          <Image
-            src={heroOverride?.image_url ?? 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&q=80'}
-            alt={heroOverride?.alt_text ?? ''}
-            fill
-            className="object-cover"
-            priority
-            sizes="100vw"
-            unoptimized={!!heroOverride}
-          />
-          <div
-            className="absolute inset-0 transition-all duration-[400ms]"
-            style={{ background: `linear-gradient(to top, ${dark.bg}, ${dark.overlay || 'rgba(28,25,23,0.5)'} 50%, transparent)` }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
-        </div>
-
-        <div
-          ref={contentRef}
-          className="relative max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24 pb-16 md:pb-20 w-full"
-        >
-          <span
-            className="contact-hero-label font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block"
-            style={{ opacity: 0 }}
-          >
-            Contact
-          </span>
-          <h1
-            className="contact-hero-headline font-[family-name:var(--font-heading)] text-4xl md:text-5xl lg:text-6xl font-light text-white leading-[1.1]"
-            style={{ clipPath: 'inset(0 0 100% 0)' }}
-          >
-            Get in touch
-          </h1>
-          <p
-            className="contact-hero-sub mt-5 text-lg text-white/60 max-w-md"
-            style={{ opacity: 0 }}
-          >
-            We&apos;d love to hear from you.
+      {/* ── 00 · Hero ───────────────────────────────────────────────── */}
+      <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden bg-ink">
+        <KenBurnsImage
+          src={HERO_IMAGE}
+          alt="A study at dusk"
+          motion="in"
+          duration={32}
+          overlay={0.6}
+          priority
+          className="absolute inset-0"
+        />
+        <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
+          <EditorialMeta label="Get in touch" stamp="London" />
+          <h1 className="display-xl mt-8 max-w-4xl">Say something useful, briefly.</h1>
+          <p className="lede mt-7 max-w-xl">
+            We read every message personally and reply within forty-eight hours, often sooner.
           </p>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════
-          FORM + CONTACT INFO
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: warm.bg }}
-      >
-        <div
-          ref={formReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
-            {/* Info */}
-            <div className="lg:col-span-4">
-              <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-                Reach Out
-              </span>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-2xl md:text-3xl font-light mb-6 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                We&apos;d love to hear from you
-              </h2>
-              <p
-                className="text-[0.95rem] leading-[1.85] mb-10 transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                Whether you&apos;re interested in membership, have a private event
-                enquiry, or simply want to learn more about The Club, we&apos;re here to help.
-              </p>
+      {/* ── 01 · Form + meta ────────────────────────────────────────── */}
+      <Chapter density="default" bg="ink" className="relative">
+        <Aurora variant="soft" />
 
-              <div className="space-y-6">
-                <div>
-                  <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.2em] text-[#B8975A] block mb-1">
-                    Email
-                  </span>
-                  <a
-                    href="mailto:hello@theclubsarahrestrick.com"
-                    className="text-sm hover:text-[#B8975A] transition-colors"
-                    style={{ color: warm.text }}
-                  >
-                    hello@theclubsarahrestrick.com
-                  </a>
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
+          {/* Form */}
+          <div className="lg:col-span-7">
+            {submitted ? (
+              <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 text-center">
+                <div className="w-14 h-14 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-6">
+                  <Check size={24} strokeWidth={1.5} className="text-bronze-light" />
                 </div>
-                <div>
-                  <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.2em] text-[#B8975A] block mb-1">
-                    Phone
-                  </span>
-                  <a
-                    href="tel:+447880351645"
-                    className="text-sm hover:text-[#B8975A] transition-colors"
-                    style={{ color: warm.text }}
-                  >
-                    +44 7880 351 645
-                  </a>
-                </div>
-                <div>
-                  <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.2em] text-[#B8975A] block mb-1">
-                    Social
-                  </span>
-                  <div className="flex gap-5">
-                    <a href="https://www.instagram.com/theclubsarahrestrick/" target="_blank" rel="noopener noreferrer" className="text-sm hover:text-[#B8975A] transition-colors" style={{ color: warm.text }}>Instagram</a>
-                    <a href="https://www.linkedin.com/company/the-club-by-sarah-restrick/" target="_blank" rel="noopener noreferrer" className="text-sm hover:text-[#B8975A] transition-colors" style={{ color: warm.text }}>LinkedIn</a>
-                  </div>
-                </div>
+                <p className="eyebrow mb-5">Received</p>
+                <h2 className="display-md mb-5">
+                  Thank you. We&apos;ll be in touch.
+                </h2>
+                <p className="body-prose max-w-md mx-auto">
+                  Your note has reached us. We reply personally — usually within forty-eight hours.
+                </p>
               </div>
-            </div>
+            ) : (
+              <>
+                <EditorialMeta number="01" label="A short message" />
+                <h2 className="display-md mt-10 mb-10">Write to us.</h2>
 
-            {/* Form */}
-            <div className="lg:col-span-7 lg:col-start-6">
-              {submitted ? (
-                <div
-                  className="p-12 text-center transition-colors duration-[400ms]"
-                  style={{
-                    backgroundColor: mode === 'evening' ? 'rgba(255,255,255,0.03)' : '#FFFFFF',
-                    border: `1px solid ${warm.border}`,
-                  }}
-                >
-                  <div className="w-12 h-12 border border-[#B8975A] rotate-45 mx-auto mb-6 flex items-center justify-center">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="-rotate-45">
-                      <path d="M5 13l4 4L19 7" stroke="#B8975A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                  <h3
-                    className="font-[family-name:var(--font-heading)] text-xl mb-2 transition-colors duration-[400ms]"
-                    style={{ color: warm.text }}
-                  >
-                    Message Sent
-                  </h3>
-                  <p className="text-sm transition-colors duration-[400ms]" style={{ color: warm.textMuted }}>
-                    We&apos;ll be in touch shortly.
-                  </p>
-                </div>
-              ) : (
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>First Name *</label>
-                      <input
-                        {...register('first_name')}
-                        className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors"
-                        style={inputStyles}
-                      />
-                      {errors.first_name && <p className="text-xs text-[#C4694A] mt-1">{errors.first_name.message}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>Last Name *</label>
-                      <input
-                        {...register('last_name')}
-                        className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors"
-                        style={inputStyles}
-                      />
-                      {errors.last_name && <p className="text-xs text-[#C4694A] mt-1">{errors.last_name.message}</p>}
-                    </div>
+                    <Field
+                      label="First name"
+                      error={errors.first_name?.message}
+                      {...register('first_name')}
+                    />
+                    <Field
+                      label="Last name"
+                      error={errors.last_name?.message}
+                      {...register('last_name')}
+                    />
                   </div>
-                  <div>
-                    <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>Email *</label>
-                    <input
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <Field
+                      label="Email"
                       type="email"
+                      error={errors.email?.message}
                       {...register('email')}
-                      className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors"
-                      style={inputStyles}
                     />
-                    {errors.email && <p className="text-xs text-[#C4694A] mt-1">{errors.email.message}</p>}
+                    <Field label="Phone (optional)" {...register('phone')} />
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>Phone</label>
-                      <input
-                        type="tel"
-                        {...register('phone')}
-                        className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors"
-                        style={inputStyles}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>Company</label>
-                      <input
-                        {...register('company')}
-                        className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors"
-                        style={inputStyles}
-                      />
-                    </div>
-                  </div>
+                  <Field label="Company (optional)" {...register('company')} />
+
                   <div>
-                    <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>Enquiry Type</label>
-                    <select
-                      {...register('intent_type')}
-                      className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors"
-                      style={inputStyles}
-                    >
-                      <option value="general">General Enquiry</option>
-                      <option value="membership">Membership</option>
-                      <option value="private-events">Private Events</option>
-                      <option value="sponsorship">Sponsorship &amp; Partnerships</option>
-                      <option value="press">Press &amp; Media</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: warm.textMuted }}>Message *</label>
-                    <textarea
-                      {...register('message')}
-                      rows={5}
-                      className="w-full px-4 py-3 border text-sm focus:border-[#B8975A] focus:outline-none transition-colors resize-none"
-                      style={inputStyles}
-                    />
-                    {errors.message && <p className="text-xs text-[#C4694A] mt-1">{errors.message.message}</p>}
+                    <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+                      Subject
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {INTENT_OPTIONS.map((opt) => (
+                        <label
+                          key={opt.value}
+                          className="cursor-pointer relative"
+                        >
+                          <input
+                            type="radio"
+                            value={opt.value}
+                            {...register('intent_type')}
+                            className="peer sr-only"
+                          />
+                          <span className="inline-block px-4 py-2 rounded-full border border-graphite-line text-[12px] text-ivory-soft hover:border-bronze/50 hover:text-ivory peer-checked:bg-bronze/15 peer-checked:border-bronze peer-checked:text-bronze-light transition-all duration-300">
+                            {opt.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
 
-                  {error && <p className="text-sm text-[#C4694A]">{error}</p>}
+                  <Field
+                    label="Message"
+                    as="textarea"
+                    rows={6}
+                    error={errors.message?.message}
+                    {...register('message')}
+                  />
+
+                  {error && (
+                    <div className="px-4 py-3 border border-plum-light/40 bg-plum/30 text-[13px] text-ivory">
+                      {error}
+                    </div>
+                  )}
 
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="px-10 py-4 bg-[#B8975A] hover:bg-[#D4B978] text-white text-sm font-medium tracking-[0.1em] uppercase transition-all duration-500 hover:tracking-[0.15em] disabled:opacity-50"
+                    className="group inline-flex items-center gap-3 px-9 py-4 border border-bronze hover:bg-bronze disabled:opacity-50 disabled:cursor-not-allowed rounded-full font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-ivory hover:text-ink transition-all duration-500"
                   >
-                    {isSubmitting ? 'Sending...' : 'Send Message'}
+                    {isSubmitting ? 'Sending…' : 'Send the message'}
+                    <ArrowUpRight
+                      size={15}
+                      strokeWidth={1.5}
+                      className="transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    />
                   </button>
                 </form>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════
-          HOW WE CAN HELP
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: dark.bg }}
-      >
-        <div
-          ref={helpReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="text-center mb-14">
-            <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-              How We Can Help
-            </span>
-            <h2 className="font-[family-name:var(--font-heading)] text-2xl md:text-3xl font-light text-white">
-              Whatever your enquiry, we&apos;re here
-            </h2>
+              </>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-12">
-            {[
-              {
-                title: 'Membership',
-                desc: 'Learn about our tiers, benefits, and the application process. We\'ll guide you every step of the way.',
-                link: '/memberships',
-                linkText: 'View Memberships',
-              },
-              {
-                title: 'Private Events',
-                desc: 'Planning a corporate dinner, product launch, or celebration? Our team delivers bespoke experiences.',
-                link: '/private-event-services',
-                linkText: 'Explore Events',
-              },
-              {
-                title: 'Venue Hire',
-                desc: 'Book meeting rooms, event spaces, or co-working areas at [ONE] London Road in Alderley Edge.',
-                link: '/one-london-road',
-                linkText: 'View the Space',
-              },
-              {
-                title: 'Partnerships',
-                desc: 'Interested in sponsoring events or partnering with The Club? We work with premium brands.',
-                link: null,
-                linkText: null,
-              },
-            ].map((item) => (
-              <div key={item.title}>
-                <div className="w-8 h-px bg-[#B8975A] mb-5" />
-                <h3 className="font-[family-name:var(--font-heading)] text-lg text-white mb-3">
-                  {item.title}
-                </h3>
-                <p
-                  className="text-sm leading-relaxed mb-4 transition-colors duration-[400ms]"
-                  style={{ color: dark.textMuted }}
-                >
-                  {item.desc}
-                </p>
-                {item.link && (
-                  <Link
-                    href={item.link}
-                    className="inline-flex items-center gap-2 text-[0.7rem] font-[family-name:var(--font-label)] uppercase tracking-[0.15em] text-[#B8975A] hover:text-[#D4B978] transition-colors"
-                  >
-                    {item.linkText}
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </Link>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════
-          LOCATION
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: light.bg }}
-      >
-        <div
-          ref={locationReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
-            <div className="lg:col-span-5 flex flex-col justify-center">
-              <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-                Headquarters
-              </span>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-2xl md:text-3xl font-light mb-6 transition-colors duration-[400ms]"
-                style={{ color: light.text }}
-              >
-                [ONE] London Road
-              </h2>
-              <div
-                className="space-y-1 text-[0.95rem] leading-[1.85] mb-8 transition-colors duration-[400ms]"
-                style={{ color: light.textMuted }}
-              >
-                <p>1 London Road</p>
-                <p>Alderley Edge, Cheshire</p>
-                <p>SK9 7JT</p>
-              </div>
-              <p
-                className="text-sm mb-8 transition-colors duration-[400ms]"
-                style={{ color: light.textDim }}
-              >
-                Our workspace and event venue is open to members and by appointment.
-                Located in the heart of Alderley Edge, one of the North West&apos;s most
-                prestigious addresses.
-              </p>
-              <MagneticButton strength={0.3}>
-                <Link
-                  href="/one-london-road"
-                  className="inline-flex items-center gap-3 text-sm font-medium tracking-[0.1em] uppercase text-[#B8975A] hover:text-[#D4B978] transition-colors"
-                >
-                  Explore the Space
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </Link>
-              </MagneticButton>
-            </div>
-
-            <div className="lg:col-span-6 lg:col-start-7">
-              <div className="relative aspect-[4/3] overflow-hidden">
-                <Image
-                  src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80"
-                  alt="[ONE] London Road, Alderley Edge"
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 1024px) 100vw, 50vw"
+          {/* Meta column */}
+          <aside className="lg:col-span-5 space-y-12">
+            <div>
+              <EditorialMeta label="Or write directly" />
+              <ul className="mt-8 space-y-5">
+                <ContactRow
+                  icon={Mail}
+                  label="Email"
+                  href="mailto:hello@theclubbysarahrestrick.com"
+                  value="hello@theclubbysarahrestrick.com"
                 />
-              </div>
+                <ContactRow
+                  icon={Phone}
+                  label="Telephone"
+                  href="tel:+442012345678"
+                  value="+44 20 1234 5678"
+                />
+                <ContactRow
+                  icon={MapPin}
+                  label="The club"
+                  value="One London Road, London"
+                />
+              </ul>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* ═══════════════════════════════════════
-          CTA
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: warm.bg }}
-      >
-        <div ref={ctaReveal.ref} className="max-w-2xl mx-auto px-6 text-center">
-          <h2
-            className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-light mb-4 transition-colors duration-[400ms]"
-            style={{ color: warm.text }}
-          >
-            Ready to <em className="italic text-[#B8975A]">connect</em>?
-          </h2>
-          <p
-            className="mb-10 transition-colors duration-[400ms]"
-            style={{ color: warm.textMuted }}
-          >
-            Discover what membership at The Club can do for you and your business.
-          </p>
-          <MagneticButton strength={0.3}>
-            <Link
-              href="/memberships"
-              className="inline-flex items-center gap-3 px-10 py-4 bg-[#B8975A] hover:bg-[#D4B978] text-white text-sm font-medium tracking-[0.1em] uppercase transition-all duration-500 hover:tracking-[0.15em]"
-            >
-              Explore Memberships
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </Link>
-          </MagneticButton>
+            <div className="border-t border-graphite-line/60 pt-10">
+              <span className="eyebrow-quiet">For Members</span>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[17px] text-ivory-soft mt-4 leading-relaxed">
+                Concierge requests are handled through the member portal — you&apos;ll get a faster reply there than here.
+              </p>
+            </div>
+          </aside>
         </div>
-      </section>
+      </Chapter>
     </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────
+
+interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement | HTMLTextAreaElement> {
+  label: string
+  error?: string
+  as?: 'input' | 'textarea'
+  rows?: number
+}
+
+const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
+  ({ label, error, as = 'input', rows, ...rest }, ref) => {
+    const inputClass =
+      'w-full px-0 py-3 bg-transparent border-b border-graphite-line/80 focus:border-bronze focus:outline-none text-[15px] text-ivory placeholder:text-slate-dim transition-colors'
+    return (
+      <div>
+        <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+          {label}
+        </label>
+        {as === 'textarea' ? (
+          <textarea
+            ref={ref as React.Ref<HTMLTextAreaElement>}
+            rows={rows ?? 5}
+            className={inputClass + ' resize-none'}
+            {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          />
+        ) : (
+          <input
+            ref={ref as React.Ref<HTMLInputElement>}
+            className={inputClass}
+            {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
+          />
+        )}
+        {error && <p className="mt-2 text-[12px] text-bronze-light italic">{error}</p>}
+      </div>
+    )
+  },
+)
+Field.displayName = 'Field'
+
+function ContactRow({
+  icon: Icon,
+  label,
+  href,
+  value,
+}: {
+  icon: typeof Mail
+  label: string
+  href?: string
+  value: string
+}) {
+  const inner = (
+    <>
+      <div className="w-9 h-9 rounded-full bg-bronze/10 border border-bronze/25 flex items-center justify-center flex-shrink-0">
+        <Icon size={13} strokeWidth={1.5} className="text-bronze-light" />
+      </div>
+      <div>
+        <span className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze">
+          {label}
+        </span>
+        <span className="block mt-1 text-[14px] text-ivory">{value}</span>
+      </div>
+    </>
+  )
+  return (
+    <li>
+      {href ? (
+        <a
+          href={href}
+          className="group flex items-start gap-4 hover:text-bronze-light transition-colors"
+        >
+          {inner}
+        </a>
+      ) : (
+        <div className="flex items-start gap-4">{inner}</div>
+      )}
+    </li>
   )
 }

@@ -1,405 +1,224 @@
-'use client'
-
-import { useEffect, useRef } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
-import { useTheme, themeColors } from '@/components/website/ThemeContext'
-import { useReveal } from '@/components/website/home/useReveal'
-import { MagneticButton } from '@/components/website/MagneticButton'
-import { gsap } from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import Image from 'next/image'
+import { KenBurnsImage, FullBleed } from '@/components/website/night/primitives/MediaBlocks'
+import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
+import { PullQuote } from '@/components/website/night/primitives/PullQuote'
+import { ApplyClose } from '@/components/website/night/home/ApplyClose'
+import { ArrowUpRight, MapPin, Train } from 'lucide-react'
 
-gsap.registerPlugin(ScrollTrigger)
+// ─────────────────────────────────────────────────────────────────────
+// One London Road — the venue page. Atmospheric portrait of a single
+// building. Reads like a magazine travel feature: hero, lede, room-by-
+// room walkthrough as full-bleed photographs, practical particulars at
+// the foot.
+// ─────────────────────────────────────────────────────────────────────
+
+const HERO_IMAGE =
+  'https://images.unsplash.com/photo-1551269901-5c5e14c25df7?auto=format&fit=crop&w=2400&q=85'
+
+const ROOMS = [
+  {
+    src: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=2400&q=85',
+    alt: 'A long dining room with a marble table and warm candlelight',
+    name: 'The Long Room',
+    capacity: 'Up to 32 for dining · 60 for standing receptions',
+    detail: 'The room we open most often. A nine-metre marble table, an open kitchen at one end, a small bar at the other.',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1582719188393-bb71ca45dbb9?auto=format&fit=crop&w=2400&q=85',
+    alt: 'A small library with leather chairs and tall shelves',
+    name: 'The Library',
+    capacity: 'Up to 14 seated · 24 standing',
+    detail: 'A quieter room behind the kitchen. Used for salons, smaller dinners, and the occasional book launch.',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1525268323446-0505b6fe7778?auto=format&fit=crop&w=2400&q=85',
+    alt: 'A vaulted basement bar with copper detailing',
+    name: 'The Cellar',
+    capacity: 'Up to 40 for drinks',
+    detail: "A vaulted basement bar. Drops in temperature, drops in tempo. Where the evening usually ends.",
+  },
+]
 
 export default function OneLondonRoadPage() {
-  const { mode } = useTheme()
-  const dark = themeColors[mode].dark
-  const light = themeColors[mode].light
-  const warm = themeColors[mode].warm
-  const sectionRef = useRef<HTMLElement>(null)
-  const imageWrapRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const spaceReveal = useReveal({ threshold: 0.05, y: 40 })
-  const featuresReveal = useReveal({ threshold: 0.1, y: 30 })
-  const perksReveal = useReveal({ threshold: 0.1, y: 30 })
-  const bookingReveal = useReveal({ threshold: 0.1, y: 30 })
-  const locationReveal = useReveal(0.2)
-
-  useEffect(() => {
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReducedMotion) return
-
-    const ctx = gsap.context(() => {
-      if (imageWrapRef.current) {
-        ScrollTrigger.create({
-          trigger: sectionRef.current,
-          start: 'top top',
-          end: 'bottom top',
-          scrub: true,
-          onUpdate: (self) => {
-            gsap.set(imageWrapRef.current, { y: self.progress * 100 })
-          },
-        })
-      }
-
-      if (contentRef.current) {
-        ScrollTrigger.create({
-          trigger: sectionRef.current,
-          start: 'top top',
-          end: '60% top',
-          scrub: true,
-          onUpdate: (self) => {
-            gsap.set(contentRef.current, {
-              opacity: 1 - self.progress,
-              y: self.progress * 50,
-            })
-          },
-        })
-      }
-
-      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
-      tl.fromTo('.olr-hero-label', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.6 })
-        .fromTo('.olr-hero-headline', { clipPath: 'inset(0 0 100% 0)', y: 30 }, { clipPath: 'inset(0 0 0% 0)', y: 0, duration: 1 }, '-=0.2')
-        .fromTo('.olr-hero-sub', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.6 }, '-=0.4')
-    }, sectionRef)
-
-    return () => ctx.revert()
-  }, [])
-
   return (
     <>
-      {/* ═══════════════════════════════════════
-          HERO
-      ═══════════════════════════════════════ */}
-      <section
-        ref={sectionRef}
-        className="relative h-[60vh] min-h-[500px] flex items-end overflow-hidden transition-colors duration-[400ms]"
-        style={{ backgroundColor: dark.bg }}
-      >
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`,
-          backgroundSize: '128px 128px',
-        }} />
-
-        <div ref={imageWrapRef} className="absolute inset-0">
-          <Image
-            src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1920&q=80"
-            alt="[ONE] London Road interior"
-            fill
-            className="object-cover"
-            priority
-            sizes="100vw"
-          />
-          <div
-            className="absolute inset-0 transition-all duration-[400ms]"
-            style={{ background: `linear-gradient(to top, ${dark.bg}, ${dark.overlay || 'rgba(28,25,23,0.5)'} 50%, transparent)` }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
-        </div>
-
-        <div
-          ref={contentRef}
-          className="relative max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24 pb-16 md:pb-20 w-full"
-        >
-          <span
-            className="olr-hero-label font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block"
-            style={{ opacity: 0 }}
-          >
-            Our Home
-          </span>
-          <h1
-            className="olr-hero-headline font-[family-name:var(--font-heading)] text-4xl md:text-5xl lg:text-6xl font-light text-white leading-[1.1]"
-            style={{ clipPath: 'inset(0 0 100% 0)' }}
-          >
-            [ONE] London Road
-          </h1>
-          <p
-            className="olr-hero-sub mt-5 text-lg text-white/60"
-            style={{ opacity: 0 }}
-          >
-            Alderley Edge, Cheshire
+      {/* ── 00 · Hero ───────────────────────────────────────────────── */}
+      <section className="relative h-[85vh] min-h-[640px] w-full overflow-hidden bg-ink">
+        <KenBurnsImage
+          src={HERO_IMAGE}
+          alt="One London Road by night"
+          motion="in"
+          duration={36}
+          overlay={0.5}
+          priority
+          className="absolute inset-0"
+        />
+        <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
+          <EditorialMeta label="The Address" stamp="London · Marylebone" />
+          <h1 className="display-xl mt-8 max-w-4xl">One London Road.</h1>
+          <p className="lede mt-7 max-w-xl">
+            A four-storey townhouse off Marylebone Lane. The home of The Club, and most of the rooms we host in.
           </p>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════
-          THE SPACE
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: warm.bg }}
-      >
-        <div
-          ref={spaceReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
-            <div className="lg:col-span-5 flex flex-col justify-center">
-              <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-                The Space
-              </span>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-light leading-[1.15] mb-8 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                A base that reflects our{' '}
-                <em className="italic text-[#B8975A]">ambition</em>
-              </h2>
-              <div
-                className="space-y-5 text-[0.95rem] leading-[1.85] transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                <p>
-                  The Club by Sarah Restrick is more than just a network — it&apos;s a
-                  space to connect, collaborate and grow. And we&apos;re proud to call
-                  [ONE] London Road our home.
-                </p>
-                <p>
-                  Located in the heart of Alderley Edge, [ONE] London Road is a
-                  beautifully designed, modern workspace offering flexible meeting rooms,
-                  private offices and collaborative areas — the perfect environment for
-                  The Club members to host, meet and do their best work.
-                </p>
-              </div>
-            </div>
+      {/* ── 01 · Lede ────────────────────────────────────────────────── */}
+      <Chapter density="default" bg="ink">
+        <div className="max-w-3xl">
+          <EditorialMeta number="01" label="A Townhouse" />
+          <h2 className="display-lg mt-10 mb-10">A building that doesn&apos;t advertise itself.</h2>
+          <div className="body-prose space-y-6">
+            <p>
+              From the street, there&apos;s a black door and an unmarked brass plate. No signage, no menu in the window. Members walk in; everyone else walks past.
+            </p>
+            <p>
+              Inside, three reception rooms over two floors, a basement cellar, and a small private courtyard at the back. The building was renovated in 2024 to the brief of a single sentence: <em>this should feel like the home of someone who&apos;s been collecting for forty years.</em>
+            </p>
+          </div>
+        </div>
+      </Chapter>
 
-            <div className="lg:col-span-6 lg:col-start-7 grid grid-cols-2 gap-4">
-              <div className="relative aspect-[3/4] col-span-2">
-                <Image
-                  src="https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80"
-                  alt="[ONE] London Road workspace"
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                />
+      {/* ── 02 · The Rooms ───────────────────────────────────────────── */}
+      <Chapter density="tight" bg="ink">
+        <div className="max-w-2xl mb-12">
+          <EditorialMeta number="02" label="The Rooms" />
+          <h2 className="display-lg mt-10">Three spaces, one address.</h2>
+        </div>
+      </Chapter>
+
+      <div className="space-y-32">
+        {ROOMS.map((r, i) => (
+          <div key={r.name} className="relative">
+            <FullBleed height="tall">
+              <KenBurnsImage
+                src={r.src}
+                alt={r.alt}
+                motion={i % 2 === 0 ? 'in' : 'left'}
+                duration={36}
+                overlay={0.4}
+              />
+              <div className="absolute top-8 left-8 lg:top-12 lg:left-12 flex items-center gap-3 z-10">
+                <span className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-ivory/80 tabular-nums">
+                  {String(i + 1).padStart(2, '0')} · The {r.name.split(' ').slice(1).join(' ')}
+                </span>
+                <span className="h-px w-10 bg-bronze/60" />
               </div>
-              <div className="relative aspect-square">
-                <Image
-                  src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400&q=80"
-                  alt="Exterior grounds"
-                  fill
-                  className="object-cover"
-                  sizes="25vw"
-                />
-              </div>
-              <div className="relative aspect-square">
-                <Image
-                  src="https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=400&q=80"
-                  alt="Collaborative workspace"
-                  fill
-                  className="object-cover"
-                  sizes="25vw"
-                />
+            </FullBleed>
+            <div className="max-w-[1600px] mx-auto px-6 lg:px-10 mt-10">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div className="lg:col-span-1">
+                  <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light tabular-nums">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                </div>
+                <div className="lg:col-span-6">
+                  <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.875rem,2.8vw,2.75rem)] text-ivory leading-tight">
+                    {r.name}
+                  </h3>
+                  <p className="mt-3 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.28em] text-bronze-light">
+                    {r.capacity}
+                  </p>
+                </div>
+                <div className="lg:col-span-5">
+                  <p className="body-prose">{r.detail}</p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        ))}
+      </div>
 
-      {/* ═══════════════════════════════════════
-          FEATURES
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: dark.bg }}
-      >
-        <div
-          ref={featuresReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-12">
-            {[
-              { title: 'Members\' Lounge', desc: 'A refined space for working, meeting, and unwinding with complimentary refreshments.' },
-              { title: 'Private Meeting Rooms', desc: 'Bookable boardrooms and meeting spaces for up to 12 guests.' },
-              { title: 'Event Space', desc: 'A versatile venue for intimate dinners, launches, and workshops for up to 40 guests.' },
-              { title: 'Concierge Desk', desc: 'On-hand support for reservations, travel, and anything else you need.' },
-            ].map((feature) => (
-              <div key={feature.title}>
-                <div className="w-8 h-px bg-[#B8975A] mb-5" />
-                <h3 className="font-[family-name:var(--font-heading)] text-lg text-white mb-2">
-                  {feature.title}
-                </h3>
-                <p
-                  className="text-sm leading-relaxed transition-colors duration-[400ms]"
-                  style={{ color: dark.textMuted }}
-                >
-                  {feature.desc}
-                </p>
-              </div>
-            ))}
+      {/* ── 03 · Pull quote ─────────────────────────────────────────── */}
+      <Chapter density="default" bg="graphite">
+        <PullQuote align="center" size="xl">
+          A building that doesn&apos;t announce itself is doing most of the work already.
+        </PullQuote>
+      </Chapter>
+
+      {/* ── 04 · Particulars ────────────────────────────────────────── */}
+      <Chapter density="default" bg="ink">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+          <div className="lg:col-span-5">
+            <EditorialMeta number="03" label="Particulars" />
+            <h2 className="display-md mt-10">How to find us.</h2>
+            <p className="body-prose mt-6 max-w-md">
+              Members are sent the entrance details when an invitation is confirmed. For private event enquiries, we&apos;ll share the same alongside a proposal.
+            </p>
+          </div>
+          <div className="lg:col-span-7 space-y-6">
+            <Particular
+              icon={MapPin}
+              label="Address"
+              value="One London Road, Marylebone, London W1U"
+              detail="Behind a black door with a brass plate. We hold the bell on event evenings."
+            />
+            <Particular
+              icon={Train}
+              label="Nearest"
+              value="Bond Street · 3 min walk · Marylebone · 6 min walk"
+              detail="Black cabs and pickups are best stopped at the Marylebone Lane corner."
+            />
           </div>
         </div>
-      </section>
 
-      {/* ═══════════════════════════════════════
-          MEMBER PERKS
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: warm.bg }}
-      >
-        <div
-          ref={perksReveal.ref}
-          className="max-w-3xl mx-auto px-6 md:px-16 lg:px-24 text-center"
-        >
-          <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-            Membership Benefits
-          </span>
-          <h2
-            className="font-[family-name:var(--font-heading)] text-2xl md:text-3xl font-light mb-6 transition-colors duration-[400ms]"
-            style={{ color: warm.text }}
+        <div className="mt-16 flex items-center gap-5">
+          <Link
+            href="/private-event-services"
+            className="group inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
           >
-            Member <em className="italic text-[#B8975A]">Perks</em> at [ONE] London Road
-          </h2>
-          <p
-            className="mb-10 text-[0.95rem] leading-[1.85] transition-colors duration-[400ms]"
-            style={{ color: warm.textMuted }}
+            Host an event here
+            <ArrowUpRight
+              size={14}
+              strokeWidth={1.5}
+              className="transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
+            />
+          </Link>
+          <span className="h-px w-12 bg-bronze/40" />
+          <Link
+            href="/contact-us"
+            className="group inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
           >
-            As part of The Club, you get priority access to premium meeting rooms and
-            workspaces — tailored to your needs and supported by a professional team.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left max-w-xl mx-auto">
-            {[
-              'Stylish, well-equipped meeting rooms',
-              'Flexible office and co-working spaces',
-              'Superfast WiFi and complimentary refreshments',
-              'Warm, welcoming community of professionals',
-            ].map((perk) => (
-              <div key={perk} className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#B8975A] mt-2 flex-shrink-0" />
-                <p
-                  className="text-sm leading-relaxed transition-colors duration-[400ms]"
-                  style={{ color: warm.textMuted }}
-                >
-                  {perk}
-                </p>
-              </div>
-            ))}
-          </div>
+            Send a message
+            <ArrowUpRight
+              size={14}
+              strokeWidth={1.5}
+              className="transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
+            />
+          </Link>
         </div>
-      </section>
+      </Chapter>
 
-      {/* ═══════════════════════════════════════
-          BOOKING CTA
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: light.bg }}
-      >
-        <div
-          ref={bookingReveal.ref}
-          className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
-            <div className="lg:col-span-5 flex flex-col justify-center">
-              <h2
-                className="font-[family-name:var(--font-heading)] text-2xl md:text-3xl font-light leading-[1.3] mb-6 transition-colors duration-[400ms]"
-                style={{ color: light.text }}
-              >
-                <em className="italic text-[#B8975A]">Exclusive</em> Spaces.{' '}
-                <em className="italic text-[#B8975A]">Exceptional</em> Service.
-              </h2>
-              <div
-                className="space-y-5 text-[0.95rem] leading-[1.85] transition-colors duration-[400ms]"
-                style={{ color: light.textMuted }}
-              >
-                <p>
-                  Whether you&apos;re meeting a client, hosting a team session or need a
-                  quiet place to focus, [ONE] London Road has the space, style and
-                  support you need.
-                </p>
-                <p>
-                  Ready to book a room or office space? If you&apos;re a The Club member,
-                  you&apos;re already halfway there. Enquire below about using the meeting
-                  rooms or office spaces at [ONE] London Road.
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-4 mt-8">
-                <MagneticButton strength={0.3}>
-                  <a
-                    href="https://onelondonroad.co.uk"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-3 px-10 py-4 bg-[#B8975A] hover:bg-[#D4B978] text-white text-sm font-medium tracking-[0.1em] uppercase transition-all duration-500 hover:tracking-[0.15em]"
-                  >
-                    Book Directly
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </a>
-                </MagneticButton>
-                <MagneticButton strength={0.3}>
-                  <Link
-                    href="/contact-us"
-                    className="inline-flex items-center justify-center px-8 py-3.5 text-sm font-medium tracking-[0.1em] uppercase transition-all duration-300"
-                    style={{
-                      border: `1px solid ${light.text}`,
-                      color: light.text,
-                    }}
-                  >
-                    Book Via The Club
-                  </Link>
-                </MagneticButton>
-              </div>
-
-              <p className="mt-5 text-xs font-medium text-[#B8975A] tracking-wide">
-                Members get 10% OFF by quoting &lsquo;The Club&rsquo;
-              </p>
-            </div>
-
-            <div className="lg:col-span-6 lg:col-start-7">
-              <div className="relative aspect-[4/3] overflow-hidden">
-                <Image
-                  src="https://images.unsplash.com/photo-1462826303086-329426d1aef5?w=800&q=80"
-                  alt="Private meeting room at [ONE] London Road"
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════
-          FIND US
-      ═══════════════════════════════════════ */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: dark.bg }}
-      >
-        <div
-          ref={locationReveal.ref}
-          className="max-w-2xl mx-auto px-6 md:px-16 lg:px-24 text-center"
-        >
-          <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-            Find Us
-          </span>
-          <h2 className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-light text-white mb-4">
-            1 London Road, Alderley Edge, Cheshire, SK9 7JT
-          </h2>
-          <p
-            className="mb-8 transition-colors duration-[400ms]"
-            style={{ color: dark.textMuted }}
-          >
-            Accessible for members only. Visitor access by appointment.
-          </p>
-          <MagneticButton strength={0.3}>
-            <Link
-              href="/contact-us"
-              className="inline-flex items-center px-8 py-3.5 text-sm font-medium tracking-[0.1em] uppercase transition-all duration-300 text-white"
-              style={{
-                border: '1px solid rgba(255,255,255,0.3)',
-              }}
-            >
-              Arrange a Visit
-            </Link>
-          </MagneticButton>
-        </div>
-      </section>
+      {/* ── 05 · Apply close ────────────────────────────────────────── */}
+      <ApplyClose />
     </>
+  )
+}
+
+function Particular({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: typeof MapPin
+  label: string
+  value: string
+  detail: string
+}) {
+  return (
+    <div className="flex items-start gap-5 border-t border-graphite-line/60 pt-6">
+      <div className="w-10 h-10 rounded-full bg-bronze/10 border border-bronze/25 flex items-center justify-center flex-shrink-0">
+        <Icon size={14} strokeWidth={1.5} className="text-bronze-light" />
+      </div>
+      <div>
+        <span className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze">
+          {label}
+        </span>
+        <p className="mt-1 text-[15px] text-ivory leading-snug">{value}</p>
+        <p className="mt-2 text-[13.5px] text-ivory-soft/80 leading-relaxed">{detail}</p>
+      </div>
+    </div>
   )
 }

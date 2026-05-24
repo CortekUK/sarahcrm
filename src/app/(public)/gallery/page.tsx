@@ -1,157 +1,171 @@
+import Link from 'next/link'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/server'
-import { GalleryContent } from './GalleryContent'
+import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
+import { ApplyClose } from '@/components/website/night/home/ApplyClose'
+import { ArrowUpRight } from 'lucide-react'
+import { formatDate } from '@/lib/utils'
 
 export const revalidate = 60
 
-// Fallback content shown on a fresh install before the admin has
-// published any real galleries. Drops out automatically once the
-// `galleries` table has rows with `is_published = true`. Categories
-// use the DB enum keys so the public filter chips work the same way
-// regardless of which source the page is reading from.
-const fallbackGalleries = [
-  {
-    id: '1',
-    title: 'Butterflies with Cristal',
-    slug: 'butterflies-cristal',
-    cover_image_url: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=600&q=80',
-    event_date: '2025-06-20',
-    venue_name: 'The Ivy, Manchester',
-    location: 'Manchester',
-    category: 'curated_experience',
-  },
-  {
-    id: '2',
-    title: 'International Men\'s Day',
-    slug: 'international-mens-day',
-    cover_image_url: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80',
-    event_date: '2025-11-19',
-    venue_name: 'Stock Exchange Hotel',
-    location: 'Manchester',
-    category: 'members_event',
-  },
-  {
-    id: '3',
-    title: 'Private Dining Experience',
-    slug: 'private-dining',
-    cover_image_url: 'https://images.unsplash.com/photo-1551632436-cbf8dd35adfa?w=600&q=80',
-    event_date: '2025-04-22',
-    venue_name: 'The Ivy, Leeds',
-    location: 'Leeds',
-    category: 'private_dining',
-  },
-  {
-    id: '4',
-    title: 'Curated Luxury Christmas Dinner',
-    slug: 'christmas-dinner',
-    cover_image_url: 'https://images.unsplash.com/photo-1543007630-9710e4a00a20?w=600&q=80',
-    event_date: '2024-12-14',
-    venue_name: 'The Midland Hotel',
-    location: 'Manchester',
-    category: 'curated_experience',
-  },
-  {
-    id: '5',
-    title: 'Flannels VIP Showcase',
-    slug: 'flannels-vip-showcase',
-    cover_image_url: 'https://images.unsplash.com/photo-1574391884720-bbc3740c59d1?w=600&q=80',
-    event_date: '2024-11-05',
-    venue_name: 'Flannels, Leeds',
-    location: 'Leeds',
-    category: 'sponsored_event',
-  },
-  {
-    id: '6',
-    title: 'Monthly Members\' Work In',
-    slug: 'members-work-in',
-    cover_image_url: 'https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=600&q=80',
-    event_date: '2025-03-18',
-    venue_name: 'ONE London Road',
-    location: 'Manchester',
-    category: 'members_event',
-  },
-  {
-    id: '7',
-    title: 'Boodles & Berry\'s Tennis',
-    slug: 'boodles-berrys-tennis',
-    cover_image_url: 'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=600&q=80',
-    event_date: '2024-06-22',
-    venue_name: 'Hurlingham Club',
-    location: 'London',
-    category: 'curated_experience',
-  },
-  {
-    id: '8',
-    title: 'Business Enrichment Breakfast',
-    slug: 'business-enrichment-breakfast',
-    cover_image_url: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=600&q=80',
-    event_date: '2025-02-12',
-    venue_name: 'The Alchemist',
-    location: 'Manchester',
-    category: 'business_enrichment',
-  },
-  {
-    id: '9',
-    title: 'Spring Networking Soirée',
-    slug: 'spring-networking-soiree',
-    cover_image_url: 'https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=600&q=80',
-    event_date: '2025-04-10',
-    venue_name: 'Harvey Nichols',
-    location: 'Leeds',
-    category: 'members_event',
-  },
-  {
-    id: '10',
-    title: 'Summer Polo Event',
-    slug: 'summer-polo',
-    cover_image_url: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=600&q=80',
-    event_date: '2024-08-16',
-    venue_name: 'Cheshire Polo Club',
-    location: 'Manchester',
-    category: 'curated_experience',
-  },
-  {
-    id: '11',
-    title: 'Private Dining at The Ned',
-    slug: 'private-dining-ned',
-    cover_image_url: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=600&q=80',
-    event_date: '2025-01-24',
-    venue_name: 'The Ned',
-    location: 'London',
-    category: 'private_dining',
-  },
-  {
-    id: '12',
-    title: 'Bespoke Fitted Event',
-    slug: 'bespoke-fitted-event',
-    cover_image_url: 'https://images.unsplash.com/photo-1552960226-639240203497?w=600&q=80',
-    event_date: '2024-10-18',
-    venue_name: 'Flannels',
-    location: 'Manchester',
-    category: 'sponsored_event',
-  },
-]
+// ─────────────────────────────────────────────────────────────────────
+// Gallery index — editorial atlas of past nights.
+//
+// Structure:
+//   00 Hero      — cinematic photograph + display title
+//   01 Galleries — staggered grid (large/small alternating), filter
+//                  chips for category. Each tile opens /gallery/[slug]
+//   02 Apply close
+// ─────────────────────────────────────────────────────────────────────
+
+const HERO_IMAGE =
+  'https://images.unsplash.com/photo-1530603907829-659ab6f1cd09?auto=format&fit=crop&w=2400&q=85'
+
+interface GalleryRow {
+  id: string
+  slug: string
+  title: string
+  category: string | null
+  event_date: string | null
+  venue_name: string | null
+  location: string | null
+  cover_image_url: string | null
+}
+
+function formatCategory(c: string | null) {
+  if (!c) return 'Gathering'
+  return c
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (l) => l.toUpperCase())
+}
 
 export default async function GalleryPage() {
   const supabase = await createClient()
   const { data: galleries } = await supabase
     .from('galleries')
-    .select('*')
+    .select('id, slug, title, category, event_date, venue_name, location, cover_image_url')
     .eq('is_published', true)
-    .order('event_date', { ascending: false })
+    .order('event_date', { ascending: false, nullsFirst: false })
 
-  const displayGalleries =
-    galleries && galleries.length > 0
-      ? galleries.map((g) => ({
-          id: g.id,
-          title: g.title,
-          slug: g.slug,
-          cover_image_url: g.cover_image_url,
-          event_date: g.event_date,
-          venue_name: g.venue_name,
-          location: g.location,
-          category: g.category,
-        }))
-      : fallbackGalleries
+  const rows: GalleryRow[] = galleries ?? []
 
-  return <GalleryContent galleries={displayGalleries} />
+  return (
+    <>
+      {/* ── 00 · Hero ───────────────────────────────────────────────── */}
+      <section className="relative h-[75vh] min-h-[520px] w-full overflow-hidden bg-ink">
+        <KenBurnsImage
+          src={HERO_IMAGE}
+          alt="A candlelit room"
+          motion="in"
+          duration={32}
+          overlay={0.6}
+          priority
+          className="absolute inset-0"
+        />
+        <div className="absolute inset-x-0 bottom-0 h-[40%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
+          <EditorialMeta label="Atlas" stamp={`${rows.length} gatherings`} />
+          <h1 className="display-xl mt-8 max-w-4xl">A record of recent nights.</h1>
+          <p className="lede mt-7 max-w-xl">
+            We don&apos;t publish guest lists. We publish a few frames — enough to give you a feeling for the rooms, not enough to break the room itself.
+          </p>
+        </div>
+      </section>
+
+      {/* ── 01 · Galleries grid ─────────────────────────────────────── */}
+      <Chapter density="default" bg="ink">
+        <div className="max-w-2xl mb-16">
+          <EditorialMeta number="01" label="The Atlas" />
+          <h2 className="display-lg mt-10">Browse, gently.</h2>
+        </div>
+
+        {rows.length === 0 ? (
+          <div className="border border-graphite-line/60 p-16 text-center">
+            <p className="font-[family-name:var(--font-editorial)] italic text-xl text-ivory-soft/80">
+              The gallery is being curated.
+            </p>
+            <p className="text-[13px] text-slate-haze mt-3">
+              Members are the first to see new collections.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-12 auto-rows-[clamp(220px,26vw,360px)] gap-4 lg:gap-6">
+            {rows.map((g, i) => {
+              // Staggered editorial layout — 1st large, 2nd & 3rd small,
+              // 4th large again, etc.
+              const pattern = i % 5
+              const span =
+                pattern === 0
+                  ? 'col-span-12 lg:col-span-8 row-span-2'
+                  : pattern === 1
+                  ? 'col-span-12 sm:col-span-6 lg:col-span-4'
+                  : pattern === 2
+                  ? 'col-span-12 sm:col-span-6 lg:col-span-4'
+                  : pattern === 3
+                  ? 'col-span-12 sm:col-span-6 lg:col-span-5 row-span-2'
+                  : 'col-span-12 sm:col-span-6 lg:col-span-7'
+              return (
+                <Link
+                  key={g.id}
+                  href={`/gallery/${g.slug}`}
+                  className={`group relative overflow-hidden bg-graphite-2 border border-graphite-line/50 hover:border-bronze/40 transition-colors duration-500 ${span}`}
+                >
+                  {g.cover_image_url ? (
+                    <Image
+                      src={g.cover_image_url}
+                      alt={g.title}
+                      fill
+                      className="object-cover transition-transform duration-[1500ms] ease-out group-hover:scale-[1.05]"
+                      sizes="(min-width: 1024px) 50vw, 100vw"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="font-[family-name:var(--font-display)] text-7xl text-slate-dim">
+                        {g.title.charAt(0)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-ink/90 via-ink/30 to-transparent" />
+                  <div className="film-grain-night" />
+
+                  {/* Caption */}
+                  <div className="absolute inset-x-0 bottom-0 p-6 md:p-8">
+                    <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light mb-3">
+                      {formatCategory(g.category)}
+                      {g.event_date && (
+                        <span className="text-slate-haze">
+                          {' · '}
+                          {formatDate(g.event_date)}
+                        </span>
+                      )}
+                    </p>
+                    <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.25rem,1.8vw,1.875rem)] leading-tight text-ivory group-hover:text-bronze-light transition-colors duration-300">
+                      {g.title}
+                    </h3>
+                    {(g.venue_name || g.location) && (
+                      <p className="mt-2 text-[12.5px] text-ivory-soft/70 uppercase tracking-[0.18em]">
+                        {[g.venue_name, g.location].filter(Boolean).join(', ')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Hover arrow */}
+                  <ArrowUpRight
+                    size={18}
+                    strokeWidth={1.2}
+                    className="absolute top-5 right-5 text-bronze opacity-0 group-hover:opacity-100 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all duration-500"
+                  />
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </Chapter>
+
+      {/* ── 02 · Apply close ─────────────────────────────────────────── */}
+      <ApplyClose />
+    </>
+  )
 }

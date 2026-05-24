@@ -1,135 +1,122 @@
-'use client'
+import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
+import { PullQuote } from '@/components/website/night/primitives/PullQuote'
+import { TracingBeam } from '@/components/website/night/effects/TracingBeam'
+import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 
-import { useTheme, themeColors } from '@/components/website/ThemeContext'
-import { useReveal } from '@/components/website/home/useReveal'
+// ─────────────────────────────────────────────────────────────────────
+// Club Rules — manifesto, set as an editorial spread.
+//
+// Reads like a hand-typed letter rather than a terms-and-conditions
+// page. Numbered articles, each with a one-line statement + brief
+// elaboration. TracingBeam pacing makes the page feel like an
+// extended read.
+// ─────────────────────────────────────────────────────────────────────
+
+const HERO_IMAGE =
+  'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=2400&q=85'
+
+const ARTICLES = [
+  {
+    n: '01',
+    headline: 'Discretion comes first.',
+    body: 'What happens at The Club doesn\'t leave The Club. No photographs are taken at events without explicit permission. No member is named in public marketing. We don\'t maintain a public guest list, and we don\'t respond to press enquiries about who attended which evening.',
+  },
+  {
+    n: '02',
+    headline: 'Phones stay in coats.',
+    body: 'At dinners and salons, phones are stowed on arrival. If something genuinely urgent comes up, step away from the table to take it. The room works because the room is fully present.',
+  },
+  {
+    n: '03',
+    headline: 'You\'re always introduced.',
+    body: 'No member arrives unannounced. The room is briefed on who you are before you arrive, and you on them. The conversation has already started before you sit down.',
+  },
+  {
+    n: '04',
+    headline: 'Networking is not the point.',
+    body: 'Hand out a business card mid-conversation and you may not be invited back. Connections form quickly here because nobody is hunting for them. If you want to follow up with someone, ask the host — we make the introduction properly.',
+  },
+  {
+    n: '05',
+    headline: 'Guests are your responsibility.',
+    body: 'Each member may bring one guest to most events, by name and at the host\'s discretion. Your guest reflects on you. If they don\'t hold the standard, the next invitation comes with a quiet note.',
+  },
+  {
+    n: '06',
+    headline: 'We don\'t talk about money at dinner.',
+    body: 'Pricing, fees, fundraising, deal flow — not at the table. There\'s a coffee tomorrow morning for that. The dinner is for everything else.',
+  },
+  {
+    n: '07',
+    headline: 'The room is the standard.',
+    body: 'Membership is a relationship, not a card. If a member can\'t hold the standard — repeatedly, after a conversation — we\'ll ask them, gently, to step back. The room is the brand.',
+  },
+]
 
 export default function ClubRulesPage() {
-  const { mode } = useTheme()
-  const dark = themeColors[mode].dark
-  const warm = themeColors[mode].warm
-  const contentReveal = useReveal({ threshold: 0.05, y: 30 })
-
   return (
     <>
-      {/* Hero */}
-      <section
-        className="pt-32 pb-16 md:pt-40 md:pb-20 transition-colors duration-[400ms]"
-        style={{ backgroundColor: dark.bg }}
-      >
-        <div className="max-w-[1440px] mx-auto px-6 md:px-16 lg:px-24">
-          <span className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block">
-            Governance
-          </span>
-          <h1 className="font-[family-name:var(--font-heading)] text-3xl md:text-4xl lg:text-5xl font-light text-white leading-[1.1]">
-            Club Rules
-          </h1>
+      {/* ── 00 · Hero ───────────────────────────────────────────────── */}
+      <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden bg-ink">
+        <KenBurnsImage
+          src={HERO_IMAGE}
+          alt="A handwritten letter on a wooden desk"
+          motion="in"
+          duration={32}
+          overlay={0.55}
+          priority
+          className="absolute inset-0"
+        />
+        <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
+          <EditorialMeta label="The Standard" stamp="Seven articles" />
+          <h1 className="display-xl mt-8 max-w-4xl">A short list of what we hold to.</h1>
+          <p className="lede mt-7 max-w-xl">
+            Not so much rules as a way of being in the room. We&apos;d rather have a small membership that holds these than a larger one that doesn&apos;t.
+          </p>
         </div>
       </section>
 
-      {/* Content */}
-      <section
-        className="py-20 md:py-28 transition-colors duration-[400ms]"
-        style={{ backgroundColor: warm.bg }}
-      >
-        <div
-          ref={contentReveal.ref}
-          className="max-w-3xl mx-auto px-6 md:px-16 lg:px-24"
-        >
-          <div className="space-y-10" style={{ color: warm.text }}>
-            <div>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-xl mb-4 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                1. Membership
-              </h2>
-              <div
-                className="space-y-3 text-sm leading-relaxed transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                <p>Membership of The Club by Sarah Restrick is by application and invitation only. The Club reserves the right to accept or decline any application at its sole discretion.</p>
-                <p>Members must be over 21 years of age and demonstrate a commitment to professional excellence and community contribution.</p>
-                <p>Membership fees are non-refundable and payable annually in advance.</p>
-              </div>
-            </div>
+      {/* ── 01 · The Articles ───────────────────────────────────────── */}
+      <Chapter density="default" bg="ink">
+        <TracingBeam>
+          <div className="max-w-2xl">
+            <EditorialMeta number="01" label="The Articles" />
+            <h2 className="display-lg mt-12 mb-6">Seven things.</h2>
+            <p className="lede mb-16">
+              Read them once. Carry the spirit of them, not the wording. We&apos;ll point it out, kindly, if anything slips.
+            </p>
 
-            <div>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-xl mb-4 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                2. Conduct
-              </h2>
-              <div
-                className="space-y-3 text-sm leading-relaxed transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                <p>Members are expected to conduct themselves with professionalism, discretion, and respect at all times — both at club events and within our digital community.</p>
-                <p>Aggressive solicitation, uninvited sales approaches, or any behaviour that makes other members uncomfortable will not be tolerated.</p>
-                <p>The Club operates a zero-tolerance policy on discrimination of any kind.</p>
-              </div>
-            </div>
-
-            <div>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-xl mb-4 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                3. Confidentiality
-              </h2>
-              <div
-                className="space-y-3 text-sm leading-relaxed transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                <p>What is discussed at Club events and within our community is confidential. Members agree not to share business details, personal information, or conversations without explicit consent.</p>
-                <p>Photography at events is permitted for personal use only unless otherwise stated. Professional photography and social media content is managed exclusively by The Club&apos;s team.</p>
-              </div>
-            </div>
-
-            <div>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-xl mb-4 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                4. Events &amp; Bookings
-              </h2>
-              <div
-                className="space-y-3 text-sm leading-relaxed transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                <p>Event bookings are confirmed upon payment. Cancellations made more than 7 days before an event will receive a full refund. Cancellations within 7 days are non-refundable but may be transferable to another member.</p>
-                <p>Members may bring guests to selected events at the guest rate. Guests must adhere to all club rules during their attendance.</p>
-              </div>
-            </div>
-
-            <div>
-              <h2
-                className="font-[family-name:var(--font-heading)] text-xl mb-4 transition-colors duration-[400ms]"
-                style={{ color: warm.text }}
-              >
-                5. Termination
-              </h2>
-              <div
-                className="space-y-3 text-sm leading-relaxed transition-colors duration-[400ms]"
-                style={{ color: warm.textMuted }}
-              >
-                <p>The Club reserves the right to terminate any membership without refund if a member breaches these rules or acts in a manner that is detrimental to the club or its members.</p>
-                <p>Members may resign their membership at any time by providing written notice. No refund of remaining subscription is provided.</p>
-              </div>
-            </div>
-
-            <div
-              className="pt-6 transition-colors duration-[400ms]"
-              style={{ borderTop: `1px solid ${warm.border}` }}
-            >
-              <p className="text-xs" style={{ color: warm.textDim }}>
-                Last updated: January 2026. The Club reserves the right to amend these rules at any time.
-                Members will be notified of material changes.
-              </p>
-            </div>
+            <ol className="space-y-16">
+              {ARTICLES.map((a) => (
+                <li key={a.n} className="border-t border-bronze/20 pt-9">
+                  <div className="flex items-center gap-4 mb-5">
+                    <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light tabular-nums">
+                      Article {a.n}
+                    </span>
+                    <span className="h-px flex-1 bg-bronze/20" />
+                  </div>
+                  <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.75rem,2.6vw,2.5rem)] leading-tight text-ivory">
+                    {a.headline}
+                  </h3>
+                  <p className="mt-6 body-prose max-w-prose">{a.body}</p>
+                </li>
+              ))}
+            </ol>
           </div>
-        </div>
-      </section>
+        </TracingBeam>
+      </Chapter>
+
+      {/* ── 02 · Close pull quote ───────────────────────────────────── */}
+      <Chapter density="tight" bg="graphite">
+        <PullQuote attribution="Sarah Restrick" attributionDetail="Founder" align="center" size="xl">
+          These are the things that make the difference between an evening and a Tuesday.
+        </PullQuote>
+      </Chapter>
+
+      {/* ── 03 · Apply close ────────────────────────────────────────── */}
+      <ApplyClose />
     </>
   )
 }

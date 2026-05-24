@@ -32,6 +32,12 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'i.ytimg.com',
       },
+      {
+        // Cloudinary — used for hero video poster + any other media we
+        // host on their CDN. Free tier covers ~10GB/month bandwidth.
+        protocol: 'https',
+        hostname: 'res.cloudinary.com',
+      },
     ],
   },
 }

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { GalleryDetailContent } from './GalleryDetailContent'
+import { NightGalleryDetail } from '@/components/website/night/gallery/NightGalleryDetail'
+import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 
 export const revalidate = 60
 
@@ -41,5 +42,10 @@ export default async function GalleryDetailPage({ params }: Props) {
     .eq('gallery_id', gallery.id)
     .order('display_order', { ascending: true })
 
-  return <GalleryDetailContent gallery={gallery} photos={photos ?? []} />
+  return (
+    <>
+      <NightGalleryDetail gallery={gallery} photos={photos ?? []} />
+      <ApplyClose />
+    </>
+  )
 }

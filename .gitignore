@@ -33,3 +33,7 @@ dist-ssr
 # Tooling / build artifacts
 .claude/
 tsconfig.tsbuildinfo
+
+# Large source media — the actual hero video is hosted on Cloudinary.
+# Keep raw uploads out of the repo to avoid 99MB blobs in git history.
+public/hero-video.mp4
