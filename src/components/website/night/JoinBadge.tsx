@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 
 // Right-edge sticky "Become a Member" badge — visible across the
 // public site as a quiet persistent CTA. Vertically pinned to the
@@ -20,7 +21,12 @@ import { useEffect, useState } from 'react'
 
 const BADGE_IMAGE = '/theclub-section.png'
 
+// Hide the badge on any apply / sign-in flow — no point pointing the
+// user toward a page they're already on.
+const HIDDEN_ON: string[] = ['/membership-application', '/login']
+
 export function JoinBadge() {
+  const pathname = usePathname()
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -38,6 +44,10 @@ export function JoinBadge() {
       window.removeEventListener('resize', update)
     }
   }, [])
+
+  if (HIDDEN_ON.some((p) => pathname === p || pathname?.startsWith(p + '/'))) {
+    return null
+  }
 
   return (
     <Link

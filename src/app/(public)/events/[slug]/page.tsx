@@ -3,37 +3,28 @@ import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
-import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
-import { PullQuote } from '@/components/website/night/primitives/PullQuote'
-import { ApplyClose } from '@/components/website/night/home/ApplyClose'
-import { ArrowLeft, ArrowUpRight, Calendar, Clock, MapPin, Users } from 'lucide-react'
-import { formatDate, formatDateTime } from '@/lib/utils'
+import { Chapter } from '@/components/website/night/primitives/Chapter'
+import { Aurora } from '@/components/website/night/effects/Aurora'
+import { Reveal } from '@/components/website/night/effects/Reveal'
+import { BookingWidget } from '@/components/website/night/events/BookingWidget'
+import { ArrowLeft, Calendar, Clock, MapPin, Tag, Users } from 'lucide-react'
 
 export const revalidate = 60
 
 // ─────────────────────────────────────────────────────────────────────
-// Event detail — editorial spread for a single event.
+// /events/[slug] — editorial spread for a single event + guest booking.
 //
-// Structure:
-//   00 Hero            — large cover image with eyebrow + display title
-//   01 Lede + Details  — paragraph copy left, "particulars" sheet right
-//                        (date / time / venue / capacity / price)
-//   02 Agenda          — numbered itinerary if event.agenda exists
-//   03 Voices          — speakers if event.speakers exists
-//   04 Gallery         — gallery_urls for past events
-//   05 Close           — Reserve CTA for upcoming, Apply close for past
+//   01 Hero          — cover image, type tag, title, italic date/venue
+//   02 Detail spread — description left, sticky booking widget right
+//   03 Agenda        — itinerary block if event.agenda exists
+//   04 Past message  — for past events, skip booking and show archive
+//                       note instead
 // ─────────────────────────────────────────────────────────────────────
 
 interface AgendaItem {
   time?: string
   title?: string
   description?: string
-}
-
-interface SpeakerItem {
-  name?: string
-  title?: string
-  bio?: string
 }
 
 function parseJsonArray<T>(value: unknown): T[] {
@@ -54,17 +45,50 @@ function formatEventType(t: string) {
   return t.replace(/_/g, ' ').toLowerCase()
 }
 
+function formatDateLong(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function formatGBP(pence: number) {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: 0,
+  }).format(pence / 100)
+}
+
+function formatPriceWithVAT(pence: number | null | undefined) {
+  if (pence == null) return null
   if (pence === 0) return 'Complimentary'
-  try {
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency: 'GBP',
-      maximumFractionDigits: 0,
-    }).format(pence / 100)
-  } catch {
-    return `£${Math.round(pence / 100)}`
+  return `${formatGBP(pence)} + VAT`
+}
+
+// "Complimentary Members · £500 + VAT Guests" — same helper as on the
+// events listing card, kept duplicated here so the detail page stays
+// self-contained.
+function formatPriceLine(
+  member: number | null | undefined,
+  guest: number | null | undefined,
+) {
+  const m = formatPriceWithVAT(member)
+  const g = formatPriceWithVAT(guest)
+  if (m && g) {
+    if (member === guest) return g
+    return `${m} Members · ${g} Guests`
   }
+  return m || g || null
 }
 
 export default async function EventDetailPage({
@@ -79,19 +103,23 @@ export default async function EventDetailPage({
     .from('events')
     .select('*')
     .eq('slug', slug)
-    .in('status', ['published', 'live'])
+    .in('status', ['published', 'live', 'completed'])
     .single()
 
   if (!event) notFound()
 
   const isPast = new Date(event.start_date) < new Date()
   const agenda = parseJsonArray<AgendaItem>(event.agenda)
-  const speakers = parseJsonArray<SpeakerItem>(event.speakers)
 
   return (
     <>
-      {/* ── 00 · Hero ───────────────────────────────────────────────── */}
-      <section className="relative h-[80vh] min-h-[560px] w-full overflow-hidden bg-ink">
+      {/* ── 01 · Hero ───────────────────────────────────────────
+         min-h instead of h so the hero grows to fit long event
+         titles that wrap onto two lines. With the fixed h-[78vh]
+         the top of the headline was getting clipped on shorter
+         viewports because the flex container was anchoring content
+         to the bottom and the overflow-hidden cut the top off. */}
+      <section className="relative min-h-[78vh] w-full overflow-hidden bg-ink">
         {event.cover_image_url ? (
           <KenBurnsImage
             src={event.cover_image_url}
@@ -105,247 +133,242 @@ export default async function EventDetailPage({
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-graphite to-plum/30" />
         )}
-        <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
 
-        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          <Link
-            href="/events"
-            className="self-start inline-flex items-center gap-2 mb-8 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-ivory-soft hover:text-bronze-light transition-colors"
-          >
-            <ArrowLeft size={13} strokeWidth={1.5} />
-            All Events
-          </Link>
-          <EditorialMeta
-            label={formatEventType(event.event_type)}
-            stamp={isPast ? 'Past Event' : 'Forthcoming'}
-          />
-          <h1 className="display-xl mt-8 max-w-4xl">{event.title}</h1>
-          <div className="mt-9 flex flex-wrap items-center gap-7 text-ivory-soft">
-            <span className="inline-flex items-center gap-2.5">
-              <Calendar size={14} strokeWidth={1.5} className="text-bronze/80" />
-              <span className="text-[14px]">{formatDateTime(event.start_date)}</span>
-            </span>
-            {(event.venue_name || event.venue_city) && (
-              <span className="inline-flex items-center gap-2.5">
-                <MapPin size={14} strokeWidth={1.5} className="text-bronze/80" />
-                <span className="text-[14px]">
-                  {[event.venue_name, event.venue_city].filter(Boolean).join(', ')}
-                </span>
-              </span>
-            )}
-          </div>
+        <div className="relative z-10 min-h-[78vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
+          <Reveal type="up" delay={0}>
+            <Link
+              href="/events"
+              className="self-start inline-flex items-center gap-2 mb-9 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-ivory-soft hover:text-bronze-light transition-colors duration-300"
+            >
+              <ArrowLeft size={13} strokeWidth={1.5} />
+              All events
+            </Link>
+          </Reveal>
+          <Reveal type="up" delay={150}>
+            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+              {formatEventType(event.event_type)}
+              {isPast && <span className="text-slate-haze ml-3">· Archive</span>}
+            </p>
+          </Reveal>
+          {/* Hero title sized smaller than display-xl — long event
+             titles ("Members Dining · Leeds", "A Curated Evening at
+             City Tower") wrap to two lines and need room to breathe
+             without the descenders getting clipped at the top. */}
+          <Reveal type="clip" delay={250}>
+            <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4rem)] leading-[1.1] tracking-[-0.01em] text-ivory max-w-4xl">
+              {event.title}
+            </h1>
+          </Reveal>
+          <Reveal type="up" delay={500}>
+            <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.25vw,1.25rem)] text-ivory-soft mt-6 max-w-xl">
+              {formatDateLong(event.start_date)}
+              {(event.venue_name || event.venue_city) && (
+                <>
+                  {' · '}
+                  <em className="not-italic text-bronze-light">
+                    {[event.venue_name, event.venue_city].filter(Boolean).join(', ')}
+                  </em>
+                </>
+              )}
+            </p>
+          </Reveal>
         </div>
       </section>
 
-      {/* ── 01 · Lede + fixture sheet ──────────────────────────────── */}
+      {/* ── 02 · Detail + Booking widget ──────────────────────── */}
       <Chapter density="default" bg="ink">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
-          {/* Body prose */}
-          <div className="lg:col-span-7">
-            <EditorialMeta number="01" label="The Evening" />
-            <p className="lede mt-10 mb-10">
-              {event.description?.split('\n')[0] ??
-                'Details of this evening are shared with members closer to the date.'}
-            </p>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 max-w-[1400px] mx-auto">
+          {/* ── Editorial copy ────────────────────────────────── */}
+          <div className="lg:col-span-7 space-y-12">
             {event.description && (
-              <div className="body-prose space-y-6 whitespace-pre-line max-w-prose">
-                {event.description.split('\n').slice(1).join('\n')}
+              <Reveal type="up" delay={0}>
+                <div>
+                  <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
+                    The Evening
+                  </p>
+                  {/* Body text was 17/19px ivory-soft — bumped to 18/22
+                     and full ivory so it reads at a comfortable
+                     editorial register, not as fine print. */}
+                  <div className="font-[family-name:var(--font-editorial)] text-[clamp(1.125rem,1.4vw,1.375rem)] leading-[1.8] text-ivory space-y-6 max-w-prose">
+                    {event.description
+                      .split(/\n{2,}/)
+                      .map((para: string, i: number) => (
+                        <p key={i}>{para}</p>
+                      ))}
+                  </div>
+                </div>
+              </Reveal>
+            )}
+
+            {/* Particulars sheet */}
+            <Reveal type="up" delay={200}>
+              <div>
+                <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
+                  Particulars
+                </p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-7 gap-x-10 border-t border-graphite-line/50 pt-8">
+                  <Detail
+                    icon={Calendar}
+                    label="Date"
+                    value={formatDateLong(event.start_date)}
+                  />
+                  <Detail
+                    icon={Clock}
+                    label="Time"
+                    value={
+                      event.doors_open
+                        ? `Doors ${formatTime(event.doors_open)}${
+                            event.start_date ? ` · From ${formatTime(event.start_date)}` : ''
+                          }`
+                        : formatTime(event.start_date)
+                    }
+                  />
+                  {(event.venue_name || event.venue_address) && (
+                    <Detail
+                      icon={MapPin}
+                      label="Venue"
+                      value={
+                        [
+                          event.venue_name,
+                          event.venue_address,
+                          event.venue_city,
+                          event.venue_postcode,
+                        ]
+                          .filter(Boolean)
+                          .join(', ') || '—'
+                      }
+                    />
+                  )}
+                  {event.capacity != null && (
+                    <Detail
+                      icon={Users}
+                      label="Capacity"
+                      value={`${event.capacity} seats`}
+                    />
+                  )}
+                  {/* Price spans both columns at the bottom — the
+                     "Complimentary Members · £X + VAT Guests" line is
+                     too long for a single column. */}
+                  {formatPriceLine(
+                    event.member_price_pence,
+                    event.guest_price_pence,
+                  ) && (
+                    <div className="sm:col-span-2">
+                      <Detail
+                        icon={Tag}
+                        label="Price"
+                        value={
+                          formatPriceLine(
+                            event.member_price_pence,
+                            event.guest_price_pence,
+                          ) ?? ''
+                        }
+                      />
+                    </div>
+                  )}
+                </dl>
               </div>
+            </Reveal>
+
+            {/* Agenda */}
+            {agenda.length > 0 && (
+              <Reveal type="up" delay={300}>
+                <div>
+                  <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
+                    Agenda
+                  </p>
+                  <ol className="space-y-7 border-l border-bronze/25 pl-7">
+                    {agenda.map((item, i) => (
+                      <li key={i}>
+                        {item.time && (
+                          <p className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light tabular-nums">
+                            {item.time}
+                          </p>
+                        )}
+                        {item.title && (
+                          <p className="font-[family-name:var(--font-display)] text-[clamp(1.25rem,1.6vw,1.625rem)] text-ivory mt-2">
+                            {item.title}
+                          </p>
+                        )}
+                        {item.description && (
+                          <p className="mt-3 font-[family-name:var(--font-editorial)] italic text-[16px] leading-[1.7] text-ivory-soft">
+                            {item.description}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </Reveal>
             )}
           </div>
 
-          {/* Particulars sheet */}
+          {/* ── Booking widget (sticky on desktop) ────────────── */}
           <aside className="lg:col-span-5">
-            <div className="border border-graphite-line/80 bg-graphite p-8 sticky top-32">
-              <span className="eyebrow-quiet">Particulars</span>
-              <dl className="mt-7 space-y-5">
-                <DetailRow icon={Calendar} label="Date" value={formatDate(event.start_date)} />
-                {event.doors_open && (
-                  <DetailRow icon={Clock} label="Doors" value={formatDateTime(event.doors_open).split(', ')[1]} />
-                )}
-                {(event.venue_name || event.venue_city) && (
-                  <DetailRow
-                    icon={MapPin}
-                    label="Venue"
-                    value={[event.venue_name, event.venue_city, event.venue_address]
-                      .filter(Boolean)
-                      .join(', ')}
+            <div className="lg:sticky lg:top-32">
+              {isPast ? (
+                <PastNotice slug={event.slug} />
+              ) : (
+                <Reveal type="up" delay={0}>
+                  <BookingWidget
+                    event={{
+                      id: event.id,
+                      slug: event.slug,
+                      title: event.title,
+                      start_date: event.start_date,
+                      venue_name: event.venue_name,
+                      venue_city: event.venue_city,
+                      guest_price_pence: event.guest_price_pence,
+                      member_price_pence: event.member_price_pence,
+                    }}
                   />
-                )}
-                {event.capacity && (
-                  <DetailRow icon={Users} label="Capacity" value={`${event.capacity} guests`} />
-                )}
-              </dl>
-
-              {!isPast && (
-                <>
-                  <div className="mt-8 pt-8 border-t border-graphite-line/60">
-                    <div className="flex items-baseline justify-between mb-1">
-                      <span className="eyebrow-quiet">Members</span>
-                      <span className="font-[family-name:var(--font-display)] text-2xl text-bronze-light">
-                        {formatGBP(event.member_price_pence)}
-                      </span>
-                    </div>
-                    {event.guest_price_pence > 0 && (
-                      <div className="flex items-baseline justify-between mt-2">
-                        <span className="eyebrow-quiet">Guests</span>
-                        <span className="font-[family-name:var(--font-display)] text-lg text-ivory-soft">
-                          {formatGBP(event.guest_price_pence)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <Link
-                    href={`/portal/events/${event.id}`}
-                    className="mt-7 group w-full inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-bronze hover:bg-bronze-light rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.32em] text-ink transition-all duration-500"
-                  >
-                    Reserve a Place
-                    <ArrowUpRight
-                      size={13}
-                      strokeWidth={1.8}
-                      className="transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
-                    />
-                  </Link>
-                  <p className="mt-3 text-[11px] text-slate-haze text-center italic">
-                    Members only. Sign in to reserve.
-                  </p>
-                </>
-              )}
-
-              {isPast && (
-                <div className="mt-7 p-5 border border-graphite-line/60 text-center">
-                  <p className="font-[family-name:var(--font-editorial)] italic text-ivory-soft/80">
-                    This event has passed.
-                  </p>
-                  <Link
-                    href="/events"
-                    className="mt-3 inline-block text-[12px] text-bronze-light hover:text-ivory transition-colors"
-                  >
-                    See forthcoming events →
-                  </Link>
-                </div>
+                </Reveal>
               )}
             </div>
           </aside>
         </div>
       </Chapter>
 
-      {/* ── 02 · Agenda ────────────────────────────────────────────── */}
-      {agenda.length > 0 && (
-        <Chapter density="default" bg="graphite">
-          <div className="max-w-2xl mb-16">
-            <EditorialMeta number="02" label="The Agenda" />
-            <h2 className="display-md mt-10">The shape of the evening.</h2>
-          </div>
-          <ul className="divide-y divide-graphite-line/60 max-w-3xl">
-            {agenda.map((item, i) => (
-              <li key={i} className="grid grid-cols-12 gap-6 py-7">
-                <div className="col-span-3">
-                  <p className="font-[family-name:var(--font-meta)] text-[12px] uppercase tracking-[0.28em] text-bronze-light tabular-nums">
-                    {item.time ?? '—'}
-                  </p>
-                </div>
-                <div className="col-span-9">
-                  {item.title && (
-                    <h3 className="font-[family-name:var(--font-display)] text-xl text-ivory leading-tight">
-                      {item.title}
-                    </h3>
-                  )}
-                  {item.description && (
-                    <p className="mt-2 text-[14px] text-ivory-soft/85 leading-relaxed">
-                      {item.description}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Chapter>
-      )}
-
-      {/* ── 03 · Speakers ──────────────────────────────────────────── */}
-      {speakers.length > 0 && (
-        <Chapter density="default" bg="ink">
-          <div className="max-w-2xl mb-16">
-            <EditorialMeta number={agenda.length > 0 ? '03' : '02'} label="The Voices" />
-            <h2 className="display-md mt-10">Who you&apos;ll hear from.</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {speakers.map((sp, i) => (
-              <div key={i} className="border-t border-bronze/30 pt-6">
-                <p className="eyebrow-quiet">{`Voice ${String(i + 1).padStart(2, '0')}`}</p>
-                {sp.name && (
-                  <h3 className="mt-3 font-[family-name:var(--font-display)] text-xl text-ivory leading-tight">
-                    {sp.name}
-                  </h3>
-                )}
-                {sp.title && (
-                  <p className="mt-1 text-[12.5px] text-bronze-light uppercase tracking-[0.22em]">
-                    {sp.title}
-                  </p>
-                )}
-                {sp.bio && (
-                  <p className="mt-4 text-[14px] text-ivory-soft/85 leading-relaxed">{sp.bio}</p>
-                )}
+      {/* ── 03 · Gallery for past events ───────────────────── */}
+      {isPast &&
+        Array.isArray(event.gallery_urls) &&
+        event.gallery_urls.length > 0 && (
+          <Chapter density="tight" bg="graphite" className="relative">
+            <Aurora variant="soft" />
+            <div className="relative z-10">
+              <div className="max-w-3xl mx-auto text-center mb-14">
+                <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
+                  Captured
+                </p>
+                <h2 className="display-md">From the evening.</h2>
               </div>
-            ))}
-          </div>
-        </Chapter>
-      )}
-
-      {/* ── 04 · Gallery (past events only) ────────────────────────── */}
-      {isPast && event.gallery_urls && event.gallery_urls.length > 0 && (
-        <Chapter density="default" bg="ink">
-          <div className="max-w-2xl mb-12">
-            <EditorialMeta label="From the Night" />
-            <h2 className="display-md mt-10">A few frames.</h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-            {event.gallery_urls.slice(0, 6).map((url, i) => (
-              <div key={i} className="relative aspect-square overflow-hidden bg-graphite">
-                <Image
-                  src={url}
-                  alt={`${event.title} — frame ${i + 1}`}
-                  fill
-                  className="object-cover transition-transform duration-700 hover:scale-[1.06]"
-                  sizes="(min-width: 768px) 33vw, 50vw"
-                />
-                <div className="film-grain-night" />
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {(event.gallery_urls as string[]).map((url, i) => (
+                  <div
+                    key={i}
+                    className="relative aspect-square overflow-hidden border border-graphite-line/40"
+                  >
+                    <Image
+                      src={url}
+                      alt=""
+                      fill
+                      sizes="(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
+                      className="object-cover"
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Chapter>
-      )}
-
-      {/* ── 05 · Close ─────────────────────────────────────────────── */}
-      {isPast ? (
-        <ApplyClose />
-      ) : (
-        <Chapter density="tight" bg="plum">
-          <PullQuote attribution="The Club" align="center" size="lg">
-            Reserve early. The room is small, and the night is finite.
-          </PullQuote>
-          <div className="flex justify-center mt-2">
-            <Link
-              href={`/portal/events/${event.id}`}
-              className="group inline-flex items-center gap-3 px-9 py-4 border border-bronze hover:bg-bronze rounded-full font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-ivory hover:text-ink transition-all duration-500"
-            >
-              Reserve a Place
-              <ArrowUpRight
-                size={15}
-                strokeWidth={1.5}
-                className="transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
-              />
-            </Link>
-          </div>
-        </Chapter>
-      )}
+            </div>
+          </Chapter>
+        )}
     </>
   )
 }
 
-function DetailRow({
+// ─── Helpers ────────────────────────────────────────────────────────
+
+function Detail({
   icon: Icon,
   label,
   value,
@@ -355,16 +378,41 @@ function DetailRow({
   value: string
 }) {
   return (
-    <div className="flex items-start gap-4">
-      <div className="w-8 h-8 mt-0.5 rounded-full bg-bronze/10 border border-bronze/25 flex items-center justify-center flex-shrink-0">
-        <Icon size={13} strokeWidth={1.5} className="text-bronze-light" />
+    <div className="flex items-start gap-5">
+      <div className="w-11 h-11 rounded-full bg-bronze/10 border border-bronze/35 flex items-center justify-center flex-shrink-0">
+        <Icon size={16} strokeWidth={1.5} className="text-bronze-light" />
       </div>
-      <div>
-        <dt className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze">
+      <div className="min-w-0 pt-0.5">
+        <p className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-slate-haze">
           {label}
-        </dt>
-        <dd className="mt-1 text-[14px] text-ivory leading-snug">{value}</dd>
+        </p>
+        <p className="mt-2 font-[family-name:var(--font-editorial)] text-[17px] leading-[1.5] text-ivory break-words">
+          {value}
+        </p>
       </div>
+    </div>
+  )
+}
+
+function PastNotice({ slug }: { slug: string }) {
+  return (
+    <div className="border border-graphite-line/50 bg-graphite/40 backdrop-blur-sm rounded-2xl p-7 lg:p-8">
+      <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
+        Archive
+      </p>
+      <p className="font-[family-name:var(--font-editorial)] italic text-[15.5px] leading-[1.7] text-ivory-soft">
+        This evening has already taken place. Members can request a recap through the portal — and
+        the team keeps a quiet record for those who were there.
+      </p>
+      <Link
+        href="/events"
+        className="mt-6 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
+        // slug kept in scope so future "next event" link is one swap away
+        aria-label={`Browse other evenings — currently viewing ${slug}`}
+      >
+        See upcoming evenings
+        <ArrowLeft size={13} strokeWidth={1.5} className="rotate-180" />
+      </Link>
     </div>
   )
 }

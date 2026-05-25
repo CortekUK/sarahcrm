@@ -1,286 +1,378 @@
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import Image from 'next/image'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
-import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
-import { PullQuote } from '@/components/website/night/primitives/PullQuote'
-import { BentoGrid, BentoTile } from '@/components/website/night/effects/BentoGrid'
-import { ApplyClose } from '@/components/website/night/home/ApplyClose'
-import { StickyScrollReveal, type RevealScene } from '@/components/website/night/effects/StickyScrollReveal'
-import {
-  Calendar,
-  Handshake,
-  KeyRound,
-  MessageCircleHeart,
-  Sparkles,
-  Wine,
-  ArrowUpRight,
-} from 'lucide-react'
+import { Chapter } from '@/components/website/night/primitives/Chapter'
+import { Aurora } from '@/components/website/night/effects/Aurora'
+import { Reveal } from '@/components/website/night/effects/Reveal'
+import { TierExpandRow } from '@/components/website/night/memberships/TierExpandRow'
+import { BenefitsBento } from '@/components/website/night/memberships/BenefitsBento'
+import { Check, Minus } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────
-// Memberships — application page restyled for the night palette.
-// Editorial-magazine structure:
-//   00 Hero       — full-bleed photo + display headline
-//   01 Tiers      — StickyScrollReveal cycling through tier_1/2/3
-//   02 Included   — bento grid of what membership covers
-//   03 Process    — three numbered steps (Apply / Conversation / Decision)
-//   04 Pull quote — Sarah on who it's for
-//   05 Apply close
+// /memberships — premium rebuild.
+//
+// Voice copy is verbatim from Sarah's reference screenshots.
+// Composition is our own; the previous draft borrowed the reference's
+// 3×3 card grid + 3-in-a-row pricing strip, which felt like a catalogue,
+// not a private members club. This version:
+//
+//   01 Hero               — full-bleed, italic lead-in line
+//   02 Benefits           — 9 alternating editorial chapters (image one
+//                           side, numeral + title + italic body the other)
+//                           — pure magazine vocabulary, every benefit gets
+//                           a real moment instead of being a 1/9th tile
+//   03 Tier scenes        — three atmospheric full-bleed plates, each
+//                           70vh tall, image bg with editorial overlay.
+//                           No card chrome, no "The X Membership"
+//                           eyebrow — just the price, the lede, the
+//                           features, the Apply CTA. Reads like three
+//                           deliberate scenes, not three rate cards.
+//   04 Comparison         — editorial spec sheet, generous row spacing
+//   05 Closing tagline    — brand line over atmospheric still
+//   06 Apply close (shared)
 // ─────────────────────────────────────────────────────────────────────
 
-const HERO_IMAGE =
-  'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&w=2400&q=85'
+const HERO_IMAGE = '/gallery/bigland.png' // PLACEHOLDER
 
-// Editorial framing — what each tier means — is brand voice, not data.
-// Pricing comes from the DB.
-const TIER_COPY: Record<
-  string,
-  { image: string; tagline: string; description: string; quota: string }
-> = {
-  tier_1: {
-    image: 'https://images.unsplash.com/photo-1519214605650-76a613ee3245?auto=format&fit=crop&w=1800&q=85',
-    tagline: 'For the curious arrival.',
-    description:
-      'A measured introduction. Three curated members a year, four events a season, and a standing invitation to discover the rooms that suit you. The right way in.',
-    quota: 'Three introductions a year',
+const BENEFITS = [
+  {
+    n: 'I',
+    title: 'Access to The Club Network',
+    body:
+      "Unlock privileged access to The Club's elite network of members, connecting you with key industry leaders and high-net-worth professionals for unmatched business opportunities.",
+    image: '/gallery/bigland.png',
   },
-  tier_2: {
-    image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1800&q=85',
-    tagline: 'For the settled member.',
-    description:
-      "The middle voice — five introductions a year, the full event calendar, and access to the smaller, quieter gatherings we don't advertise. Most members find their pace here.",
-    quota: 'Five introductions a year',
+  {
+    n: 'II',
+    title: 'Choose Your Membership',
+    body:
+      'Experience the freedom of choice with our flexible membership options, designed to cater to your individual preferences, ensuring a tailored and versatile networking experience.',
+    image: '/gallery/land1.png',
   },
-  tier_3: {
-    image: 'https://images.unsplash.com/photo-1559329007-40df8a9345d8?auto=format&fit=crop&w=1800&q=85',
-    tagline: 'For the architects.',
-    description:
-      "Unlimited introductions, dedicated concierge, and a seat at the table when we shape the next season. The Club's most engaged voices live here, often as hosts.",
-    quota: 'Unlimited introductions, concierge',
+  {
+    n: 'III',
+    title: 'Advertise Your Business',
+    body:
+      'Elevate your visibility with the opportunity to showcase your brand through strategic advertising on our member directory and website, reaching a discerning audience of influential professionals and decision-makers.',
+    image: '/gallery/land2.png',
   },
-}
+  {
+    n: 'IV',
+    title: 'Access to The Club Events',
+    body:
+      "Enjoy privileged access to The Club's exclusive members-only events, curated to provide a premium networking experience and unique opportunities for building meaningful connections within our distinguished community.",
+    image: '/gallery/land3.png',
+  },
+  {
+    n: 'V',
+    title: 'Monthly Members "Work In"',
+    body:
+      'Participate in our monthly member work-in sessions, designed to foster collaboration and productivity, providing a dedicated space for members to engage, share insights, and advance their professional endeavors together.',
+    image: '/gallery/potrait.png',
+  },
+  {
+    n: 'VI',
+    title: 'Private Dining Experiences',
+    body:
+      'Indulge in exquisite private dining experiences at exclusive member rates, curated to elevate your culinary journey and provide a luxurious backdrop for building connections and hosting memorable business gatherings.',
+    image: '/theclub-section.png',
+  },
+  {
+    n: 'VII',
+    title: 'Bespoke & Ticketed Events',
+    body:
+      'Unlock exclusive member rates for both bespoke and ticketed events, ensuring you have privileged access to a diverse range of curated experiences, from intimate gatherings to high-profile events, designed to enrich your networking journey.',
+    image: '/theapproch-image.png',
+  },
+  {
+    n: 'VIII',
+    title: 'Curated Sponsored Events',
+    body:
+      'Enhance your brand visibility and influence by sponsoring curated events included in our Business and Corporate memberships. Position your business at the forefront of exclusive gatherings, establishing a powerful presence within our elite community.',
+    image: '/manchester.png',
+  },
+  {
+    n: 'IX',
+    title: 'Corporate Luxury Concierge',
+    body:
+      'Experience the pinnacle of service with our Corporate Luxury Concierge, a premier offering exclusively included in our Business and Corporate memberships. Enjoy personalized assistance to complement your professional lifestyle.',
+    image: '/gallery/bigland.png',
+  },
+] as const
 
-const INCLUDED = [
+const TIERS = [
   {
-    icon: Calendar,
-    eyebrow: 'Calendar',
-    title: 'A season of invitations',
-    detail: "Twelve curated nights a year, plus the smaller gatherings we don't list publicly.",
+    name: 'Individual',
+    price: '£2,500',
+    contract: '12 months · plus VAT',
+    image: '/theclub-section.png',
+    lede:
+      'A single representation in the room. Quiet, considered, and built for the founder who keeps their own calendar.',
+    features: [
+      '1 representation',
+      '12 month minimum term',
+      'Businesses can take multiple individual memberships',
+      '6 Member tickets',
+      '1 Ticket at Member Rate for paid events',
+    ],
+    href: '/membership-application?tier=individual',
   },
   {
-    icon: Handshake,
-    eyebrow: 'Introductions',
-    title: 'A real address book',
-    detail: "Hand-made introductions, with Sarah's personal note. Never algorithmic, never bulk.",
+    name: 'Business',
+    price: '£15,000',
+    contract: '12 months · plus VAT',
+    image: '/gallery/land2.png',
+    lede:
+      'Up to four seats with shared invitations, a brand showcase evening, and the corporate concierge on call.',
+    features: [
+      'Up to 4 representations / guests',
+      '12 month minimum term',
+      '6 Member tickets',
+      '4 Tickets at Member rates for paid events',
+      '1 brand showcase event with curated guestlist of prospects (additional fees apply)',
+      'Corporate & luxury concierge',
+    ],
+    href: '/membership-application?tier=business',
   },
   {
-    icon: Wine,
-    eyebrow: 'Hospitality',
-    title: 'Off-menu access',
-    detail: 'Standing tables at the restaurants, hotels and clubs we partner with — by name.',
+    name: 'Corporate',
+    price: '£30,000',
+    contract: '12 months · plus VAT',
+    image: '/gallery/land3.png',
+    lede:
+      'A full partnership — your team across the calendar, a sponsorship moment, and a showcase evening of your own.',
+    features: [
+      'Up to 4 representations / guests',
+      '12 month minimum term',
+      '6 Member tickets',
+      '4 Tickets at Member rates for paid events',
+      '1 brand showcase event with curated guestlist of prospects (additional fees apply)',
+      '1 sponsorship opportunity included',
+      'Corporate & luxury concierge',
+    ],
+    href: '/membership-application?tier=corporate',
+  },
+] as const
+
+const COMPARISON: { label: string; cells: [boolean, boolean, boolean] }[] = [
+  { label: 'Access to The Club network', cells: [true, true, true] },
+  { label: 'Single membership for one individual', cells: [true, false, false] },
+  { label: 'Up to 4 memberships', cells: [false, true, true] },
+  { label: "Advertising on Member's Directory and website", cells: [true, true, true] },
+  { label: "Access to The Club Member's Events", cells: [true, true, true] },
+  { label: '"Work in" Mondays with The Club members', cells: [true, true, true] },
+  { label: 'Exclusive member rates for private dining experiences', cells: [true, true, true] },
+  { label: 'Exclusive members rates for bespoke and ticketed events', cells: [true, true, true] },
+  { label: 'Access to The Club concierge service', cells: [false, true, true] },
+  {
+    label: '1 event curated for your business with sponsorship (all costs included)',
+    cells: [false, true, false],
   },
   {
-    icon: MessageCircleHeart,
-    eyebrow: 'Concierge',
-    title: 'A person, not a portal',
-    detail: 'When you need a reservation, a recommendation, or someone to talk to — a real one.',
+    label:
+      '4 events curated for your business with sponsorship (based on agreed budget and requirements)',
+    cells: [false, false, true],
+  },
+  { label: 'Bespoke marketing campaign', cells: [false, false, true] },
+  {
+    label: 'Exclusivity — only one business per sector during your membership term',
+    cells: [false, false, true],
   },
   {
-    icon: KeyRound,
-    eyebrow: 'Private events',
-    title: 'Spaces for hire',
-    detail: 'Members host with us at preferred terms. We close rooms, set tables, leave the rest to you.',
-  },
-  {
-    icon: Sparkles,
-    eyebrow: 'The room',
-    title: 'A standard, not a guest list',
-    detail: 'Every member is here because the rest of the room wants them to be. That changes the evening.',
+    label: 'Top level concierge services including designated team and guest management',
+    cells: [false, false, true],
   },
 ]
 
-const PROCESS = [
-  {
-    step: '01',
-    title: 'Apply',
-    body: 'A short form. Tell us who you are, what you do, and who introduced you. We read each one personally.',
-  },
-  {
-    step: '02',
-    title: 'A Conversation',
-    body: 'If your application reads, we invite you to coffee or a phone call. Twenty minutes, no script, no charge.',
-  },
-  {
-    step: '03',
-    title: 'A Decision',
-    body: "Within seven days of our conversation, we'll either welcome you in or — with respect — say not just yet.",
-  },
-]
-
-function formatGBP(pence: number): string {
-  try {
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency: 'GBP',
-      maximumFractionDigits: 0,
-    }).format(pence / 100)
-  } catch {
-    return `£${Math.round(pence / 100)}`
-  }
-}
-
-export default async function MembershipsPage() {
-  const supabase = await createClient()
-  const { data: tiers } = await supabase
-    .from('membership_tiers')
-    .select('id, tier, membership_type, name, price_pence, billing_interval, intro_quota')
-    .eq('is_active', true)
-    .eq('membership_type', 'individual')
-    .eq('billing_interval', 'month')
-    .order('price_pence', { ascending: true })
-
-  const scenes: RevealScene[] = (tiers ?? []).map((t) => {
-    const copy = TIER_COPY[t.tier] ?? {
-      image: HERO_IMAGE,
-      tagline: '',
-      description: '',
-      quota: '',
-    }
-    return {
-      key: t.id,
-      visual: (
-        <KenBurnsImage src={copy.image} alt={t.name} motion="in" duration={28} className="w-full h-full" />
-      ),
-      eyebrow: `${t.tier.replace('_', ' ').toUpperCase()} · ${formatGBP(t.price_pence)} / month`,
-      title: copy.tagline || t.name,
-      body: (
-        <>
-          <p>{copy.description}</p>
-          <div className="mt-8 flex items-center gap-3 text-bronze-light">
-            <span className="h-px w-10 bg-bronze/50" />
-            <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.28em]">
-              {copy.quota}
-            </span>
-          </div>
-        </>
-      ),
-    }
-  })
-
+export default function MembershipsPage() {
   return (
     <>
-      {/* ── 00 · Hero ───────────────────────────────────────────────── */}
-      <section className="relative h-[80vh] min-h-[560px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage src={HERO_IMAGE} alt="A members' room" motion="in" duration={32} overlay={0.6} priority className="absolute inset-0" />
-        <div className="absolute inset-x-0 bottom-0 h-[40%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
-        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          <EditorialMeta label="Membership" stamp="Application Only" />
-          <h1 className="display-xl mt-8 max-w-4xl">Membership is by invitation.</h1>
-          <p className="lede mt-7 max-w-xl">
-            We don&apos;t publish a price list to lead with. We publish one because, eventually, you&apos;ll ask.
-          </p>
+      {/* ── 01 · Hero ─────────────────────────────────────────────── */}
+      <section className="relative h-[78vh] min-h-[520px] w-full overflow-hidden bg-ink">
+        <KenBurnsImage
+          src={HERO_IMAGE}
+          alt="A members' evening"
+          motion="in"
+          duration={32}
+          overlay={0.55}
+          priority
+          className="absolute inset-0"
+        />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
+          <Reveal type="up" delay={0}>
+            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+              At The Club
+            </p>
+          </Reveal>
+          <Reveal type="clip" delay={150}>
+            <h1 className="display-xl max-w-4xl">Memberships.</h1>
+          </Reveal>
+          <Reveal type="up" delay={400}>
+            <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.125rem,1.4vw,1.5rem)] text-ivory-soft mt-6 max-w-xl">
+              Three ways to belong. Each is a 12 month decision.
+            </p>
+          </Reveal>
         </div>
       </section>
 
-      {/* ── 01 · Tiers (sticky scroll reveal) ───────────────────────── */}
-      <Chapter density="default" bg="ink">
-        <div className="max-w-2xl mb-16">
-          <EditorialMeta number="01" label="Three Tiers" />
-          <h2 className="display-lg mt-10">A pace for every member.</h2>
-          <p className="lede mt-7 max-w-xl">
-            Each tier is a different relationship with The Club. Most members settle into the middle voice; a few belong at either end.
-          </p>
-        </div>
-
-        {scenes.length > 0 ? (
-          <StickyScrollReveal scenes={scenes} visualBg="graphite" />
-        ) : (
-          <div className="text-slate-haze italic text-center py-20">
-            Tier information is being updated. Please check back shortly.
-          </div>
-        )}
-      </Chapter>
-
-      {/* ── 02 · What's included ─────────────────────────────────────── */}
-      <Chapter density="default" bg="graphite">
-        <div className="max-w-2xl mb-16">
-          <EditorialMeta number="02" label="Included" />
-          <h2 className="display-lg mt-10">What membership covers.</h2>
-        </div>
-
-        <BentoGrid>
-          {INCLUDED.map((item) => (
-            <BentoTile
-              key={item.eyebrow}
-              span="col-span-12 md:col-span-6 lg:col-span-4 row-span-1"
-              hover="none"
-            >
-              <div className="absolute inset-0 p-7 md:p-9 flex flex-col">
-                <div className="w-10 h-10 rounded-full bg-bronze/10 border border-bronze/30 flex items-center justify-center mb-7">
-                  <item.icon size={16} strokeWidth={1.4} className="text-bronze-light" />
-                </div>
-                <span className="eyebrow-quiet">{item.eyebrow}</span>
-                <h3 className="mt-3 font-[family-name:var(--font-display)] text-[clamp(1.25rem,1.5vw,1.5rem)] leading-tight text-ivory">
-                  {item.title}
-                </h3>
-                <p className="mt-4 text-[13.5px] text-ivory-soft/80 leading-relaxed">
-                  {item.detail}
-                </p>
-              </div>
-            </BentoTile>
-          ))}
-        </BentoGrid>
-      </Chapter>
-
-      {/* ── 03 · The Process ─────────────────────────────────────────── */}
-      <Chapter density="default" bg="ink">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
-          <div className="lg:col-span-4">
-            <EditorialMeta number="03" label="The Process" />
-            <h2 className="display-md mt-10">Three quiet steps.</h2>
-            <p className="body-prose mt-6 max-w-md">
-              From application to welcome takes between five and ten days. We don&apos;t batch decisions.
-            </p>
-            <Link
-              href="/membership-application"
-              className="mt-10 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300 group"
-            >
-              Begin an application
-              <ArrowUpRight
-                size={14}
-                strokeWidth={1.5}
-                className="transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
-              />
-            </Link>
-          </div>
-          <div className="lg:col-span-8 space-y-12">
-            {PROCESS.map((p) => (
-              <div key={p.step} className="grid grid-cols-12 gap-6 border-t border-graphite-line pt-10">
-                <div className="col-span-2">
-                  <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light tabular-nums">
-                    {p.step}
-                  </span>
-                </div>
-                <div className="col-span-10">
-                  <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2vw,2rem)] text-ivory leading-tight">
-                    {p.title}
-                  </h3>
-                  <p className="mt-3 body-prose max-w-prose">{p.body}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Chapter>
-
-      {/* ── 04 · Sarah's line ────────────────────────────────────────── */}
+      {/* ── 02 · Benefits — glowing-border bento ───────────────────
+         9 benefits in an asymmetric 12-col bento. Each tile has a
+         bronze conic-gradient border that spins on hover (see
+         `.glow-border` in globals.css). Larger tiles get a faded
+         image background. Reads as an editorial bento, not a
+         catalogue grid. `density="tight"` here trims the otherwise
+         excessive vertical gap between the hero and this section. */}
       <Chapter density="tight" bg="ink">
-        <PullQuote attribution="Sarah Restrick" attributionDetail="Founder" align="center" size="xl">
-          The Club isn&apos;t for everyone, and that&apos;s why everyone in it wants to be here.
-        </PullQuote>
+        <div className="max-w-3xl mx-auto text-center mb-12 lg:mb-14">
+          <Reveal type="up" delay={0}>
+            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+              What you receive
+            </p>
+          </Reveal>
+          <Reveal type="clip" delay={150}>
+            <h2 className="display-md">Membership benefits.</h2>
+          </Reveal>
+          <Reveal type="up" delay={350}>
+            <p className="mt-8 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
+              Discover exclusive membership options and benefits at The Club, tailored to suit your
+              needs. Whether as an individual or business entity, our memberships offer excellent
+              opportunities for connections, sponsored events, and luxury concierge services.
+            </p>
+          </Reveal>
+        </div>
+
+        <Reveal type="up" delay={0}>
+          <BenefitsBento items={BENEFITS} />
+        </Reveal>
       </Chapter>
 
-      {/* ── 05 · Apply close ─────────────────────────────────────────── */}
-      <ApplyClose />
+      {/* ── 03 · Tier expand row ─────────────────────────────────
+         Three equal cards in a row. Hovering any one expands it to
+         100% width and visually overlaps the other two; mouse-leave
+         returns it to slot. Cursor-X tracking on the container makes
+         the expansion follow whichever third the cursor is in, so
+         switching between expanded tiers feels fluid instead of
+         requiring the user to leave the row first. Mobile falls back
+         to stacked full-content cards.
+         `density="tight"` here (matching Benefits) trims the
+         stacked padding that was leaving a big dead zone between
+         the two sections. */}
+      <Chapter density="tight" bg="ink">
+        <div className="max-w-3xl mx-auto text-center mb-16 lg:mb-20">
+          <Reveal type="up" delay={0}>
+            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+              Choose your tier
+            </p>
+          </Reveal>
+          <Reveal type="clip" delay={150}>
+            <h2 className="display-md">Membership types.</h2>
+          </Reveal>
+          <Reveal type="up" delay={350}>
+            <p className="mt-8 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
+              Explore our Individual, Business, and Corporate memberships, each designed with
+              unique benefits to enhance your networking journey. From single representatives to
+              comprehensive corporate packages, The Club provides a platform for meaningful
+              connections and exclusive experiences.
+            </p>
+          </Reveal>
+        </div>
+
+        <Reveal type="up" delay={0}>
+          <TierExpandRow tiers={TIERS} />
+        </Reveal>
+      </Chapter>
+
+      {/* ── 04 · Comparison ───────────────────────────────────────
+         Editorial spec sheet — generous row height, hairline rules,
+         bronze ticks. Sits on graphite so it visually separates from
+         the tier scenes above. */}
+      <Chapter density="default" bg="graphite" className="relative">
+        <Aurora variant="soft" />
+        <div className="relative z-10">
+          <div className="max-w-3xl mx-auto text-center mb-20">
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                At a glance
+              </p>
+            </Reveal>
+            <Reveal type="clip" delay={150}>
+              <h2 className="display-md">Membership comparison.</h2>
+            </Reveal>
+            <Reveal type="up" delay={350}>
+              <p className="mt-8 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
+                Explore our membership benefits at a glance with our comprehensive table. Easily
+                compare the exclusive offerings of our Individual, Business, and Corporate
+                memberships to find the perfect fit for your networking goals.
+              </p>
+            </Reveal>
+          </div>
+
+          <Reveal type="up" delay={0}>
+            <ComparisonTable />
+          </Reveal>
+        </div>
+      </Chapter>
+
     </>
+  )
+}
+
+// ─── Comparison table — editorial spec sheet ───────────────────────
+
+function ComparisonTable() {
+  return (
+    <div className="max-w-5xl mx-auto overflow-x-auto">
+      <table className="w-full text-left border-collapse min-w-[720px]">
+        <thead>
+          <tr>
+            <th className="w-1/2 pb-8 align-bottom" />
+            {(['Individual', 'Business', 'Corporate'] as const).map((tier) => (
+              <th key={tier} className="pb-8 text-center align-bottom">
+                <p className="font-[family-name:var(--font-display)] text-[clamp(1rem,1.2vw,1.125rem)] text-ivory leading-tight">
+                  {tier}
+                </p>
+                <span className="block h-px w-12 bg-bronze/65 mx-auto mt-5" />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {COMPARISON.map((row, i) => (
+            <tr
+              key={row.label}
+              className={cn(
+                'border-t border-graphite-line/40 transition-colors duration-300 hover:bg-bronze/[0.04]',
+                i === COMPARISON.length - 1 && 'border-b',
+              )}
+            >
+              <td className="py-6 pr-8 font-[family-name:var(--font-editorial)] text-[16px] leading-[1.6] text-ivory">
+                {row.label}
+              </td>
+              {row.cells.map((on, j) => (
+                <td key={j} className="py-6 text-center">
+                  {on ? (
+                    <span
+                      aria-label="Included"
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-bronze/15 border border-bronze/55 text-bronze-light"
+                    >
+                      <Check size={14} strokeWidth={2} />
+                    </span>
+                  ) : (
+                    <span
+                      aria-label="Not included"
+                      className="inline-flex items-center justify-center w-8 h-8 text-slate-dim"
+                    >
+                      <Minus size={14} strokeWidth={1.5} />
+                    </span>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

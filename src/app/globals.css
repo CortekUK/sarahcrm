@@ -180,6 +180,39 @@
   color: inherit;
 }
 
+/* Chrome / Edge autofill override — the browser forces a yellow/white
+   background + dark text on autofilled inputs, destroying the editorial
+   dark theme.
+
+   The classic "inset box-shadow ink" trick paints a flat block which
+   becomes visible whenever the page background isn't perfectly uniform
+   (the Aurora gradient under the form area is exactly this case — it
+   varies subtly across the field rect, so a flat ink block reads as a
+   filled box).
+
+   Instead, use `background-clip: text` to confine the autofill paint to
+   only the glyph silhouettes — the field rectangle stays genuinely
+   transparent and inherits whatever's painted behind it. Paired with
+   `-webkit-text-fill-color` to override the autofill text colour back
+   to ivory, this leaves no visible "filled box" artefact at all. */
+.theme-night input:-webkit-autofill,
+.theme-night input:-webkit-autofill:hover,
+.theme-night input:-webkit-autofill:focus,
+.theme-night input:-webkit-autofill:active,
+.theme-night textarea:-webkit-autofill,
+.theme-night textarea:-webkit-autofill:hover,
+.theme-night textarea:-webkit-autofill:focus,
+.theme-night select:-webkit-autofill,
+.theme-night select:-webkit-autofill:hover,
+.theme-night select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-ivory) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  caret-color: var(--color-ivory) !important;
+  transition: background-color 99999s ease-in-out 0s,
+    color 99999s ease-in-out 0s;
+}
+
 .theme-night ::selection {
   background: var(--color-bronze);
   color: var(--color-ink);
@@ -308,7 +341,12 @@
   will-change: clip-path, transform;
 }
 .reveal-clip.is-revealed {
-  clip-path: inset(0 0 0 0);
+  /* Negative bottom inset lets descenders ("g", "y", "p") render
+     outside the element's content box without being clipped — the
+     headline classes (display-md, display-lg) use a very tight
+     line-height of ~1.05 for editorial stacking, which means
+     descenders normally bleed past the bounding box. */
+  clip-path: inset(-0.05em 0 -0.3em 0);
   transform: translateY(0);
 }
 
@@ -567,6 +605,170 @@ h1, h2, h3, h4, h5, h6 {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+/* Aceternity-style glowing border — used on the membership benefits
+   bento tiles. A conic-gradient sits behind the card, masked to only
+   show as a 1px ring around the edge. At rest the ring is bronze
+   but dim (35%). On hover it brightens AND begins rotating, sweeping
+   a brighter bronze arc around the card like a spotlight.
+   @property declares --bg-angle as a true CSS angle so it can be
+   interpolated by a keyframe animation. */
+@property --bg-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes bg-spin {
+  to {
+    --bg-angle: 360deg;
+  }
+}
+
+.glow-border {
+  position: relative;
+}
+
+.glow-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--bg-angle, 0deg),
+    transparent 0deg,
+    rgba(192, 152, 112, 0.95) 90deg,
+    rgba(168, 123, 79, 0.4) 180deg,
+    transparent 270deg
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.35;
+  transition: opacity 400ms ease-out;
+}
+
+.glow-border:hover::before {
+  opacity: 1;
+  animation: bg-spin 4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-border:hover::before {
+    animation: none;
+  }
+}
+
+/* Membership form step indicator — slow bronze pulse on the segment
+   leaving the active step. Opacity oscillation paired with the
+   element's inline box-shadow gives the line a quiet "blinking glow"
+   that signals forward motion without screaming. */
+@keyframes membership-pulse {
+  0%, 100% {
+    opacity: 0.45;
+    filter: brightness(0.9);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.3);
+  }
+}
+.animate-membership-pulse {
+  animation: membership-pulse 1.8s ease-in-out infinite;
+}
+
+/* Receipt panel unfold — used when the selected payment card on the
+   membership application expands to show its order summary. Fades in
+   while sliding down slightly so the unfurl reads as the card opening
+   rather than a new element popping in. */
+@keyframes receipt-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-receipt-unfold {
+  animation: receipt-unfold 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Gallery featured carousel — vertical marquee feel for the right
+   column of small tiles. Each new tile slides up from below and fades
+   in. Stagger via inline animation-delay so the four right tiles
+   cascade rather than landing together. The big featured tile uses
+   `gallery-feature-fade` to crossfade as the active item changes. */
+@keyframes gallery-tile-rise {
+  from {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-gallery-tile-rise {
+  animation: gallery-tile-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes gallery-feature-fade {
+  from {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-gallery-feature-fade {
+  animation: gallery-feature-fade 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Progress bar fill — used by the featured gallery carousel's
+   Instagram-style indicator bars at the bottom of the big tile.
+   Duration matches the carousel's auto-rotate interval (3s) so the
+   fill completes exactly as the next slide takes over. */
+@keyframes bar-fill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+.animate-bar-fill {
+  animation: bar-fill 3s linear forwards;
+}
+
+/* Photo pop-in — used by the /gallery/[slug] photo bento as tiles
+   enter the viewport. Slight overshoot in the easing curve gives the
+   "pop" feel; pairs naturally with IntersectionObserver-triggered
+   reveals. */
+@keyframes photo-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.82) translateY(18px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.03) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.animate-photo-pop-in {
+  animation: photo-pop-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Hide scrollbar */

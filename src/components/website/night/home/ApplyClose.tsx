@@ -77,7 +77,7 @@ export function ApplyClose() {
 
             <Reveal type="up" delay={700} className="mt-10">
               <PremiumButton as="link" href="/membership-application">
-                Begin Application
+                Apply for Membership
               </PremiumButton>
             </Reveal>
           </div>
