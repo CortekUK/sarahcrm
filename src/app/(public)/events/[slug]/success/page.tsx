@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useEffect, useState } from 'react'
+import { Suspense, use, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
@@ -11,12 +11,23 @@ import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
 // row is inserted, without depending on the Stripe webhook (which
 // doesn't fire in localhost without a tunnel).
 
+// Next 15 requires components calling `useSearchParams` to sit inside a
+// <Suspense> boundary, otherwise the route bails the static prerender
+// and the build fails.
 export default function EventBookingSuccessPage({
   params,
 }: {
   params: Promise<{ slug: string }>
 }) {
   const { slug } = use(params)
+  return (
+    <Suspense fallback={null}>
+      <SuccessInner slug={slug} />
+    </Suspense>
+  )
+}
+
+function SuccessInner({ slug }: { slug: string }) {
   const searchParams = useSearchParams()
   const sessionId = searchParams.get('session_id')
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'failed'>(

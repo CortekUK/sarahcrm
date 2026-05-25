@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
@@ -17,7 +17,19 @@ import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
 // eventually catch up (or admin can re-trigger from the admin side).
 // We don't block the celebration screen on it.
 
+// Next 15 requires components calling `useSearchParams` to sit inside a
+// <Suspense> boundary, otherwise the route bails the static prerender
+// and the build fails. The inner component does the work; the default
+// export wraps it.
 export default function MembershipApplicationSuccessPage() {
+  return (
+    <Suspense fallback={null}>
+      <SuccessInner />
+    </Suspense>
+  )
+}
+
+function SuccessInner() {
   const searchParams = useSearchParams()
   const sessionId = searchParams.get('session_id')
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'failed'>(
