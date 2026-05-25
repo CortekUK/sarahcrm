@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -28,6 +29,20 @@ export function LoginPage() {
   const safeRedirect = requestedRedirect.startsWith('/') && !requestedRedirect.startsWith('//')
     ? requestedRedirect
     : null
+
+  // Membership-status messages set by the middleware when it boots a
+  // user from /portal because their membership has been cancelled,
+  // expired, or never existed. These are NOT auth errors — the user's
+  // sign-in form is still usable, they just need context.
+  const reason = searchParams.get('reason')
+  const reasonMessage =
+    reason === 'membership_cancelled'
+      ? 'Your membership has been cancelled. You can no longer sign in to the members portal — please get in touch if you believe this is a mistake.'
+      : reason === 'membership_expired'
+        ? 'Your membership has expired. Renew it from your account or contact the team to reactivate.'
+        : reason === 'no_membership'
+          ? 'This account no longer has an active membership. Please contact the team if you think this is a mistake.'
+          : null
 
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -93,8 +108,18 @@ export function LoginPage() {
   return (
     <div className="min-h-screen bg-bg flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        {/* Brand header */}
+        {/* Brand header — diamond-C monogram on top, then the wordmark
+            framed by bronze hairlines. Matches the editorial header on
+            the public site. */}
         <div className="text-center mb-14">
+          <Image
+            src="/logo-gold.png"
+            alt=""
+            width={72}
+            height={72}
+            priority
+            className="w-16 h-16 mx-auto mb-5 object-contain"
+          />
           <h1 className="font-[family-name:var(--font-heading)] text-4xl font-semibold text-text mb-2">
             The Club
           </h1>
@@ -115,6 +140,12 @@ export function LoginPage() {
           <p className="text-sm text-text-muted text-center mb-6">
             Sign in to your members area
           </p>
+
+          {reasonMessage && !error && (
+            <div className="mb-5 px-4 py-3 rounded-[var(--radius-md)] bg-gold-muted border border-border-gold">
+              <p className="text-sm text-text leading-relaxed">{reasonMessage}</p>
+            </div>
+          )}
 
           {error && (
             <div className="mb-5 px-4 py-3 rounded-[var(--radius-md)] bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">

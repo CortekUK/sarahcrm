@@ -45,7 +45,7 @@ export async function GalleryBento() {
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 mb-10">
         <div>
           <EditorialMeta number="04" label="Recent Nights" />
-          <h2 className="display-lg mt-10 text-ivory whitespace-nowrap">
+          <h2 className="display-lg mt-10 text-ivory">
             From recent evenings.
           </h2>
         </div>

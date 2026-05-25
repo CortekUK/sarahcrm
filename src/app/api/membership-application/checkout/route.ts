@@ -17,35 +17,29 @@ import Stripe from 'stripe'
 // the saved application so the webhook can mark it 'paid pending
 // review' (handled separately in the existing stripe-webhook function).
 
-// Net (ex VAT) pricing in pence — MUST match the PRICING constant on
-// the client receipt (membership-application/page.tsx) AND the prices
-// shown on the /memberships marketing page, so the receipt the user
-// sees and the amount charged by Stripe are the same number.
-const PRICING = {
-  individual: { annual: 250000, monthly: 20833 }, // £2,500 / £208.33
-  business: { annual: 1500000, monthly: 125000 }, // £15,000 / £1,250
-  corporate: { annual: 3000000, monthly: 250000 }, // £30,000 / £2,500
+// Fallback pricing — used ONLY if the membership_plans table is empty
+// or unreachable. The DB is the source of truth: an admin editing a
+// plan in /dashboard/website/memberships updates this checkout flow
+// without code changes. Numbers below mirror the seed data so they're
+// safe to leave as a last-resort net.
+const FALLBACK_PRICING = {
+  individual: { annual: 250000, monthly: 20833, label: 'Individual Membership' },
+  business: { annual: 1500000, monthly: 125000, label: 'Business Membership' },
+  corporate: { annual: 3000000, monthly: 250000, label: 'Corporate Membership' },
 } as const
 
 const VAT_RATE = 0.2
 
-type TierKey = keyof typeof PRICING
 type CadenceKey = 'annual' | 'monthly'
-
-const TIER_LABEL: Record<TierKey, string> = {
-  individual: 'Individual Membership',
-  business: 'Business Membership',
-  corporate: 'Corporate Membership',
-}
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as Record<string, unknown>
 
-    const tier = body.preferred_tier as TierKey
+    const tier = body.preferred_tier as string
     const cadence = body.payment_preference as CadenceKey
 
-    if (!tier || !PRICING[tier]) {
+    if (!tier) {
       return NextResponse.json({ error: 'Invalid membership tier.' }, { status: 400 })
     }
     if (cadence !== 'annual' && cadence !== 'monthly') {
@@ -61,6 +55,38 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } },
     )
+
+    // ── Resolve the plan from the DB (source of truth) ──────────────
+    // Admin edits in /dashboard/website/memberships update what's
+    // charged here without a redeploy. Falls back to the hardcoded
+    // table if the DB is empty / the plan was deleted but a stale tab
+    // submitted with that slug.
+    let priceAnnual: number
+    let priceMonthly: number
+    let tierLabel: string
+
+    const { data: plan } = await admin
+      .from('membership_plans')
+      .select('annual_price_pence, monthly_price_pence, name, is_active')
+      .eq('slug', tier)
+      .maybeSingle()
+
+    if (plan && plan.is_active) {
+      priceAnnual = plan.annual_price_pence
+      priceMonthly = plan.monthly_price_pence
+      tierLabel = `${plan.name} Membership`
+    } else {
+      const fallback = FALLBACK_PRICING[tier as keyof typeof FALLBACK_PRICING]
+      if (!fallback) {
+        return NextResponse.json(
+          { error: 'Invalid membership tier.' },
+          { status: 400 },
+        )
+      }
+      priceAnnual = fallback.annual
+      priceMonthly = fallback.monthly
+      tierLabel = fallback.label
+    }
 
     const insertPayload = {
       first_name: body.first_name as string,
@@ -126,7 +152,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    const net = PRICING[tier][cadence]
+    const net = cadence === 'annual' ? priceAnnual : priceMonthly
     const gross = net + Math.round(net * VAT_RATE)
 
     // Always create a subscription so the renewal is automatic.
@@ -146,7 +172,7 @@ export async function POST(req: NextRequest) {
             currency: 'gbp',
             unit_amount: gross, // gross incl. VAT, integer pence
             product_data: {
-              name: TIER_LABEL[tier],
+              name: tierLabel,
               description: `${cadence === 'annual' ? 'Annual' : 'Monthly'} billing · includes 20% VAT`,
             },
             recurring: { interval },

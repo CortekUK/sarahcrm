@@ -28,8 +28,9 @@ interface LeftSidebarProps {
   onAddBlock: (type: BlockType) => void
 }
 
-// Accordion section helper — matches IFG's collapsible SETTINGS / BLOCKS
-// pattern (image 2 of the spec).
+// Accordion section helper — collapsible SETTINGS / BLOCKS pattern.
+// Night-themed: bronze hairline borders, ivory titles, bronze-light
+// icons that brighten on hover.
 function Section({
   title,
   icon: Icon,
@@ -43,24 +44,24 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border-b border-[var(--color-border)]">
+    <div className="border-b border-graphite-line/50">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-5 py-3 hover:bg-[var(--color-surface-2)] transition-colors"
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-bronze/[0.05] transition-colors group"
       >
-        <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--color-text)]">
-          <Icon className="w-3.5 h-3.5 text-[var(--color-gold)]" />
+        <span className="flex items-center gap-2.5 font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory group-hover:text-bronze-light transition-colors">
+          <Icon className="w-3.5 h-3.5 text-bronze-light" />
           {title}
         </span>
         <ChevronDown
           className={cn(
-            'w-4 h-4 text-[var(--color-text-muted)] transition-transform',
+            'w-4 h-4 text-ivory-soft/60 group-hover:text-bronze-light transition-all',
             open && 'rotate-180',
           )}
         />
       </button>
-      {open && <div className="px-5 pb-4">{children}</div>}
+      {open && <div className="px-5 pb-5">{children}</div>}
     </div>
   )
 }

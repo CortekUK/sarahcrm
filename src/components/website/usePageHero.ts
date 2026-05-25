@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 
+// Loose shape — the DB schema's image_url + alt_text are nullable now
+// that video heroes don't require them. Callers handle the nulls.
 interface HeroSlide {
-  image_url: string
-  alt_text: string
+  image_url: string | null
+  alt_text: string | null
   overlay_text: string | null
 }
 

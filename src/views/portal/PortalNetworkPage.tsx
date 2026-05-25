@@ -1,13 +1,18 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/Card'
 import { Avatar } from '@/components/ui/Avatar'
-import { Modal } from '@/components/ui/Modal'
-import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
-import { Search, Users, CalendarDays, Handshake } from 'lucide-react'
+import { CalendarDays, Handshake, Search, Users } from 'lucide-react'
+import {
+  PortalButton,
+  PortalCard,
+  PortalEmptyState,
+  PortalLoading,
+  PortalModal,
+  PortalPageHeader,
+} from '@/components/portal/PortalChrome'
 
 function stripLookingFor(name: string) {
   return name.replace(/^Looking for /i, '')
@@ -19,10 +24,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   need: 'Looking For',
 }
 const CATEGORY_ORDER = ['industry', 'interest', 'need']
+
+// Night-palette tag chips — all three categories share the bronze-on-graphite
+// language so the page reads as one editorial set rather than three
+// separately-coloured columns.
 const CATEGORY_STYLES: Record<string, string> = {
-  industry: 'bg-gold-muted text-gold border border-border-gold',
-  interest: 'bg-[rgba(90,123,150,0.1)] text-[#5A7B96] border border-[rgba(90,123,150,0.25)]',
-  need: 'bg-[rgba(111,143,122,0.1)] text-[#5C8A6B] border border-[rgba(111,143,122,0.3)]',
+  industry: 'border-bronze/45 bg-bronze/10 text-bronze-light',
+  interest: 'border-graphite-line/55 bg-graphite/45 text-ivory-soft',
+  need: 'border-emerald-700/45 bg-emerald-900/15 text-emerald-200',
 }
 
 interface NetworkMember {
@@ -55,7 +64,6 @@ export function PortalNetworkPage() {
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<string | null>(null)
 
-  // Profile modal state
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -66,7 +74,6 @@ export function PortalNetworkPage() {
   }, [])
 
   async function fetchNetwork() {
-    // Fetch all active members with profiles
     const { data: membersData } = await supabase
       .from('members')
       .select('id, company_name, profiles(first_name, last_name, avatar_url, job_title)')
@@ -74,36 +81,40 @@ export function PortalNetworkPage() {
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
 
-    if (!membersData) { setLoading(false); return }
-
+    if (!membersData) {
+      setLoading(false)
+      return
+    }
     const memberIds = membersData.map((m) => m.id)
-
-    // Fetch all member_tags with tag names and categories
     const { data: mtData } = await supabase
       .from('member_tags')
       .select('member_id, tags(name, category)')
       .in('member_id', memberIds)
 
-    // Build tag map
     const tagsByMember: Record<string, { name: string; category: string }[]> = {}
     const industryTagSet = new Set<string>()
     const needTagSet = new Set<string>()
 
     if (mtData) {
-      for (const row of mtData as unknown as Array<{ member_id: string; tags: { name: string; category: string } | null }>) {
+      for (const row of mtData as unknown as Array<{
+        member_id: string
+        tags: { name: string; category: string } | null
+      }>) {
         if (!row.tags) continue
         if (!tagsByMember[row.member_id]) tagsByMember[row.member_id] = []
         tagsByMember[row.member_id].push({ name: row.tags.name, category: row.tags.category })
-        if (row.tags.category === 'industry') {
-          industryTagSet.add(row.tags.name)
-        } else if (row.tags.category === 'need') {
-          needTagSet.add(row.tags.name)
-        }
+        if (row.tags.category === 'industry') industryTagSet.add(row.tags.name)
+        else if (row.tags.category === 'need') needTagSet.add(row.tags.name)
       }
     }
 
     const networkMembers: NetworkMember[] = membersData.map((m) => {
-      const p = m.profiles as unknown as { first_name: string | null; last_name: string | null; avatar_url: string | null; job_title: string | null }
+      const p = m.profiles as unknown as {
+        first_name: string | null
+        last_name: string | null
+        avatar_url: string | null
+        job_title: string | null
+      }
       const name = `${p?.first_name ?? ''} ${p?.last_name ?? ''}`.trim()
       return {
         id: m.id,
@@ -129,13 +140,12 @@ export function PortalNetworkPage() {
     const [memberRes, tagsRes, bookingsRes, introsARes, introsBRes] = await Promise.all([
       supabase
         .from('members')
-        .select('company_name, company_description, profiles(first_name, last_name, avatar_url, job_title, bio)')
+        .select(
+          'company_name, company_description, profiles(first_name, last_name, avatar_url, job_title, bio)',
+        )
         .eq('id', id)
         .single(),
-      supabase
-        .from('member_tags')
-        .select('tags(name, category)')
-        .eq('member_id', id),
+      supabase.from('member_tags').select('tags(name, category)').eq('member_id', id),
       supabase
         .from('bookings')
         .select('id', { count: 'exact', head: true })
@@ -152,8 +162,16 @@ export function PortalNetworkPage() {
     ])
 
     const member = memberRes.data
-    const profile = member?.profiles as unknown as { first_name: string | null; last_name: string | null; avatar_url: string | null; job_title: string | null; bio: string | null } | null
-    const rawTags = (tagsRes.data ?? []) as unknown as Array<{ tags: { name: string; category: string } | null }>
+    const profile = member?.profiles as unknown as {
+      first_name: string | null
+      last_name: string | null
+      avatar_url: string | null
+      job_title: string | null
+      bio: string | null
+    } | null
+    const rawTags = (tagsRes.data ?? []) as unknown as Array<{
+      tags: { name: string; category: string } | null
+    }>
 
     setProfileData({
       firstName: profile?.first_name ?? null,
@@ -182,24 +200,18 @@ export function PortalNetworkPage() {
 
   const filtered = useMemo(() => {
     let result = members
-
     if (search) {
       const q = search.toLowerCase()
       result = result.filter(
-        (m) =>
-          m.name.toLowerCase().includes(q) ||
-          (m.company?.toLowerCase().includes(q) ?? false)
+        (m) => m.name.toLowerCase().includes(q) || (m.company?.toLowerCase().includes(q) ?? false),
       )
     }
-
     if (activeFilter) {
       result = result.filter((m) => m.tags.some((t) => t.name === activeFilter))
     }
-
     return result
   }, [members, search, activeFilter])
 
-  // Group profile tags by category (keyed by raw category for styling lookup)
   const groupedTags = useMemo(() => {
     if (!profileData) return {}
     const groups: Record<string, string[]> = {}
@@ -216,217 +228,213 @@ export function PortalNetworkPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 py-12">
-        <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-        <span className="text-sm text-text-muted">Loading network...</span>
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-12">
+        <PortalLoading label="Loading the network" />
       </div>
     )
   }
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
-          The Network
-        </h1>
-        <div className="flex items-center gap-2 mt-1">
-          <Users size={14} className="text-text-dim" />
-          <p className="text-sm text-text-muted">
-            {members.length} {members.length === 1 ? 'member' : 'members'} in The Club
-          </p>
-        </div>
-      </div>
+    <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
+      <PortalPageHeader
+        eyebrow={`${members.length} ${members.length === 1 ? 'Member' : 'Members'} · In Confidence`}
+        title="The Network."
+        subtitle="Members of The Club, briefly portrayed. Open a card to read more or request an introduction."
+      />
 
       {/* Search + filters */}
-      <div className="mb-6 space-y-4">
+      <div className="mb-10 space-y-5">
         <div className="relative max-w-md">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-dim" />
+          <Search
+            size={14}
+            strokeWidth={1.5}
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-haze pointer-events-none"
+          />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or company..."
-            className="w-full pl-10 pr-4 py-2.5 bg-surface text-text text-sm rounded-[var(--radius-md)] border border-border outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-text-dim focus:border-gold focus:shadow-[0_0_0_3px_var(--color-gold-muted)]"
+            placeholder="Search by name or company"
+            className="w-full pl-10 pr-4 py-3 bg-graphite/40 border border-graphite-line/60 rounded-full font-[family-name:var(--font-meta)] text-[12px] uppercase tracking-[0.16em] text-ivory placeholder:text-slate-dim focus:border-bronze/60 focus:outline-none transition-colors"
           />
         </div>
 
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[0.6875rem] font-medium uppercase tracking-wide text-text-dim mr-1">Industry</span>
-            <button
+        <div className="space-y-4">
+          <FilterRow label="Industry">
+            <FilterChip
+              label="All"
+              active={activeFilter === null}
               onClick={() => setActiveFilter(null)}
-              className={cn(
-                'px-3 py-1.5 text-xs rounded-full border transition-colors',
-                activeFilter === null
-                  ? 'bg-gold text-white border-gold'
-                  : 'bg-surface text-text-muted border-border hover:border-gold hover:text-gold'
-              )}
-            >
-              All
-            </button>
+            />
             {allIndustryTags.map((tag) => (
-              <button
+              <FilterChip
                 key={tag}
+                label={tag}
+                active={activeFilter === tag}
                 onClick={() => setActiveFilter(activeFilter === tag ? null : tag)}
-                className={cn(
-                  'px-3 py-1.5 text-xs rounded-full border transition-colors',
-                  activeFilter === tag
-                    ? 'bg-gold text-white border-gold'
-                    : 'bg-surface text-text-muted border-border hover:border-gold hover:text-gold'
-                )}
-              >
-                {tag}
-              </button>
+              />
             ))}
-          </div>
+          </FilterRow>
+
           {allNeedTags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[0.6875rem] font-medium uppercase tracking-wide text-text-dim mr-1">Looking For</span>
+            <FilterRow label="Looking For">
               {allNeedTags.map((tag) => (
-                <button
+                <FilterChip
                   key={tag}
+                  label={stripLookingFor(tag)}
+                  active={activeFilter === tag}
                   onClick={() => setActiveFilter(activeFilter === tag ? null : tag)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs rounded-full border transition-colors',
-                    activeFilter === tag
-                      ? 'bg-gold text-white border-gold'
-                      : 'bg-surface text-text-muted border-border hover:border-gold hover:text-gold'
-                  )}
-                >
-                  {stripLookingFor(tag)}
-                </button>
+                />
               ))}
-            </div>
+            </FilterRow>
           )}
         </div>
       </div>
 
-      {/* Results count */}
       {(search || activeFilter) && (
-        <p className="text-xs text-text-dim mb-4">
+        <p className="mb-5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze">
           {filtered.length} {filtered.length === 1 ? 'member' : 'members'} found
         </p>
       )}
 
       {/* Grid */}
       {filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-text-dim">No members match your search</p>
-          </CardContent>
-        </Card>
+        <PortalEmptyState
+          icon={<Users size={18} strokeWidth={1.5} />}
+          title="No members match your search."
+          description="Try a different keyword or clear the active filter."
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
           {filtered.map((member) => (
-            <Card
+            <PortalCard
               key={member.id}
-              className="hover:shadow-[var(--shadow-card-hover)] transition-shadow cursor-pointer"
+              interactive
               onClick={() => openProfile(member.id)}
+              className="p-6"
             >
-              <CardContent className="py-5">
-                <div className="flex items-start gap-4">
-                  <Avatar name={member.name} src={member.avatarUrl} size="lg" />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-semibold text-text truncate">
-                      {member.name}
-                    </h3>
-                    {member.jobTitle && (
-                      <p className="text-xs text-text-muted truncate">{member.jobTitle}</p>
-                    )}
-                    {member.company && (
-                      <p className="text-xs text-text-dim truncate">{member.company}</p>
+              <div className="flex items-start gap-4">
+                <Avatar name={member.name} src={member.avatarUrl} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-[family-name:var(--font-display)] text-[15.5px] text-ivory leading-tight truncate">
+                    {member.name}
+                  </h3>
+                  {member.jobTitle && (
+                    <p className="mt-1 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] text-bronze-light/85 truncate">
+                      {member.jobTitle}
+                    </p>
+                  )}
+                  {member.company && (
+                    <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/80 truncate">
+                      {member.company}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {(() => {
+                const cardTags = member.tags.filter(
+                  (t) => t.category === 'industry' || t.category === 'need',
+                )
+                if (cardTags.length === 0) return null
+                return (
+                  <div className="flex flex-wrap gap-1.5 mt-4">
+                    {cardTags.slice(0, 3).map((tag) => (
+                      <span
+                        key={tag.name}
+                        className={cn(
+                          'px-2.5 py-0.5 text-[9.5px] font-[family-name:var(--font-meta)] uppercase tracking-[0.18em] rounded-full border',
+                          CATEGORY_STYLES[tag.category],
+                        )}
+                      >
+                        {tag.category === 'need' ? stripLookingFor(tag.name) : tag.name}
+                      </span>
+                    ))}
+                    {cardTags.length > 3 && (
+                      <span className="px-2.5 py-0.5 text-[9.5px] font-[family-name:var(--font-meta)] uppercase tracking-[0.18em] rounded-full border border-graphite-line/45 bg-graphite/40 text-slate-haze">
+                        +{cardTags.length - 3}
+                      </span>
                     )}
                   </div>
-                </div>
-                {(() => {
-                  const cardTags = member.tags.filter((t) => t.category === 'industry' || t.category === 'need')
-                  if (cardTags.length === 0) return null
-                  return (
-                    <div className="flex flex-wrap gap-1.5 mt-3">
-                      {cardTags.slice(0, 3).map((tag) => (
-                        <span
-                          key={tag.name}
-                          className={`px-2 py-0.5 text-[0.6875rem] rounded-full ${CATEGORY_STYLES[tag.category] ?? 'bg-gold-muted text-gold border border-border-gold'}`}
-                        >
-                          {tag.category === 'need' ? stripLookingFor(tag.name) : tag.name}
-                        </span>
-                      ))}
-                      {cardTags.length > 3 && (
-                        <span className="px-2 py-0.5 text-[0.6875rem] rounded-full bg-surface-2 text-text-dim">
-                          +{cardTags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })()}
-              </CardContent>
-            </Card>
+                )
+              })()}
+            </PortalCard>
           ))}
         </div>
       )}
 
       {/* Profile modal */}
-      <Modal open={selectedMemberId !== null} onClose={closeProfile} size="md">
+      <PortalModal open={selectedMemberId !== null} onClose={closeProfile} size="md">
         {profileLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-            <span className="ml-3 text-sm text-text-muted">Loading profile...</span>
-          </div>
+          <PortalLoading label="Loading profile" />
         ) : profileData ? (
-          <div className="space-y-5">
-            {/* Header */}
+          <div className="space-y-6">
             <div className="flex flex-col items-center text-center">
               <Avatar name={fullName} src={profileData.avatarUrl} size="xl" />
-              <h2 className="mt-3 font-[family-name:var(--font-heading)] text-xl font-semibold text-text">
+              <h2 className="mt-4 font-[family-name:var(--font-display)] text-[clamp(1.5rem,2vw,1.875rem)] text-ivory leading-tight">
                 {fullName}
               </h2>
               {profileData.jobTitle && (
-                <p className="text-sm text-text-muted">{profileData.jobTitle}</p>
+                <p className="mt-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-bronze-light">
+                  {profileData.jobTitle}
+                </p>
               )}
               {profileData.companyName && (
-                <p className="text-sm text-text-dim">{profileData.companyName}</p>
+                <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[14px] text-ivory-soft/85">
+                  {profileData.companyName}
+                </p>
               )}
               {profileData.companyDescription && (
-                <p className="mt-1 text-xs text-text-dim italic">{profileData.companyDescription}</p>
+                <p className="mt-2 font-[family-name:var(--font-editorial)] italic text-[12.5px] text-slate-haze max-w-md">
+                  {profileData.companyDescription}
+                </p>
               )}
             </div>
 
-            {/* Bio */}
             {profileData.bio && (
-              <p className="text-sm text-text-muted leading-relaxed">{profileData.bio}</p>
+              <p className="font-[family-name:var(--font-editorial)] text-[14px] leading-[1.75] text-ivory-soft text-center max-w-lg mx-auto">
+                {profileData.bio}
+              </p>
             )}
 
-            {/* Stats row */}
-            <div className="flex items-center justify-center gap-8">
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <CalendarDays size={16} className="text-gold" />
-                <span className="font-semibold text-text">{profileData.eventsAttended}</span>
-                events attended
+            <div className="flex items-center justify-center gap-8 py-4 border-y border-graphite-line/45">
+              <div className="text-center">
+                <p className="font-[family-name:var(--font-display)] text-[22px] text-ivory tabular-nums">
+                  {profileData.eventsAttended}
+                </p>
+                <p className="mt-1 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-bronze-light/85 flex items-center justify-center gap-1.5">
+                  <CalendarDays size={11} strokeWidth={1.5} />
+                  Events attended
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <Handshake size={16} className="text-gold" />
-                <span className="font-semibold text-text">{profileData.introductions}</span>
-                introductions
+              <span className="h-8 w-px bg-graphite-line/55" />
+              <div className="text-center">
+                <p className="font-[family-name:var(--font-display)] text-[22px] text-ivory tabular-nums">
+                  {profileData.introductions}
+                </p>
+                <p className="mt-1 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-bronze-light/85 flex items-center justify-center gap-1.5">
+                  <Handshake size={11} strokeWidth={1.5} />
+                  Introductions
+                </p>
               </div>
             </div>
 
-            {/* Tags grouped by category */}
             {Object.keys(groupedTags).length > 0 && (
-              <div className="space-y-3">
-                {CATEGORY_ORDER
-                  .filter((cat) => groupedTags[cat]?.length > 0)
-                  .map((category) => (
+              <div className="space-y-4">
+                {CATEGORY_ORDER.filter((cat) => groupedTags[cat]?.length > 0).map((category) => (
                   <div key={category}>
-                    <p className="text-xs font-medium text-text-dim uppercase tracking-wide mb-1.5">
+                    <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
                       {CATEGORY_LABELS[category] ?? category}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {groupedTags[category].map((name) => (
                         <span
                           key={name}
-                          className={`px-2.5 py-0.5 text-xs rounded-full ${CATEGORY_STYLES[category] ?? 'bg-gold-muted text-gold border border-border-gold'}`}
+                          className={cn(
+                            'px-3 py-1 text-[10px] font-[family-name:var(--font-meta)] uppercase tracking-[0.18em] rounded-full border',
+                            CATEGORY_STYLES[category] ?? CATEGORY_STYLES.industry,
+                          )}
                         >
-                          {name}
+                          {category === 'need' ? stripLookingFor(name) : name}
                         </span>
                       ))}
                     </div>
@@ -435,25 +443,60 @@ export function PortalNetworkPage() {
               </div>
             )}
 
-            {/* Request Introduction button */}
-            <Button
-              variant="primary"
-              className="w-full"
-              icon={<Handshake size={16} />}
-              onClick={handleRequestIntroduction}
-            >
-              Request Introduction
-            </Button>
+            <div className="pt-2">
+              <PortalButton
+                className="w-full justify-center"
+                icon={<Handshake size={14} strokeWidth={1.5} />}
+                onClick={handleRequestIntroduction}
+              >
+                Request introduction
+              </PortalButton>
+            </div>
           </div>
         ) : null}
-      </Modal>
+      </PortalModal>
 
-      {/* Toast */}
       {toastVisible && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-5 py-3 bg-text text-surface text-sm rounded-full shadow-lg animate-[modal-enter_0.2s_ease-out]">
-          Introduction request sent to The Club team
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 border border-bronze/55 bg-ink rounded-full font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-bronze-light shadow-[0_24px_48px_-12px_rgba(0,0,0,0.6)]">
+          Introduction request sent to The Club
         </div>
       )}
     </div>
+  )
+}
+
+function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mr-2">
+        {label}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      type="button"
+      className={cn(
+        'px-3.5 py-1.5 text-[10px] font-[family-name:var(--font-meta)] uppercase tracking-[0.22em] rounded-full border transition-all duration-300',
+        active
+          ? 'border-bronze bg-bronze/15 text-bronze-light'
+          : 'border-graphite-line/55 bg-graphite/30 text-ivory/75 hover:border-bronze/55 hover:text-bronze-light',
+      )}
+    >
+      {label}
+    </button>
   )
 }

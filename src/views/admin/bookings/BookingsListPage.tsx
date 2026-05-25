@@ -205,7 +205,7 @@ export function BookingsListPage() {
                   'px-3 py-1.5 text-xs rounded-full border transition-colors',
                   statusFilter === opt.value
                     ? 'bg-gold text-white border-gold'
-                    : 'bg-white text-text-muted border-border hover:border-border-hover',
+                    : 'bg-[var(--color-surface)] text-text-muted border-border hover:border-border-hover hover:text-text',
                 )}
               >
                 {opt.label}

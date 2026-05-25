@@ -23,7 +23,6 @@ const LINKS = [
   { href: '/events', label: 'Events' },
   { href: '/gallery', label: 'Gallery' },
   { href: '/private-event-services', label: 'Private Events' },
-  { href: '/contact-us', label: 'Contact' },
 ]
 
 export function NightHeader() {
@@ -127,8 +126,17 @@ export function NightHeader() {
             })}
           </nav>
 
-          {/* Right side — Apply CTA (desktop) + hamburger (mobile) */}
-          <div className="flex items-center gap-4">
+          {/* Right side — secondary Member Login pill + primary bronze
+              Apply pill (desktop) + hamburger (mobile). Login uses a
+              quieter graphite outline so the bronze Apply pill keeps
+              hierarchy as the primary CTA. */}
+          <div className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="hidden lg:inline-flex items-center px-5 py-2.5 border border-graphite-line/70 hover:border-bronze/60 rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory/85 hover:text-bronze-light hover:bg-bronze/[0.06] transition-all duration-300"
+            >
+              Member Login
+            </Link>
             <Link
               href="/membership-application"
               className="hidden lg:inline-flex items-center gap-2 px-5 py-2.5 border border-bronze/60 hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light hover:text-ivory hover:bg-bronze/20 transition-all duration-300"
@@ -177,6 +185,16 @@ export function NightHeader() {
             style={{ transitionDelay: menuOpen ? `${LINKS.length * 70 + 160}ms` : '0ms' }}
           >
             Apply
+          </Link>
+          <Link
+            href="/login"
+            className={cn(
+              'mt-3 inline-flex items-center px-8 py-3.5 border border-graphite-line/70 rounded-full font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-ivory/85 transition-all duration-500',
+              menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
+            )}
+            style={{ transitionDelay: menuOpen ? `${LINKS.length * 70 + 240}ms` : '0ms' }}
+          >
+            Member Login
           </Link>
         </div>
       </div>

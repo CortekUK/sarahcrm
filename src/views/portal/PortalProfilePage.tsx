@@ -6,14 +6,20 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Textarea } from '@/components/ui/Textarea'
 import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
-import { Save, Check } from 'lucide-react'
+import { Check, Save } from 'lucide-react'
+import {
+  PortalBadge,
+  PortalButton,
+  PortalCard,
+  PortalField,
+  PortalInput,
+  PortalLoading,
+  PortalPageHeader,
+  PortalSectionTitle,
+  PortalTextarea,
+} from '@/components/portal/PortalChrome'
 import type { Database } from '@/types/database'
 
 type Tag = Database['public']['Tables']['tags']['Row']
@@ -34,7 +40,17 @@ const profileSchema = z.object({
 
 type ProfileFormData = z.infer<typeof profileSchema>
 
-const tierLabels: Record<MemberTier, string> = { tier_1: 'Tier 1', tier_2: 'Tier 2', tier_3: 'Tier 3' }
+const tierLabels: Record<MemberTier, string> = {
+  tier_1: 'Tier I',
+  tier_2: 'Tier II',
+  tier_3: 'Tier III',
+}
+
+const CATEGORY_HEADINGS: Record<string, string> = {
+  industry: 'Your industry',
+  interest: 'Your interests',
+  need: "What you're looking for",
+}
 
 export function PortalProfilePage() {
   const { profile, user } = useAuth()
@@ -62,21 +78,71 @@ export function PortalProfilePage() {
   async function fetchProfileData(userId: string) {
     const [profileRes, memberRes, tagsRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('members').select('id, membership_tier, company_name, company_description, company_website').eq('profile_id', userId).single(),
+      supabase
+        .from('members')
+        .select('id, membership_tier, company_name, company_description, company_website')
+        .eq('profile_id', userId)
+        .single(),
       supabase.from('tags').select('*').order('category').order('name'),
     ])
+
+    // Pre-fill fallback: when this member applied via the public
+    // "Become a Member" widget, we captured a lot of detail in
+    // membership_applications. Use the latest approved (or, failing
+    // that, most recent) application keyed by email as a fallback for
+    // any profile/member field that's empty — so the form arrives
+    // pre-populated instead of blank.
+    const email = profileRes.data?.email ?? null
+    type AppFallback = {
+      first_name: string | null
+      last_name: string | null
+      phone: string | null
+      position: string | null
+      bio: string | null
+      linkedin_url: string | null
+      website_url: string | null
+      company: string | null
+    }
+    let app: AppFallback | null = null
+    if (email) {
+      const { data: appData } = await supabase
+        .from('membership_applications')
+        .select(
+          'first_name, last_name, phone, position, bio, linkedin_url, website_url, company',
+        )
+        .eq('email', email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      // Double-cast through unknown — Supabase's strict row types from
+      // database.ts don't structurally overlap with this manual shape
+      // (column nullability differs), so the direct cast fails type-
+      // checking even though the runtime fields match.
+      if (appData) app = appData as unknown as AppFallback
+    }
+
+    // Profile field || application fallback || empty string. Once the
+    // user saves, the application-sourced values get persisted to
+    // profiles/members so subsequent loads don't need the fallback.
+    const pick = (
+      profileVal: string | null | undefined,
+      appVal: string | null | undefined,
+    ) => profileVal ?? appVal ?? ''
 
     if (profileRes.data) {
       const p = profileRes.data
       reset({
-        first_name: p.first_name ?? '',
-        last_name: p.last_name ?? '',
-        phone: p.phone ?? '',
-        job_title: p.job_title ?? '',
-        bio: p.bio ?? '',
-        linkedin_url: p.linkedin_url ?? '',
-        website_url: p.website_url ?? '',
-        company_name: memberRes.data?.company_name ?? p.company_name ?? '',
+        first_name: pick(p.first_name, app?.first_name),
+        last_name: pick(p.last_name, app?.last_name),
+        phone: pick(p.phone, app?.phone),
+        job_title: pick(p.job_title, app?.position),
+        bio: pick(p.bio, app?.bio),
+        linkedin_url: pick(p.linkedin_url, app?.linkedin_url),
+        website_url: pick(p.website_url, app?.website_url),
+        company_name: pick(
+          memberRes.data?.company_name ?? p.company_name,
+          app?.company,
+        ),
         company_description: memberRes.data?.company_description ?? '',
         company_website: memberRes.data?.company_website ?? '',
       })
@@ -86,7 +152,6 @@ export function PortalProfilePage() {
       setMemberId(memberRes.data.id)
       setMemberTier(memberRes.data.membership_tier)
 
-      // Fetch member tags
       const { data: tagData } = await supabase
         .from('member_tags')
         .select('tag_id')
@@ -100,7 +165,7 @@ export function PortalProfilePage() {
 
   function toggleTag(tagId: string) {
     setMemberTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((i) => i !== tagId) : [...prev, tagId]
+      prev.includes(tagId) ? prev.filter((i) => i !== tagId) : [...prev, tagId],
     )
   }
 
@@ -109,31 +174,34 @@ export function PortalProfilePage() {
     setSaving(true)
     setSaved(false)
 
-    // Update profile
-    await supabase.from('profiles').update({
-      first_name: data.first_name,
-      last_name: data.last_name,
-      phone: data.phone || null,
-      job_title: data.job_title || null,
-      bio: data.bio || null,
-      linkedin_url: data.linkedin_url || null,
-      website_url: data.website_url || null,
-    }).eq('id', user.id)
+    await supabase
+      .from('profiles')
+      .update({
+        first_name: data.first_name,
+        last_name: data.last_name,
+        phone: data.phone || null,
+        job_title: data.job_title || null,
+        bio: data.bio || null,
+        linkedin_url: data.linkedin_url || null,
+        website_url: data.website_url || null,
+      })
+      .eq('id', user.id)
 
-    // Update member company fields
     if (memberId) {
-      await supabase.from('members').update({
-        company_name: data.company_name || null,
-        company_description: data.company_description || null,
-        company_website: data.company_website || null,
-      }).eq('id', memberId)
+      await supabase
+        .from('members')
+        .update({
+          company_name: data.company_name || null,
+          company_description: data.company_description || null,
+          company_website: data.company_website || null,
+        })
+        .eq('id', memberId)
 
-      // Sync tags
       await supabase.from('member_tags').delete().eq('member_id', memberId)
       if (memberTagIds.length > 0) {
-        await supabase.from('member_tags').insert(
-          memberTagIds.map((tagId) => ({ member_id: memberId, tag_id: tagId }))
-        )
+        await supabase
+          .from('member_tags')
+          .insert(memberTagIds.map((tagId) => ({ member_id: memberId, tag_id: tagId })))
       }
     }
 
@@ -144,9 +212,8 @@ export function PortalProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 py-12">
-        <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-        <span className="text-sm text-text-muted">Loading profile...</span>
+      <div className="max-w-[1000px] mx-auto px-6 lg:px-10 py-12">
+        <PortalLoading label="Loading your profile" />
       </div>
     )
   }
@@ -159,114 +226,139 @@ export function PortalProfilePage() {
   }, {})
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
-          My Profile
-        </h1>
-        <p className="text-sm text-text-muted mt-1">
-          Update your details and interests
-        </p>
-      </div>
+    <div className="max-w-[1000px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
+      <PortalPageHeader
+        eyebrow="Your File"
+        title="Profile."
+        subtitle="The details we hold about you. Keep these current — they drive your introductions and how members find you."
+      />
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {/* Avatar + summary */}
-        <Card>
-          <CardContent className="py-6">
-            <div className="flex items-center gap-5">
-              <Avatar name={name || profile?.email || '?'} src={profile?.avatar_url} size="xl" />
-              <div>
-                <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text">
-                  {name || 'Member'}
-                </h2>
-                <p className="text-sm text-text-muted">{profile?.email}</p>
-                {memberTier && (
-                  <div className="mt-2">
-                    <Badge variant="info">{tierLabels[memberTier]}</Badge>
-                  </div>
-                )}
-              </div>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 lg:space-y-7">
+        {/* Identity card */}
+        <PortalCard className="p-6 lg:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+            <Avatar name={name || profile?.email || '?'} src={profile?.avatar_url} size="xl" />
+            <div className="flex-1 min-w-0">
+              <h2 className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2vw,2rem)] text-ivory leading-tight">
+                {name || 'Member'}
+              </h2>
+              <p className="mt-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-slate-haze">
+                {profile?.email}
+              </p>
+              {memberTier && (
+                <div className="mt-4">
+                  <PortalBadge variant="upcoming" dot>
+                    {tierLabels[memberTier]}
+                  </PortalBadge>
+                </div>
+              )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </PortalCard>
 
         {/* Personal details */}
-        <Card>
-          <CardHeader><CardTitle>Personal Details</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="First Name" error={errors.first_name?.message} {...register('first_name')} />
-              <Input label="Last Name" error={errors.last_name?.message} {...register('last_name')} />
-              <Input label="Phone" {...register('phone')} />
-              <Input label="Job Title" {...register('job_title')} />
-              <Input label="LinkedIn" placeholder="https://linkedin.com/in/..." {...register('linkedin_url')} />
-              <Input label="Website" placeholder="https://" {...register('website_url')} />
+        <PortalCard className="p-6 lg:p-8">
+          <PortalSectionTitle eyebrow="Personal">Your details.</PortalSectionTitle>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+              <PortalField label="First name" error={errors.first_name?.message}>
+                <PortalInput {...register('first_name')} />
+              </PortalField>
+              <PortalField label="Last name" error={errors.last_name?.message}>
+                <PortalInput {...register('last_name')} />
+              </PortalField>
+              <PortalField label="Phone">
+                <PortalInput {...register('phone')} />
+              </PortalField>
+              <PortalField label="Job title">
+                <PortalInput {...register('job_title')} />
+              </PortalField>
+              <PortalField label="LinkedIn">
+                <PortalInput placeholder="https://linkedin.com/in/…" {...register('linkedin_url')} />
+              </PortalField>
+              <PortalField label="Website">
+                <PortalInput placeholder="https://" {...register('website_url')} />
+              </PortalField>
             </div>
-            <Textarea label="Bio" rows={3} placeholder="Tell other members about yourself..." {...register('bio')} />
-          </CardContent>
-        </Card>
+            <PortalField
+              label="A short bio"
+              hint="A few lines about you — read by other members and the team."
+            >
+              <PortalTextarea rows={4} {...register('bio')} />
+            </PortalField>
+          </div>
+        </PortalCard>
 
         {/* Company */}
-        <Card>
-          <CardHeader><CardTitle>Company</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Company Name" {...register('company_name')} />
-              <Input label="Company Website" placeholder="https://" {...register('company_website')} />
+        <PortalCard className="p-6 lg:p-8">
+          <PortalSectionTitle eyebrow="Your Business">Company.</PortalSectionTitle>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+              <PortalField label="Company name">
+                <PortalInput {...register('company_name')} />
+              </PortalField>
+              <PortalField label="Company website">
+                <PortalInput placeholder="https://" {...register('company_website')} />
+              </PortalField>
             </div>
-            <Textarea label="Company Description" rows={2} {...register('company_description')} />
-          </CardContent>
-        </Card>
+            <PortalField label="Company description">
+              <PortalTextarea rows={3} {...register('company_description')} />
+            </PortalField>
+          </div>
+        </PortalCard>
 
         {/* Tags */}
-        <Card>
-          <CardHeader><CardTitle>Your Tags</CardTitle></CardHeader>
-          <CardContent>
-            <p className="text-sm text-text-muted mb-4">
-              These drive your introductions — the more specific, the better your matches.
-            </p>
-            <div className="space-y-4">
-              {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
-                <div key={category}>
-                  <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-2">
-                    {{ industry: 'Your Industry', interest: 'Your Interests', need: "What You're Looking For" }[category] ?? category}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {categoryTags.map((tag) => {
-                      const selected = memberTagIds.includes(tag.id)
-                      return (
-                        <button
-                          key={tag.id}
-                          type="button"
-                          onClick={() => toggleTag(tag.id)}
-                          className={cn(
-                            'px-3 py-1.5 text-sm rounded-full border transition-colors',
-                            selected
-                              ? 'bg-gold text-white border-gold'
-                              : 'bg-surface text-text-muted border-border hover:border-gold hover:text-gold'
-                          )}
-                        >
-                          {tag.name}
-                        </button>
-                      )
-                    })}
-                  </div>
+        <PortalCard className="p-6 lg:p-8">
+          <PortalSectionTitle eyebrow="Discovery">Tags & interests.</PortalSectionTitle>
+          <p className="mb-6 font-[family-name:var(--font-editorial)] italic text-[14px] leading-[1.7] text-ivory-soft/85">
+            These drive your introductions — the more specific, the better your matches.
+          </p>
+          <div className="space-y-7">
+            {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
+              <div key={category}>
+                <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light/85 mb-3">
+                  {CATEGORY_HEADINGS[category] ?? category}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {categoryTags.map((tag) => {
+                    const selected = memberTagIds.includes(tag.id)
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => toggleTag(tag.id)}
+                        className={cn(
+                          'px-3.5 py-1.5 text-[10.5px] font-[family-name:var(--font-meta)] uppercase tracking-[0.22em] rounded-full border transition-all duration-300',
+                          selected
+                            ? 'border-bronze bg-bronze/15 text-bronze-light'
+                            : 'border-graphite-line/55 bg-graphite/30 text-ivory/75 hover:border-bronze/55 hover:text-bronze-light',
+                        )}
+                      >
+                        {tag.name}
+                      </button>
+                    )
+                  })}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            ))}
+          </div>
+        </PortalCard>
 
-        {/* Save */}
-        <div className="flex items-center justify-end gap-3 pb-8">
+        {/* Save bar */}
+        <div className="flex items-center justify-end gap-5 pt-2 pb-4">
           {saved && (
-            <span className="flex items-center gap-1.5 text-sm text-accent">
-              <Check size={16} /> Saved successfully
+            <span className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-emerald-300">
+              <Check size={13} strokeWidth={2} />
+              Saved
             </span>
           )}
-          <Button type="submit" icon={<Save size={14} />} loading={saving}>
-            Save Profile
-          </Button>
+          <PortalButton
+            type="submit"
+            icon={<Save size={13} strokeWidth={1.5} />}
+            loading={saving}
+          >
+            Save profile
+          </PortalButton>
         </div>
       </form>
     </div>

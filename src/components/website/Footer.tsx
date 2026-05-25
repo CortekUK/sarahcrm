@@ -18,7 +18,6 @@ const footerColumns = [
     title: 'About',
     links: [
       { href: '/about', label: 'Our Founder' },
-      { href: '/one-london-road', label: '[ONE] London Road' },
       { href: '/contact-us', label: 'Contact Us' },
       { href: '/club-rules', label: 'Club Rules' },
     ],
@@ -29,7 +28,6 @@ const footerColumns = [
       { href: 'https://instagram.com', label: 'Instagram' },
       { href: 'https://linkedin.com', label: 'LinkedIn' },
       { href: '/login', label: 'Member Login' },
-      { href: '/privacy-policy', label: 'Privacy Policy' },
     ],
   },
 ]

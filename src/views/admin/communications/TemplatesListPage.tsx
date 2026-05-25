@@ -166,7 +166,7 @@ export function TemplatesListPage() {
               className={`px-3 py-1.5 text-xs rounded-full border transition-colors capitalize ${
                 category === c
                   ? 'bg-gold text-white border-gold'
-                  : 'bg-white text-text-muted border-border hover:border-border-hover'
+                  : 'bg-[var(--color-surface)] text-text-muted border-border hover:border-border-hover hover:text-text'
               }`}
             >
               {c === 'all' ? 'All' : c}
@@ -299,7 +299,7 @@ function RowMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-md shadow-lg py-1 min-w-[160px] z-20">
+          <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 min-w-[160px] z-20">
             <button
               onClick={() => {
                 setOpen(false)

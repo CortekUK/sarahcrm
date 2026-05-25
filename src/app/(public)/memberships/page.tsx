@@ -1,13 +1,15 @@
-import Link from 'next/link'
-import Image from 'next/image'
-import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import { TierExpandRow } from '@/components/website/night/memberships/TierExpandRow'
+import { TierExpandRow, type TierData } from '@/components/website/night/memberships/TierExpandRow'
 import { BenefitsBento } from '@/components/website/night/memberships/BenefitsBento'
+import { createClient } from '@/lib/supabase/server'
+import { getPageHero } from '@/lib/cms/heroes'
 import { Check, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+export const revalidate = 60
 
 // ─────────────────────────────────────────────────────────────────────
 // /memberships — premium rebuild.
@@ -101,7 +103,11 @@ const BENEFITS = [
   },
 ] as const
 
-const TIERS = [
+// Hardcoded fallback — used ONLY if the membership_plans table is
+// empty or unreachable. Edit copy + pricing from /dashboard/website/memberships
+// in production; this exists so the page never renders blank in dev /
+// during a Supabase outage.
+const FALLBACK_TIERS: TierData[] = [
   {
     name: 'Individual',
     price: '£2,500',
@@ -153,7 +159,15 @@ const TIERS = [
     ],
     href: '/membership-application?tier=corporate',
   },
-] as const
+]
+
+function formatGBP(pence: number) {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: pence % 100 === 0 ? 0 : 2,
+  }).format(pence / 100)
+}
 
 const COMPARISON: { label: string; cells: [boolean, boolean, boolean] }[] = [
   { label: 'Access to The Club network', cells: [true, true, true] },
@@ -185,35 +199,74 @@ const COMPARISON: { label: string; cells: [boolean, boolean, boolean] }[] = [
   },
 ]
 
-export default function MembershipsPage() {
+export default async function MembershipsPage() {
+  const supabase = await createClient()
+  const [{ data: planRows }, hero] = await Promise.all([
+    supabase
+      .from('membership_plans')
+      .select('slug, name, lede, contract_terms, annual_price_pence, features, image_url')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true }),
+    getPageHero('memberships', {
+      page_slug: 'memberships',
+      media_type: 'image',
+      image_url: HERO_IMAGE,
+      alt_text: 'A members’ evening',
+      eyebrow: 'At The Club',
+      headline: 'Memberships.',
+      lede: 'Three ways to belong. Each is a 12 month decision.',
+    }),
+  ])
+
+  // Map DB → TierData shape that TierExpandRow expects. Falls back to
+  // the hardcoded list if the table is empty so the page never blanks.
+  const tiers: TierData[] =
+    planRows && planRows.length > 0
+      ? planRows.map((p) => ({
+          name: p.name,
+          price: formatGBP(p.annual_price_pence),
+          contract: p.contract_terms ?? '',
+          image: p.image_url ?? '/theclub-section.png',
+          lede: p.lede ?? '',
+          features: p.features ?? [],
+          href: `/membership-application?tier=${p.slug}`,
+        }))
+      : FALLBACK_TIERS
+
   return (
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────────── */}
       <section className="relative h-[78vh] min-h-[520px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="A members' evening"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.55}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              At The Club
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h1 className="display-xl max-w-4xl">Memberships.</h1>
-          </Reveal>
-          <Reveal type="up" delay={400}>
-            <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.125rem,1.4vw,1.5rem)] text-ivory-soft mt-6 max-w-xl">
-              Three ways to belong. Each is a 12 month decision.
-            </p>
-          </Reveal>
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
+          {hero.headline && (
+            <Reveal type="clip" delay={150}>
+              <h1 className="display-xl max-w-4xl">{hero.headline}</h1>
+            </Reveal>
+          )}
+          {hero.lede && (
+            <Reveal type="up" delay={400}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.125rem,1.4vw,1.5rem)] text-ivory-soft mt-6 max-w-xl">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 
@@ -280,7 +333,7 @@ export default function MembershipsPage() {
         </div>
 
         <Reveal type="up" delay={0}>
-          <TierExpandRow tiers={TIERS} />
+          <TierExpandRow tiers={tiers} />
         </Reveal>
       </Chapter>
 

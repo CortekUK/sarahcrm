@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { supabase } from '@/lib/supabase/client'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
@@ -162,7 +163,24 @@ const TURNOVER = [
 ]
 const HEADCOUNT = ['1', '2 – 10', '11 – 50', '51 – 250', '251 – 1,000', '1,000+']
 
-const TIERS = [
+// Plan card shape used by the picker UI. Built from the DB-driven
+// `membership_plans` rows below; the FALLBACK_TIERS array kicks in when
+// the table is empty / unreachable so the form is never blank.
+interface TierCard {
+  value: string
+  label: string
+  price: string
+  contract: string
+  body: string
+  image: string
+}
+
+interface TierPricing {
+  annual: number
+  monthly: number
+}
+
+const FALLBACK_TIERS: TierCard[] = [
   {
     value: 'individual',
     label: 'Individual',
@@ -187,19 +205,14 @@ const TIERS = [
     body: 'Up to 4 representations plus 1 sponsorship opportunity, brand showcase event and corporate concierge.',
     image: '/gallery/land3.png',
   },
-] as const
+]
 
-// Pricing — all values in pence so we stay integer-clean for Stripe.
-// Annual amounts are net (ex VAT) and match the public /memberships
-// page exactly. Monthly amount = annual / 12, rounded to whole pence.
-const PRICING: Record<
-  'individual' | 'business' | 'corporate',
-  { annual: number; monthly: number }
-> = {
-  individual: { annual: 250000, monthly: 20833 }, // £2,500 / £208.33
-  business: { annual: 1500000, monthly: 125000 }, // £15,000 / £1,250
-  corporate: { annual: 3000000, monthly: 250000 }, // £30,000 / £2,500
+const FALLBACK_PRICING: Record<string, TierPricing> = {
+  individual: { annual: 250000, monthly: 20833 },
+  business: { annual: 1500000, monthly: 125000 },
+  corporate: { annual: 3000000, monthly: 250000 },
 }
+
 const VAT_RATE = 0.2 // UK standard rate
 
 function pence(n: number) {
@@ -263,9 +276,10 @@ const schema = z.object({
   employees: z.string().optional(),
   referral_name: z.string().optional(),
 
-  preferred_tier: z.enum(['individual', 'business', 'corporate'], {
-    error: 'Please choose a tier',
-  }),
+  // Free-text slug rather than a hardcoded enum — keeps the form open
+  // to whatever plans an admin publishes via /dashboard/website/memberships.
+  // The checkout API re-validates the slug against the DB before charging.
+  preferred_tier: z.string().min(1, 'Please choose a tier'),
   payment_preference: z.enum(['annual', 'monthly'], {
     error: 'Please choose a payment option',
   }),
@@ -289,6 +303,100 @@ export default function MembershipApplicationPage() {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const formScrollRef = useRef<HTMLDivElement>(null)
+  // Plans + pricing pulled from the DB on mount; falls back to the
+  // hardcoded set if the table is empty or the fetch errors. Loading
+  // happens in the background — the form is usable immediately with
+  // the fallback, then swaps to live data once it arrives.
+  const [tiers, setTiers] = useState<TierCard[]>(FALLBACK_TIERS)
+  const [pricing, setPricing] = useState<Record<string, TierPricing>>(FALLBACK_PRICING)
+
+  // Hero copy + media — same in-effect fetch pattern as plans.
+  const [hero, setHero] = useState<{
+    media_type: 'image' | 'video'
+    image_url: string | null
+    alt_text: string
+    video_url: string | null
+    video_poster_url: string | null
+    eyebrow: string | null
+    headline: string
+    lede: string | null
+  }>({
+    media_type: 'image',
+    image_url: HERO_IMAGE,
+    alt_text: 'The Club',
+    video_url: null,
+    video_poster_url: null,
+    eyebrow: null,
+    headline: 'Apply for Membership.',
+    lede: null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('hero_slides')
+      .select(
+        'media_type, image_url, alt_text, video_url, video_poster_url, eyebrow, headline, lede',
+      )
+      .eq('page_slug', 'membership-application')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        setHero({
+          media_type: (data.media_type as 'image' | 'video') ?? 'image',
+          image_url: data.image_url ?? HERO_IMAGE,
+          alt_text: data.alt_text ?? 'The Club',
+          video_url: data.video_url,
+          video_poster_url: data.video_poster_url,
+          eyebrow: data.eyebrow,
+          headline: data.headline ?? 'Apply for Membership.',
+          lede: data.lede,
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('membership_plans')
+      .select('slug, name, lede, contract_terms, annual_price_pence, monthly_price_pence, image_url')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled || !data || data.length === 0) return
+        setTiers(
+          data.map((p) => ({
+            value: p.slug,
+            label: p.name,
+            price: new Intl.NumberFormat('en-GB', {
+              style: 'currency',
+              currency: 'GBP',
+              maximumFractionDigits: p.annual_price_pence % 100 === 0 ? 0 : 2,
+            }).format(p.annual_price_pence / 100),
+            contract: p.contract_terms ?? 'plus VAT · 12 month minimum term',
+            body: p.lede ?? '',
+            image: p.image_url ?? '/gallery/potrait.png',
+          })),
+        )
+        const priceMap: Record<string, TierPricing> = {}
+        for (const p of data) {
+          priceMap[p.slug] = {
+            annual: p.annual_price_pence,
+            monthly: p.monthly_price_pence,
+          }
+        }
+        setPricing(priceMap)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const {
     register,
@@ -351,20 +459,34 @@ export default function MembershipApplicationPage() {
     <>
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="The Club"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.55}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
           <Reveal type="clip" delay={150}>
-            <h1 className="display-xl max-w-4xl">Apply for Membership.</h1>
+            <h1 className="display-xl max-w-4xl">{hero.headline}</h1>
           </Reveal>
+          {hero.lede && (
+            <Reveal type="up" delay={400}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.7] text-ivory-soft mt-6 max-w-2xl">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 
@@ -382,6 +504,19 @@ export default function MembershipApplicationPage() {
               <em className="italic text-bronze-light">Manchester, Leeds and London</em>. Seize the
               opportunity to enhance your network and amplify your business presence by applying
               for membership to The Club.
+            </p>
+          </Reveal>
+          {/* Quiet sign-in fallback for anyone who landed here when they
+              meant to access the portal. */}
+          <Reveal type="up" delay={250}>
+            <p className="mt-10 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-slate-haze">
+              Already a member?{' '}
+              <Link
+                href="/login"
+                className="text-bronze-light hover:text-ivory underline decoration-bronze/40 hover:decoration-bronze underline-offset-4 transition-colors duration-300"
+              >
+                Sign in
+              </Link>
             </p>
           </Reveal>
         </div>
@@ -462,6 +597,7 @@ export default function MembershipApplicationPage() {
                           value={field.value}
                           onChange={field.onChange}
                           error={errors.preferred_tier?.message}
+                          tiers={tiers}
                         />
                       )}
                     />
@@ -476,6 +612,8 @@ export default function MembershipApplicationPage() {
                           onChange={field.onChange}
                           error={errors.payment_preference?.message}
                           tier={watch('preferred_tier')}
+                          tiers={tiers}
+                          pricing={pricing}
                         />
                       )}
                     />
@@ -1109,15 +1247,17 @@ function TierStep({
   value,
   onChange,
   error,
+  tiers,
 }: {
   value: FormData['preferred_tier'] | undefined
   onChange: (v: string) => void
   error?: string
+  tiers: TierCard[]
 }) {
   return (
     <Reveal type="up" delay={0}>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {TIERS.map((t) => {
+        {tiers.map((t) => {
           const active = value === t.value
           return (
             <button
@@ -1202,13 +1342,17 @@ function PaymentStep({
   onChange,
   error,
   tier,
+  tiers,
+  pricing,
 }: {
   value: FormData['payment_preference'] | undefined
   onChange: (v: string) => void
   error?: string
   tier: FormData['preferred_tier'] | undefined
+  tiers: TierCard[]
+  pricing: Record<string, TierPricing>
 }) {
-  const tierInfo = tier ? TIERS.find((t) => t.value === tier) : undefined
+  const tierInfo = tier ? tiers.find((t) => t.value === tier) : undefined
 
   return (
     <Reveal type="up" delay={0}>
@@ -1220,14 +1364,15 @@ function PaymentStep({
           const active = value === p.value
           const showReceipt = active && !!tierInfo
 
-          // This option's own subtotal/VAT/total
-          let subtotal = 0
-          if (tierInfo) {
-            subtotal =
-              p.value === 'annual'
-                ? PRICING[tierInfo.value].annual
-                : PRICING[tierInfo.value].monthly
-          }
+          // This option's own subtotal/VAT/total. Falls back to 0 if the
+          // pricing map doesn't have an entry for this tier — shouldn't
+          // happen for active plans, but keeps the math safe.
+          const priceRow = tierInfo ? pricing[tierInfo.value] : undefined
+          const subtotal = priceRow
+            ? p.value === 'annual'
+              ? priceRow.annual
+              : priceRow.monthly
+            : 0
           const vat = Math.round(subtotal * VAT_RATE)
           const total = subtotal + vat
           const perLabel = p.value === 'annual' ? '/ year' : '/ month'

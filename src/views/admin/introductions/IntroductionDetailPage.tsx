@@ -343,7 +343,7 @@ export function IntroductionDetailPage() {
                         {isPast ? (
                           <Check size={14} />
                         ) : isCurrent ? (
-                          <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                          <div className="w-2 h-2 bg-ink rounded-full animate-pulse" />
                         ) : (
                           <div className="w-2 h-2 bg-text-dim/30 rounded-full" />
                         )}

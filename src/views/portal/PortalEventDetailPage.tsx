@@ -3,20 +3,27 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { formatDate, formatDateTime, formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
 import {
+  AlertCircle,
   ArrowLeft,
   Calendar,
   Clock,
   MapPin,
-  Users,
   Ticket,
-  AlertCircle,
+  Users,
 } from 'lucide-react'
+import {
+  PortalBadge,
+  PortalButton,
+  PortalCard,
+  PortalLoading,
+  PortalSectionTitle,
+  type PortalBadgeVariant,
+} from '@/components/portal/PortalChrome'
 import type { Database, Json } from '@/types/database'
 
 type EventRow = Database['public']['Tables']['events']['Row']
@@ -46,7 +53,7 @@ const typeLabels: Record<EventType, string> = {
   retreat: 'Retreat',
 }
 
-const typeVariant: Record<EventType, 'info' | 'upcoming' | 'active'> = {
+const typeVariant: Record<EventType, PortalBadgeVariant> = {
   member_event: 'info',
   curated_luxury: 'upcoming',
   retreat: 'active',
@@ -83,21 +90,9 @@ export function PortalEventDetailPage() {
 
   async function fetchData() {
     setLoading(true)
-
-    // Fetch event, member, and existing booking in parallel
     const [eventResult, memberResult] = await Promise.all([
-      supabase
-        .from('events')
-        .select(
-          '*, bookings(count)'
-        )
-        .eq('id', id!)
-        .single(),
-      supabase
-        .from('members')
-        .select('id')
-        .eq('profile_id', user!.id)
-        .single(),
+      supabase.from('events').select('*, bookings(count)').eq('id', id!).single(),
+      supabase.from('members').select('id').eq('profile_id', user!.id).single(),
     ])
 
     if (eventResult.error || !eventResult.data) {
@@ -105,13 +100,10 @@ export function PortalEventDetailPage() {
       setLoading(false)
       return
     }
-
     setEvent(eventResult.data as unknown as EventWithCount)
 
     if (memberResult.data) {
       setMemberId(memberResult.data.id)
-
-      // Check existing booking
       const { data: bookingData } = await supabase
         .from('bookings')
         .select('id, status')
@@ -119,37 +111,24 @@ export function PortalEventDetailPage() {
         .eq('member_id', memberResult.data.id)
         .in('status', ['confirmed', 'pending'])
         .maybeSingle()
-
-      if (bookingData) {
-        setExistingBooking(bookingData)
-      }
+      if (bookingData) setExistingBooking(bookingData)
     }
-
     setLoading(false)
   }
 
   async function handleBookPaid() {
     setBooking(true)
     setError(null)
-
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'checkout',
-        { body: { event_id: id } }
-      )
-
+      const { data, error: fnError } = await supabase.functions.invoke('checkout', {
+        body: { event_id: id },
+      })
       if (fnError || !data?.url) {
-        // `supabase.functions.invoke` swallows the response body and just
-        // sets a generic "Edge Function returned a non-2xx status code"
-        // message. The actual JSON `{ error: ... }` payload is on
-        // `fnError.context.response` — read it to surface the real reason.
         const friendly = await extractFunctionErrorMessage(fnError, data)
         setError(friendly)
         setBooking(false)
         return
       }
-
-      // Redirect to Stripe Checkout
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
@@ -157,10 +136,6 @@ export function PortalEventDetailPage() {
     }
   }
 
-  // Pulls the JSON `{ error: "..." }` body out of a failed Edge Function
-  // response so we don't end up showing "Edge Function returned a non-2xx
-  // status code" to the user. Falls back to the generic message if the
-  // body isn't JSON.
   async function extractFunctionErrorMessage(
     fnError: { message?: string; context?: { response?: Response } } | null,
     data: unknown,
@@ -189,7 +164,6 @@ export function PortalEventDetailPage() {
     if (!memberId) return
     setBooking(true)
     setError(null)
-
     try {
       const { data: newBooking, error: bookingError } = await supabase
         .from('bookings')
@@ -201,13 +175,11 @@ export function PortalEventDetailPage() {
         })
         .select('id')
         .single()
-
       if (bookingError) {
         setError(bookingError.message)
         setBooking(false)
         return
       }
-
       router.push(`/portal/events/${id}/confirmation?booking_id=${newBooking.id}`)
     } catch {
       setError('Something went wrong. Please try again.')
@@ -217,18 +189,23 @@ export function PortalEventDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 py-12">
-        <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-        <span className="text-sm text-text-muted">Loading event...</span>
+      <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12">
+        <PortalLoading label="Loading event" />
       </div>
     )
   }
 
   if (error && !event) {
     return (
-      <div className="py-12 text-center">
-        <p className="text-text-muted mb-4">{error}</p>
-        <Link href="/portal/events" className="text-gold hover:underline text-sm">
+      <div className="max-w-[800px] mx-auto px-6 lg:px-10 py-16 text-center">
+        <p className="font-[family-name:var(--font-editorial)] italic text-[15px] text-ivory-soft mb-5">
+          {error}
+        </p>
+        <Link
+          href="/portal/events"
+          className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+        >
+          <ArrowLeft size={13} strokeWidth={1.5} />
           Back to events
         </Link>
       </div>
@@ -237,8 +214,7 @@ export function PortalEventDetailPage() {
 
   if (!event) return null
 
-  const bookingCount =
-    (event.bookings as unknown as { count: number }[])?.[0]?.count ?? 0
+  const bookingCount = (event.bookings as unknown as { count: number }[])?.[0]?.count ?? 0
   const spotsRemaining = event.capacity ? event.capacity - bookingCount : null
   const isFullyBooked = spotsRemaining !== null && spotsRemaining <= 0
   const isComplimentary = event.member_price_pence === 0
@@ -246,181 +222,176 @@ export function PortalEventDetailPage() {
   const agenda = parseAgenda(event.agenda)
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Back link */}
+    <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
       <Link
         href="/portal/events"
-        className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-gold transition-colors mb-6"
+        className="inline-flex items-center gap-2 mb-8 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-ivory-soft hover:text-bronze-light transition-colors"
       >
-        <ArrowLeft size={14} strokeWidth={1.5} />
+        <ArrowLeft size={12} strokeWidth={1.5} />
         Back to events
       </Link>
 
       {/* Cover image */}
-      <div className="aspect-[21/9] bg-surface-2 rounded-[var(--radius-lg)] overflow-hidden mb-8">
+      <div className="relative aspect-[21/9] bg-graphite-2 overflow-hidden mb-10 border border-graphite-line/45">
         {event.cover_image_url ? (
-          <img
+          <Image
             src={event.cover_image_url}
             alt={event.title}
-            className="w-full h-full object-cover"
+            fill
+            sizes="(min-width: 1024px) 80vw, 100vw"
+            className="object-cover"
+            priority
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-3">
-            <span className="font-[family-name:var(--font-heading)] text-3xl text-text-dim/30">
-              The Club
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="font-[family-name:var(--font-display)] text-[72px] text-slate-dim">
+              {event.title.charAt(0)}
             </span>
           </div>
         )}
+        <div className="absolute inset-0 bg-gradient-to-t from-ink/80 via-ink/15 to-transparent" />
+        <div className="film-grain-night pointer-events-none" />
+        <span className="absolute top-5 left-5 w-6 h-px bg-bronze/75 pointer-events-none" />
+        <span className="absolute top-5 left-5 w-px h-6 bg-bronze/75 pointer-events-none" />
+        <span className="absolute bottom-5 right-5 w-6 h-px bg-bronze/75 pointer-events-none" />
+        <span className="absolute bottom-5 right-5 w-px h-6 bg-bronze/75 pointer-events-none" />
       </div>
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 mb-8">
-        <div className="flex-1">
-          <div className="mb-3">
-            <Badge variant={typeVariant[event.event_type]}>
+      {/* Title + booking side-by-side */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 mb-12">
+        <div className="lg:col-span-8">
+          <div className="mb-5">
+            <PortalBadge variant={typeVariant[event.event_type]}>
               {typeLabels[event.event_type]}
-            </Badge>
+            </PortalBadge>
           </div>
-          <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text mb-4">
+          <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.5vw,3.25rem)] leading-[1.1] tracking-[-0.01em] text-ivory">
             {event.title}
           </h1>
 
-          <div className="space-y-2 text-sm text-text-muted">
-            <div className="flex items-center gap-2">
-              <Calendar size={15} strokeWidth={1.5} className="text-text-dim shrink-0" />
+          <ul className="mt-7 space-y-2.5 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-ivory-soft">
+            <li className="flex items-center gap-2.5">
+              <Calendar size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
               <span>{formatDate(event.start_date)}</span>
               {event.end_date && (
-                <span className="text-text-dim">
-                  — {formatDate(event.end_date)}
-                </span>
+                <span className="text-slate-haze">— {formatDate(event.end_date)}</span>
               )}
-            </div>
-
+            </li>
             {event.doors_open && (
-              <div className="flex items-center gap-2">
-                <Clock size={15} strokeWidth={1.5} className="text-text-dim shrink-0" />
+              <li className="flex items-center gap-2.5">
+                <Clock size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
                 <span>Doors open {formatDateTime(event.doors_open).split(', ')[1]}</span>
-              </div>
+              </li>
             )}
-
             {event.venue_name && (
-              <div className="flex items-center gap-2">
-                <MapPin size={15} strokeWidth={1.5} className="text-text-dim shrink-0" />
+              <li className="flex items-center gap-2.5">
+                <MapPin size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
                 <span>
                   {event.venue_name}
-                  {event.venue_city ? ` — ${event.venue_city}` : ''}
+                  {event.venue_city ? ` · ${event.venue_city}` : ''}
                 </span>
-              </div>
+              </li>
             )}
-
             {spotsRemaining !== null && (
-              <div className="flex items-center gap-2">
-                <Users size={15} strokeWidth={1.5} className="text-text-dim shrink-0" />
+              <li className="flex items-center gap-2.5">
+                <Users size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
                 <span>
                   {spotsRemaining > 0
-                    ? `${spotsRemaining} spot${spotsRemaining !== 1 ? 's' : ''} remaining`
+                    ? `${spotsRemaining} ${spotsRemaining === 1 ? 'seat' : 'seats'} remaining`
                     : 'Fully booked'}
                 </span>
-              </div>
+              </li>
             )}
-          </div>
+          </ul>
         </div>
 
         {/* Booking card */}
-        <div className="bg-surface border border-border rounded-[var(--radius-lg)] p-6 md:w-72 shadow-[var(--shadow-card)]">
-          <div className="text-center mb-4">
-            <span className="font-[family-name:var(--font-heading)] text-2xl font-semibold text-gold">
-              {isComplimentary
-                ? 'Complimentary'
-                : formatCurrency(event.member_price_pence)}
-            </span>
-            {!isComplimentary && (
-              <p className="text-xs text-text-dim mt-0.5">per member</p>
-            )}
-          </div>
-
-          {existingBooking ? (
-            <div className="text-center">
-              <div className="inline-flex items-center gap-1.5 mb-2">
-                <Ticket size={15} className="text-accent" />
-                <span className="text-sm font-medium text-accent capitalize">
-                  {existingBooking.status}
-                </span>
-              </div>
-              <p className="text-xs text-text-dim">
-                You already have a booking for this event
+        <div className="lg:col-span-4">
+          <PortalCard className="p-7">
+            <div className="text-center mb-6 pb-6 border-b border-graphite-line/45">
+              <p className="font-[family-name:var(--font-display)] text-[clamp(1.75rem,2.5vw,2.25rem)] text-bronze-light leading-none tabular-nums">
+                {isComplimentary ? 'Complimentary' : formatCurrency(event.member_price_pence)}
               </p>
-              <Link
-                href={`/portal/events/${id}/confirmation?booking_id=${existingBooking.id}`}
-                className="text-xs text-gold hover:underline mt-2 inline-block"
-              >
-                View confirmation
-              </Link>
-            </div>
-          ) : !memberId ? (
-            // The user is authenticated (middleware lets them through to
-            // /portal) but doesn't have a row in the `members` table.
-            // Almost always this is an admin browsing the portal for QA,
-            // or a freshly-invited account whose member row hasn't been
-            // provisioned yet. The checkout edge function would respond
-            // with "Member record not found" — surface that up front
-            // instead of letting them click a button that's guaranteed
-            // to fail.
-            <div className="text-center py-2">
-              <div className="w-10 h-10 mx-auto rounded-full bg-gold/15 flex items-center justify-center mb-3">
-                <AlertCircle size={16} className="text-gold" strokeWidth={1.6} />
-              </div>
-              <p className="text-sm font-medium text-text mb-1">
-                Bookings require a member account
-              </p>
-              <p className="text-xs text-text-muted leading-relaxed">
-                You&apos;re signed in as an admin / non-member. Switch to a
-                member account to book this event, or have an admin add
-                you via{' '}
-                <span className="font-medium text-text">Members → Add Member</span>.
-              </p>
-              <Link
-                href="/dashboard/members"
-                className="text-xs text-gold hover:underline mt-3 inline-block"
-              >
-                Open admin members →
-              </Link>
-            </div>
-          ) : isFullyBooked ? (
-            <Button disabled className="w-full">
-              Fully Booked
-            </Button>
-          ) : (
-            <>
-              <Button
-                className="w-full"
-                loading={booking}
-                onClick={
-                  isComplimentary ? handleBookComplimentary : handleBookPaid
-                }
-              >
-                {isComplimentary ? 'Book Now' : `Book — ${formatCurrency(event.member_price_pence)}`}
-              </Button>
-              {error && (
-                <div className="mt-3 px-3 py-2 rounded-md bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">
-                  <p className="text-xs text-accent-warm leading-relaxed text-left">
-                    <span className="font-medium block mb-0.5">Couldn&apos;t start checkout</span>
-                    {error}
-                  </p>
-                </div>
+              {!isComplimentary && (
+                <p className="mt-2 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-haze">
+                  Per member
+                </p>
               )}
-            </>
-          )}
+            </div>
+
+            {existingBooking ? (
+              <div className="text-center">
+                <div className="inline-flex items-center gap-2 mb-3">
+                  <Ticket size={14} strokeWidth={1.5} className="text-emerald-300" />
+                  <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-emerald-300 capitalize">
+                    {existingBooking.status}
+                  </span>
+                </div>
+                <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/85">
+                  You already have a booking for this evening.
+                </p>
+                <Link
+                  href={`/portal/events/${id}/confirmation?booking_id=${existingBooking.id}`}
+                  className="mt-4 inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+                >
+                  View confirmation
+                </Link>
+              </div>
+            ) : !memberId ? (
+              <div className="text-center">
+                <div className="w-10 h-10 mx-auto mb-4 rounded-full border border-bronze/45 bg-bronze/10 flex items-center justify-center text-bronze-light">
+                  <AlertCircle size={16} strokeWidth={1.5} />
+                </div>
+                <p className="font-[family-name:var(--font-display)] text-[14.5px] text-ivory leading-tight mb-2">
+                  Bookings require a member account.
+                </p>
+                <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/85 leading-[1.7]">
+                  You&apos;re signed in as an admin / non-member. Switch to a member account or
+                  have an admin add you via Members → Add Member.
+                </p>
+                <Link
+                  href="/dashboard/members"
+                  className="mt-4 inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+                >
+                  Open admin members
+                </Link>
+              </div>
+            ) : isFullyBooked ? (
+              <PortalButton disabled className="w-full justify-center">
+                Fully booked
+              </PortalButton>
+            ) : (
+              <>
+                <PortalButton
+                  className="w-full justify-center"
+                  loading={booking}
+                  onClick={isComplimentary ? handleBookComplimentary : handleBookPaid}
+                >
+                  {isComplimentary
+                    ? 'Reserve seat'
+                    : `Book · ${formatCurrency(event.member_price_pence)}`}
+                </PortalButton>
+                {error && (
+                  <div className="mt-4 px-3 py-3 border-l-2 border-rose-500/60 bg-rose-900/15">
+                    <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-rose-300 mb-1.5">
+                      Couldn&apos;t start checkout
+                    </p>
+                    <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-rose-200 leading-[1.65]">
+                      {error}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </PortalCard>
         </div>
       </div>
 
       {/* Description */}
       {event.description && (
-        <section className="mb-8">
-          <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text mb-3">
-            About This Event
-          </h2>
-          <div className="prose prose-sm text-text-muted max-w-none whitespace-pre-line">
+        <section className="mb-12">
+          <PortalSectionTitle eyebrow="The Evening">About this event.</PortalSectionTitle>
+          <div className="font-[family-name:var(--font-editorial)] text-[15.5px] leading-[1.85] text-ivory-soft whitespace-pre-line max-w-prose">
             {event.description}
           </div>
         </section>
@@ -428,28 +399,25 @@ export function PortalEventDetailPage() {
 
       {/* Speakers */}
       {speakers.length > 0 && (
-        <section className="mb-8">
-          <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text mb-4">
-            Speakers
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <section className="mb-12">
+          <PortalSectionTitle eyebrow="In the Room">Speakers.</PortalSectionTitle>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {speakers.map((speaker, i) => (
-              <div
-                key={i}
-                className="bg-surface border border-border rounded-[var(--radius-lg)] p-4"
-              >
-                <p className="font-medium text-text">{speaker.name}</p>
+              <PortalCard key={i} className="p-6">
+                <p className="font-[family-name:var(--font-display)] text-[16px] text-ivory leading-tight">
+                  {speaker.name}
+                </p>
                 {(speaker.title || speaker.company) && (
-                  <p className="text-xs text-text-muted mt-0.5">
-                    {[speaker.title, speaker.company]
-                      .filter(Boolean)
-                      .join(' — ')}
+                  <p className="mt-1.5 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.22em] text-bronze-light/85">
+                    {[speaker.title, speaker.company].filter(Boolean).join(' · ')}
                   </p>
                 )}
                 {speaker.bio && (
-                  <p className="text-sm text-text-muted mt-2">{speaker.bio}</p>
+                  <p className="mt-4 font-[family-name:var(--font-editorial)] italic text-[13.5px] leading-[1.7] text-ivory-soft/90">
+                    {speaker.bio}
+                  </p>
                 )}
-              </div>
+              </PortalCard>
             ))}
           </div>
         </section>
@@ -457,59 +425,61 @@ export function PortalEventDetailPage() {
 
       {/* Agenda */}
       {agenda.length > 0 && (
-        <section className="mb-8">
-          <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text mb-4">
-            Agenda
-          </h2>
-          <div className="space-y-3">
+        <section className="mb-12">
+          <PortalSectionTitle eyebrow="The Order">Agenda.</PortalSectionTitle>
+          <ol className="space-y-3">
             {agenda.map((item, i) => (
-              <div
+              <li
                 key={i}
-                className="flex gap-4 bg-surface border border-border rounded-[var(--radius-lg)] p-4"
+                className="flex gap-5 p-5 border border-graphite-line/45 bg-graphite/30"
               >
-                <span className="font-[family-name:var(--font-mono)] text-xs text-gold shrink-0 pt-0.5">
+                <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-bronze-light tabular-nums shrink-0 pt-0.5 min-w-[80px]">
                   {item.time}
                 </span>
                 <div>
-                  <p className="font-medium text-text text-sm">{item.title}</p>
+                  <p className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight">
+                    {item.title}
+                  </p>
                   {item.description && (
-                    <p className="text-xs text-text-muted mt-1">
+                    <p className="mt-2 font-[family-name:var(--font-editorial)] italic text-[13px] leading-[1.7] text-ivory-soft/85">
                       {item.description}
                     </p>
                   )}
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </section>
       )}
 
-      {/* Venue details */}
+      {/* Venue */}
       {event.venue_address && (
-        <section className="mb-8">
-          <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text mb-3">
-            Venue
-          </h2>
-          <div className="bg-surface border border-border rounded-[var(--radius-lg)] p-4 text-sm text-text-muted space-y-1">
-            <p className="font-medium text-text">{event.venue_name}</p>
-            <p>{event.venue_address}</p>
-            {event.venue_city && (
-              <p>
-                {event.venue_city}
-                {event.venue_postcode ? ` ${event.venue_postcode}` : ''}
-              </p>
-            )}
+        <section className="mb-4">
+          <PortalSectionTitle eyebrow="The Address">Venue.</PortalSectionTitle>
+          <PortalCard className="p-6 lg:p-7 max-w-md">
+            <p className="font-[family-name:var(--font-display)] text-[16px] text-ivory leading-tight">
+              {event.venue_name}
+            </p>
+            <address className="not-italic mt-3 font-[family-name:var(--font-editorial)] text-[14px] leading-[1.75] text-ivory-soft/90 space-y-0.5">
+              <p>{event.venue_address}</p>
+              {event.venue_city && (
+                <p>
+                  {event.venue_city}
+                  {event.venue_postcode ? ` · ${event.venue_postcode}` : ''}
+                </p>
+              )}
+            </address>
             {event.venue_url && (
               <a
                 href={event.venue_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-gold hover:underline inline-block mt-1"
+                className="mt-4 inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
               >
-                View venue website
+                Venue website →
               </a>
             )}
-          </div>
+          </PortalCard>
         </section>
       )}
     </div>

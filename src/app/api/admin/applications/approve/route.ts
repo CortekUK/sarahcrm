@@ -12,6 +12,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
+import { computeNextRenewal } from '@/lib/billing/renewal'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,16 +53,40 @@ async function requireAdmin() {
 
 // Map the free-text `preferred_tier` value on an application to a real
 // membership_tier enum. Free-text is whatever the form submitted —
-// 'individual', 'tier_1', 'business', etc. We sensible-default to tier_1.
+// 'individual', 'business', 'corporate', 'tier_1', etc. The mapping
+// mirrors what's seeded in `membership_plans.tier_classification`:
+//
+//   individual  → tier_1
+//   business    → tier_2
+//   corporate   → tier_3
+//
+// Plus the looser aliases (tier_1/2/3, platinum, gold, three, two) so
+// admin-added members + legacy data still resolve sanely.
 function resolveTier(input: string | null | undefined): 'tier_1' | 'tier_2' | 'tier_3' {
   const v = (input ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  if (v.includes('tier3') || v.includes('three') || v.includes('platinum')) return 'tier_3'
-  if (v.includes('tier2') || v.includes('two') || v.includes('gold') || v.includes('business')) return 'tier_2'
+  if (
+    v.includes('tier3') ||
+    v.includes('three') ||
+    v.includes('platinum') ||
+    v.includes('corporate')
+  )
+    return 'tier_3'
+  if (
+    v.includes('tier2') ||
+    v.includes('two') ||
+    v.includes('gold') ||
+    v.includes('business')
+  )
+    return 'tier_2'
   return 'tier_1'
 }
 
+// Business membership_type covers both "Business" and "Corporate" plans
+// (Corporate is essentially the top-end business tier in our public
+// offering — same payee model, larger seat count + sponsorship slot).
 function isBusiness(input: string | null | undefined): boolean {
-  return (input ?? '').toLowerCase().includes('business')
+  const v = (input ?? '').toLowerCase()
+  return v.includes('business') || v.includes('corporate')
 }
 
 export async function POST(req: NextRequest) {
@@ -80,6 +105,15 @@ export async function POST(req: NextRequest) {
     if (!body.application_id) {
       return Response.json({ error: 'application_id required' }, { status: 400 })
     }
+
+    // The invitation email Supabase sends needs to land on OUR portal so
+    // the new member sees the branded set-password page instead of the
+    // default Supabase one. We construct the URL from the request's own
+    // origin so it works in dev, preview, and production without env
+    // tweaks. Supabase will append the access token to the hash on top
+    // of this URL when it emails the link.
+    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const setPasswordRedirect = `${origin}/set-password`
 
     const admin = getAdminDb()
 
@@ -113,6 +147,8 @@ export async function POST(req: NextRequest) {
     if (existingProfile) {
       userId = existingProfile.id
       // Don't downgrade an existing admin to member; otherwise upgrade.
+      // Carry over the photo + website too — that's data the applicant
+      // already provided and it'd be wasteful to make them re-upload.
       if (existingProfile.role !== 'admin') {
         await admin
           .from('profiles')
@@ -125,17 +161,28 @@ export async function POST(req: NextRequest) {
             job_title: app.position ?? null,
             bio: app.bio ?? null,
             linkedin_url: app.linkedin_url ?? null,
+            avatar_url: app.photo_url ?? null,
+            website_url: app.website_url ?? null,
           })
           .eq('id', userId)
       }
     } else {
       // 3. Create the auth user. We use inviteUserByEmail so Supabase
       //    sends them a "set your password" email — they don't need us to
-      //    know or share a password manually. The handle_new_user trigger
-      //    auto-creates a profile row keyed off the new auth.users.id.
+      //    know or share a password manually. `redirectTo` points to OUR
+      //    branded /set-password page so the post-click experience is on
+      //    The Club's surface, not Supabase's default page. The
+      //    handle_new_user trigger auto-creates a profile row keyed off
+      //    the new auth.users.id.
+      //
+      //    NB: The email's subject + body branding (sender name, copy,
+      //    logo) is configured in Supabase Dashboard → Auth → Email
+      //    Templates → "Invite user". Update that template once to match
+      //    The Club's voice — there's no code knob for it.
       const send = body.send_invite !== false
       const inviteRes = send
         ? await admin.auth.admin.inviteUserByEmail(app.email, {
+            redirectTo: setPasswordRedirect,
             data: {
               first_name: app.first_name,
               last_name: app.last_name,
@@ -159,8 +206,8 @@ export async function POST(req: NextRequest) {
       userId = inviteRes.data.user.id
 
       // Trigger created a minimal profile; flesh it out with details from
-      // the application. Phone / company / job_title / bio / linkedin_url
-      // weren't part of the trigger insert so they need a follow-up update.
+      // the application. Photo + website carry through so the new member
+      // doesn't have to re-upload assets they already provided.
       await admin
         .from('profiles')
         .update({
@@ -172,6 +219,8 @@ export async function POST(req: NextRequest) {
           job_title: app.position ?? null,
           bio: app.bio ?? null,
           linkedin_url: app.linkedin_url ?? null,
+          avatar_url: app.photo_url ?? null,
+          website_url: app.website_url ?? null,
         })
         .eq('id', userId)
     }
@@ -187,6 +236,24 @@ export async function POST(req: NextRequest) {
 
     let memberId: string
 
+    // Stripe IDs the public-pay flow recorded on the application row
+    // when the user completed checkout. Forward these into the members
+    // record so the Subscription card on /dashboard/members/[id] and
+    // the renewal/billing logic actually see the live Stripe state.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const appAny = app as any
+    const stripeCustomerId: string | null = appAny.stripe_customer_id ?? null
+    const stripeSubscriptionId: string | null = appAny.stripe_subscription_id ?? null
+    const amountPaidPence: number | null = appAny.amount_paid_pence ?? null
+    const paidAt: string | null = appAny.paid_at ?? null
+    // Compute the next renewal date from the applicant's cadence so the
+    // Subscription card has a real date to show immediately. The
+    // recurring invoice.paid webhook will refresh this from Stripe's
+    // actual current_period_end each cycle thereafter.
+    const renewalDate: string | null = stripeSubscriptionId
+      ? computeNextRenewal(paidAt, appAny.payment_preference)
+      : null
+
     if (existingMember) {
       const { data: updated, error: updErr } = await admin
         .from('members')
@@ -198,6 +265,14 @@ export async function POST(req: NextRequest) {
           company_name: app.company ?? null,
           source: app.referral_source ?? null,
           deleted_at: null,
+          // Only overwrite if the application has fresh Stripe IDs —
+          // don't blank existing ones if admin re-approves a manual
+          // member who already had a sub linked.
+          ...(stripeCustomerId ? { stripe_customer_id: stripeCustomerId } : {}),
+          ...(stripeSubscriptionId
+            ? { stripe_subscription_id: stripeSubscriptionId }
+            : {}),
+          ...(renewalDate ? { renewal_date: renewalDate } : {}),
         })
         .eq('id', existingMember.id)
         .select('id')
@@ -217,6 +292,9 @@ export async function POST(req: NextRequest) {
           membership_start_date: new Date().toISOString().slice(0, 10),
           company_name: app.company ?? null,
           source: app.referral_source ?? null,
+          stripe_customer_id: stripeCustomerId,
+          stripe_subscription_id: stripeSubscriptionId,
+          renewal_date: renewalDate,
         })
         .select('id')
         .single()
@@ -226,7 +304,34 @@ export async function POST(req: NextRequest) {
       memberId = inserted.id
     }
 
-    // 5. Mark the application approved
+    // 5. Record the initial subscription payment if the applicant paid
+    //    before approval. Idempotent via the subscription id so re-
+    //    approving doesn't double-insert. The webhook can't write this
+    //    payment row directly because at checkout time no member existed
+    //    yet (payments.member_id is NOT NULL).
+    if (stripeSubscriptionId && amountPaidPence && amountPaidPence > 0) {
+      const { data: existingPay } = await admin
+        .from('payments')
+        .select('id')
+        .eq('member_id', memberId)
+        .eq('payment_type', 'membership')
+        .eq('description', `Membership — initial payment (sub ${stripeSubscriptionId})`)
+        .maybeSingle()
+      if (!existingPay) {
+        await admin.from('payments').insert({
+          member_id: memberId,
+          amount_pence: amountPaidPence,
+          currency: 'GBP',
+          payment_type: 'membership',
+          payment_method: 'stripe',
+          status: 'paid',
+          paid_at: paidAt ?? new Date().toISOString(),
+          description: `Membership — initial payment (sub ${stripeSubscriptionId})`,
+        })
+      }
+    }
+
+    // 6. Mark the application approved
     const { error: markErr } = await admin
       .from('membership_applications')
       .update({
@@ -246,6 +351,7 @@ export async function POST(req: NextRequest) {
       tier,
       membership_type,
       invite_sent: !existingProfile && body.send_invite !== false,
+      stripe_linked: Boolean(stripeSubscriptionId),
     })
   } catch (e) {
     console.error('[approve] unhandled error:', e)

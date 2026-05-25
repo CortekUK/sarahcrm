@@ -105,28 +105,35 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
 
   if (editor.isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[var(--color-bg)]">
-        <div className="flex items-center gap-3 text-[var(--color-text-muted)]">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          <span className="text-sm">Loading template…</span>
+      <div className="h-screen flex items-center justify-center bg-graphite">
+        <div className="flex items-center gap-3 text-ivory-soft">
+          <Loader2 className="h-5 w-5 animate-spin text-bronze-light" />
+          <span className="text-sm font-[family-name:var(--font-meta)] uppercase tracking-[0.22em]">
+            Loading template…
+          </span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--color-bg)] overflow-hidden">
-      {/* ── Header ───────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 h-14 bg-white border-b border-[var(--color-border)] flex-shrink-0">
+    <div className="h-screen flex flex-col bg-graphite text-ivory overflow-hidden">
+      {/* ── Header — night-themed chrome ─────────────────────────── */}
+      <div className="flex items-center justify-between px-4 h-14 bg-ink/80 backdrop-blur-sm border-b border-graphite-line/60 flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08]"
+            onClick={handleClose}
+          >
             <X className="h-4 w-4" />
           </Button>
           <div className="min-w-0 max-w-[280px]">
             <Input
               value={editor.settings.name}
               onChange={(e) => editor.updateSettings({ name: e.target.value })}
-              className="border-none shadow-none focus-visible:ring-0 px-0 h-7 text-base font-medium font-[family-name:var(--font-heading)]"
+              className="border-none shadow-none focus-visible:ring-0 bg-transparent px-0 h-7 text-base font-medium font-[family-name:var(--font-display)] text-ivory placeholder:text-slate-haze"
               placeholder="Untitled Template"
             />
           </div>
@@ -138,15 +145,15 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
           />
         </div>
 
-        {/* Build / AI mode toggle — pill switcher, matches IFG image 2/3 */}
-        <div className="flex items-center gap-1 bg-[var(--color-surface-2)] border border-[var(--color-border)] rounded-md p-0.5 mr-2">
+        {/* Build / AI mode toggle */}
+        <div className="flex items-center gap-1 bg-graphite/60 border border-graphite-line/60 rounded-md p-0.5 mr-2">
           <button
             onClick={() => setMode('build')}
             className={cn(
               'flex items-center gap-1.5 px-3 h-7 rounded text-xs font-medium transition-colors',
               mode === 'build'
-                ? 'bg-white text-[var(--color-text)] shadow-sm'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]',
+                ? 'bg-bronze/15 text-bronze-light shadow-sm'
+                : 'text-ivory-soft/75 hover:text-ivory',
             )}
           >
             <Pointer className="w-3.5 h-3.5" />
@@ -157,8 +164,8 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
             className={cn(
               'flex items-center gap-1.5 px-3 h-7 rounded text-xs font-medium transition-all',
               mode === 'ai'
-                ? 'bg-[var(--color-gold)] text-white shadow-sm'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]',
+                ? 'bg-bronze text-ink shadow-sm'
+                : 'text-ivory-soft/75 hover:text-ivory',
             )}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -170,7 +177,7 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08] disabled:opacity-40"
             onClick={editor.undo}
             disabled={!editor.canUndo}
             title="Undo"
@@ -180,20 +187,20 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08] disabled:opacity-40"
             onClick={editor.redo}
             disabled={!editor.canRedo}
             title="Redo"
           >
             <Redo2 className="h-4 w-4" />
           </Button>
-          <div className="w-px h-5 bg-[var(--color-border)] mx-1" />
+          <div className="w-px h-5 bg-graphite-line/60 mx-1" />
           <Button
             variant="outline"
             size="sm"
             onClick={() => editor.saveTemplate(false, false, true)}
             disabled={editor.isSaving}
-            className="h-8"
+            className="h-8 border-graphite-line/70 bg-transparent text-ivory-soft hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.06]"
           >
             <Save className="h-3.5 w-3.5 mr-1.5" />
             Save Draft
@@ -202,7 +209,7 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
             size="sm"
             onClick={() => editor.saveTemplate(true, false, false)}
             disabled={editor.isSaving}
-            className="h-8 bg-[var(--color-gold)] hover:bg-[var(--color-gold-dark)]"
+            className="h-8 bg-bronze text-ink hover:bg-bronze-light"
           >
             {editor.isSaving ? (
               <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -216,7 +223,7 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
 
       {/* ── Body — two-column ────────────────────────────────────── */}
       <div className="flex-1 flex min-h-0">
-        <aside className="w-[340px] border-r border-[var(--color-border)] bg-white flex flex-col min-h-0">
+        <aside className="w-[340px] border-r border-graphite-line/60 bg-graphite flex flex-col min-h-0">
           {mode === 'build' ? (
             <LeftSidebar
               settings={editor.settings}
@@ -243,7 +250,10 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
           )}
         </aside>
 
-        <main className="flex-1 overflow-y-auto bg-[var(--color-bg)]">
+        {/* Canvas — escapes the night theme so the email preview surface
+            renders on a true white inbox-like background, matching what
+            the recipient actually sees. */}
+        <main className="escape-night-admin flex-1 overflow-y-auto bg-[var(--color-bg)]">
           <EditorCanvas
             blocks={editor.blocks}
             theme={editor.settings.theme}

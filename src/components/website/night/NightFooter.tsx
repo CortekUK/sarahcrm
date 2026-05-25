@@ -21,7 +21,6 @@ const COLUMNS: Array<{ label: string; links: Array<{ href: string; text: string 
     label: 'The Standard',
     links: [
       { href: '/club-rules', text: 'Club Rules' },
-      { href: '/one-london-road', text: 'One London Road' },
       { href: '/private-event-services', text: 'Private Events' },
       { href: '/privacy-policy', text: 'Privacy Policy' },
     ],

@@ -47,14 +47,17 @@ export function EventsCarousel({ events }: { events: CarouselEvent[] }) {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      {/* Slide stack — only one visible at a time, cross-faded */}
-      <div className="relative min-h-[440px] lg:min-h-[420px]">
+      {/* Slide stack — all slides occupy the same grid cell so the
+          container sizes to the tallest, keeping the indicator bars
+          clear of the artwork on every breakpoint. */}
+      <div className="relative grid">
         {events.map((ev, i) => (
           <article
             key={ev.id}
             aria-hidden={i !== index}
+            style={{ gridArea: '1 / 1' }}
             className={cn(
-              'absolute inset-0 transition-opacity duration-1000 ease-out',
+              'transition-opacity duration-1000 ease-out',
               i === index ? 'opacity-100' : 'opacity-0 pointer-events-none',
             )}
           >

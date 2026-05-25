@@ -84,92 +84,163 @@ export function FinancePage() {
   }, [])
 
   async function fetchFinanceData() {
-    const [revenueRes, outstandingRes, membersRes, recentRes, overdueRes, subsRes, mrrRes] =
-      await Promise.all([
-        // Total revenue (all paid)
-        supabase
-          .from('payments')
-          .select('amount_pence')
-          .eq('status', 'paid'),
+    const [
+      revenueRes,
+      bookingsRevenueRes,
+      outstandingRes,
+      membersRes,
+      recentRes,
+      recentGuestBookingsRes,
+      overdueRes,
+      subsRes,
+      mrrRes,
+    ] = await Promise.all([
+      // Membership / event-via-member revenue (paid payment rows)
+      supabase
+        .from('payments')
+        .select('amount_pence')
+        .eq('status', 'paid'),
 
-        // Outstanding (pending + overdue)
-        supabase
-          .from('payments')
-          .select('amount_pence')
-          .in('status', ['pending', 'overdue']),
+      // Guest event-booking revenue — payments.member_id is NOT NULL so
+      // guest bookings never get a payment row. Sum directly from
+      // bookings to make their revenue visible in totals.
+      supabase
+        .from('bookings')
+        .select('amount_pence')
+        .eq('status', 'confirmed')
+        .is('member_id', null),
 
-        // Active memberships
-        supabase
-          .from('members')
-          .select('id', { count: 'exact', head: true })
-          .eq('membership_status', 'active')
-          .is('deleted_at', null),
+      // Outstanding (pending + overdue)
+      supabase
+        .from('payments')
+        .select('amount_pence')
+        .in('status', ['pending', 'overdue']),
 
-        // Recent payments (last 15)
-        supabase
-          .from('payments')
-          .select(`
-            id, payment_type, amount_pence, status, payment_method, due_date, paid_at, description, created_at,
-            members(company_name, profiles(first_name, last_name))
-          `)
-          .order('created_at', { ascending: false })
-          .limit(15),
+      // Active memberships
+      supabase
+        .from('members')
+        .select('id', { count: 'exact', head: true })
+        .eq('membership_status', 'active')
+        .is('deleted_at', null),
 
-        // Overdue payments
-        supabase
-          .from('payments')
-          .select(`
-            id, payment_type, amount_pence, status, payment_method, due_date, paid_at, description, created_at,
-            members(company_name, profiles(first_name, last_name))
-          `)
-          .eq('status', 'overdue')
-          .order('due_date', { ascending: true }),
+      // Recent payments (last 15)
+      supabase
+        .from('payments')
+        .select(`
+          id, payment_type, amount_pence, status, payment_method, due_date, paid_at, description, created_at,
+          members(company_name, profiles(first_name, last_name))
+        `)
+        .order('created_at', { ascending: false })
+        .limit(15),
 
-        // Active subscriptions count
-        supabase
-          .from('members')
-          .select('id', { count: 'exact', head: true })
-          .not('stripe_subscription_id', 'is', null)
-          .eq('membership_status', 'active')
-          .is('deleted_at', null),
+      // Recent guest bookings — synthesised into PaymentRow shape below
+      // so they appear alongside member payments in the Recent Payments
+      // table. Without this, guest ticket revenue shows in the total
+      // but the row itself is invisible.
+      supabase
+        .from('bookings')
+        .select(
+          'id, amount_pence, payment_method, created_at, guest_name, guest_company, events(title)',
+        )
+        .eq('status', 'confirmed')
+        .is('member_id', null)
+        .order('created_at', { ascending: false })
+        .limit(15),
 
-        // MRR — sum price_pence for all active subscribed members via their tier
-        supabase
-          .from('members')
-          .select('membership_tier, membership_type')
-          .not('stripe_subscription_id', 'is', null)
-          .eq('membership_status', 'active')
-          .is('deleted_at', null),
-      ])
+      // Overdue payments
+      supabase
+        .from('payments')
+        .select(`
+          id, payment_type, amount_pence, status, payment_method, due_date, paid_at, description, created_at,
+          members(company_name, profiles(first_name, last_name))
+        `)
+        .eq('status', 'overdue')
+        .order('due_date', { ascending: true }),
 
-    setTotalRevenue(
-      (revenueRes.data ?? []).reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
+      // Active subscriptions count
+      supabase
+        .from('members')
+        .select('id', { count: 'exact', head: true })
+        .not('stripe_subscription_id', 'is', null)
+        .eq('membership_status', 'active')
+        .is('deleted_at', null),
+
+      // MRR — sum monthly_price_pence per active subscribed member.
+      // Annual subscribers are approximated at their monthly equivalent;
+      // we don't store cadence on members, so this is intentionally a
+      // coarse number rather than a per-Stripe-interval calc.
+      supabase
+        .from('members')
+        .select('membership_tier')
+        .not('stripe_subscription_id', 'is', null)
+        .eq('membership_status', 'active')
+        .is('deleted_at', null),
+    ])
+
+    const paymentsRevenue = (revenueRes.data ?? []).reduce(
+      (sum, p) => sum + (p.amount_pence ?? 0),
+      0,
     )
+    const bookingsRevenue = (bookingsRevenueRes.data ?? []).reduce(
+      (sum, b) => sum + (b.amount_pence ?? 0),
+      0,
+    )
+    setTotalRevenue(paymentsRevenue + bookingsRevenue)
     setOutstanding(
       (outstandingRes.data ?? []).reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
     )
     setActiveMemberships(membersRes.count ?? 0)
     setActiveSubscriptions(subsRes.count ?? 0)
-    setRecentPayments((recentRes.data ?? []) as unknown as PaymentRow[])
+
+    // Synthesise guest bookings into PaymentRow shape and merge with
+    // real payments, then sort by created_at desc and trim to 15.
+    const memberPaymentRows = (recentRes.data ?? []) as unknown as PaymentRow[]
+    const guestBookingRows: PaymentRow[] = (recentGuestBookingsRes.data ?? []).map((b) => {
+      const ev = b.events as { title: string | null } | null
+      return {
+        id: b.id,
+        payment_type: 'event_booking',
+        amount_pence: b.amount_pence ?? 0,
+        status: 'paid' as PaymentStatus,
+        payment_method: (b.payment_method ?? 'stripe') as PaymentMethod,
+        due_date: null,
+        paid_at: b.created_at,
+        description: ev?.title ? `Event booking — ${ev.title} (guest)` : 'Event booking (guest)',
+        created_at: b.created_at,
+        members: {
+          company_name: b.guest_company ?? null,
+          profiles: {
+            first_name: b.guest_name ?? 'Guest',
+            last_name: '',
+          },
+        },
+      }
+    })
+    const mergedRecent = [...memberPaymentRows, ...guestBookingRows]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 15)
+    setRecentPayments(mergedRecent)
     setOverduePayments((overdueRes.data ?? []) as unknown as PaymentRow[])
 
-    // Calculate MRR from tier pricing
+    // MRR from membership_plans (live pricing the website + portal use).
+    // membership_plans.tier_classification maps directly to members.membership_tier.
     if (mrrRes.data && mrrRes.data.length > 0) {
-      const { data: tiers } = await supabase
-        .from('membership_tiers')
-        .select('tier, membership_type, price_pence')
-        .eq('billing_interval', 'month')
+      const { data: plans } = await supabase
+        .from('membership_plans')
+        .select('tier_classification, monthly_price_pence')
         .eq('is_active', true)
 
-      if (tiers) {
-        const priceMap = new Map<string, number>()
-        for (const t of tiers) {
-          priceMap.set(`${t.tier}:${t.membership_type}`, t.price_pence)
+      if (plans) {
+        const priceByTier = new Map<string, number>()
+        for (const p of plans) {
+          if (p.tier_classification) {
+            priceByTier.set(p.tier_classification, p.monthly_price_pence)
+          }
         }
-        const totalMrr = mrrRes.data.reduce((sum, m) => {
-          const key = `${m.membership_tier}:${m.membership_type}`
-          return sum + (priceMap.get(key) ?? 0)
-        }, 0)
+        const totalMrr = mrrRes.data.reduce(
+          (sum, m) => sum + (priceByTier.get(m.membership_tier) ?? 0),
+          0,
+        )
         setMrr(totalMrr)
       }
     }
@@ -201,9 +272,9 @@ export function FinancePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-5 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 mb-8">
         <StatCard
-          label="Total Revenue"
+          label="Revenue"
           value={formatCurrency(totalRevenue)}
           changeText="all time paid"
           changeType="positive"
@@ -215,13 +286,13 @@ export function FinancePage() {
           changeType={overduePayments.length > 0 ? 'negative' : 'neutral'}
         />
         <StatCard
-          label="Active Memberships"
+          label="Members"
           value={activeMemberships.toLocaleString('en-GB')}
           changeText="currently active"
           changeType="neutral"
         />
         <StatCard
-          label="Active Subscriptions"
+          label="Subscriptions"
           value={activeSubscriptions.toLocaleString('en-GB')}
           changeText="paying via Stripe"
           changeType="positive"

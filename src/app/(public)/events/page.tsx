@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
@@ -8,6 +9,7 @@ import {
   EventsBrowser,
   type EventListItem,
 } from '@/components/website/night/events/EventsBrowser'
+import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight } from 'lucide-react'
 
 export const revalidate = 60
@@ -32,13 +34,24 @@ const PRIVATE_EVENTS_IMAGE = '/theclub-section.png' // PLACEHOLDER
 export default async function EventsPage() {
   const supabase = await createClient()
 
-  const { data } = await supabase
-    .from('events')
-    .select(
-      'id, slug, title, start_date, end_date, doors_open, event_type, venue_name, venue_city, cover_image_url, description, guest_price_pence, member_price_pence',
-    )
-    .in('status', ['published', 'live', 'completed'])
-    .order('start_date', { ascending: true })
+  const [{ data }, hero] = await Promise.all([
+    supabase
+      .from('events')
+      .select(
+        'id, slug, title, start_date, end_date, doors_open, event_type, venue_name, venue_city, cover_image_url, description, guest_price_pence, member_price_pence',
+      )
+      .in('status', ['published', 'live', 'completed'])
+      .order('start_date', { ascending: true }),
+    getPageHero('events', {
+      page_slug: 'events',
+      media_type: 'image',
+      image_url: HERO_IMAGE,
+      alt_text: 'A members’ evening',
+      eyebrow: 'The Calendar',
+      headline: 'Events.',
+      lede: 'Explore a curated collection of upcoming and past events, each designed to offer a unique blend of luxury and networking. From the glamour of high-profile gatherings to the intimate settings of exclusive venues, our events page is your portal to the extraordinary.',
+    }),
+  ])
 
   const now = new Date()
   const all = (data ?? []) as EventListItem[]
@@ -49,33 +62,36 @@ export default async function EventsPage() {
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
       <section className="relative h-[78vh] min-h-[540px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="A members' evening"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.55}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              The Calendar
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h1 className="display-xl max-w-4xl">Events.</h1>
-          </Reveal>
-          <Reveal type="up" delay={400}>
-            <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.25vw,1.25rem)] leading-[1.7] text-ivory-soft mt-6 max-w-2xl">
-              Explore a curated collection of upcoming and past events, each designed to offer a
-              unique blend of luxury and networking. From the glamour of high-profile gatherings to
-              the intimate settings of exclusive venues, our events page is your portal to the
-              extraordinary.
-            </p>
-          </Reveal>
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
+          {hero.headline && (
+            <Reveal type="clip" delay={150}>
+              <h1 className="display-xl max-w-4xl">{hero.headline}</h1>
+            </Reveal>
+          )}
+          {hero.lede && (
+            <Reveal type="up" delay={400}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.25vw,1.25rem)] leading-[1.7] text-ivory-soft mt-6 max-w-2xl">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 

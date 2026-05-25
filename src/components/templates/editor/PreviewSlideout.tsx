@@ -138,38 +138,39 @@ export function PreviewSlideout({
         type="button"
         onClick={onToggle}
         className={cn(
-          'fixed right-0 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1.5 px-2 py-6 rounded-l-md bg-[var(--color-gold)] text-white shadow-lg hover:bg-[var(--color-gold-dark)] transition-all',
+          'fixed right-0 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1.5 px-2 py-6 rounded-l-md bg-bronze text-ink shadow-lg hover:bg-bronze-light transition-all',
           open && 'translate-x-full opacity-0 pointer-events-none',
         )}
         aria-label="Open preview"
       >
-        <span className="text-[11px] font-medium uppercase tracking-[0.2em] [writing-mode:vertical-rl] rotate-180">
+        <span className="font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.28em] [writing-mode:vertical-rl] rotate-180">
           Preview
         </span>
       </button>
 
-      {/* Slide-out preview pane */}
+      {/* Slide-out preview pane — dark chrome, the inbox card inside
+          stays light because that's what the email actually looks like. */}
       <div
         className={cn(
-          'fixed right-0 top-14 bottom-0 z-40 flex flex-col bg-white border-l border-[var(--color-border)] shadow-2xl transition-transform duration-300',
+          'fixed right-0 top-14 bottom-0 z-40 flex flex-col bg-graphite border-l border-graphite-line/60 shadow-[0_30px_60px_-12px_rgba(0,0,0,0.7)] transition-transform duration-300',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
         style={{ width: 'min(720px, 60vw)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-2)]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-graphite-line/55 bg-ink/80 backdrop-blur-sm">
           <div className="flex items-center gap-3">
-            <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--color-text-muted)]">
+            <span className="font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light">
               Preview
             </span>
-            <div className="flex items-center gap-0.5 bg-white border border-[var(--color-border)] rounded-md p-0.5">
+            <div className="flex items-center gap-0.5 bg-graphite/60 border border-graphite-line/55 rounded-md p-0.5">
               <button
                 onClick={() => setDevice('desktop')}
                 className={cn(
                   'p-1.5 rounded-sm transition-colors',
                   device === 'desktop'
-                    ? 'bg-[var(--color-gold)] text-white'
-                    : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)]',
+                    ? 'bg-bronze text-ink'
+                    : 'text-ivory-soft/75 hover:text-ivory hover:bg-bronze/[0.08]',
                 )}
                 title="Desktop"
               >
@@ -180,8 +181,8 @@ export function PreviewSlideout({
                 className={cn(
                   'p-1.5 rounded-sm transition-colors',
                   device === 'mobile'
-                    ? 'bg-[var(--color-gold)] text-white'
-                    : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)]',
+                    ? 'bg-bronze text-ink'
+                    : 'text-ivory-soft/75 hover:text-ivory hover:bg-bronze/[0.08]',
                 )}
                 title="Mobile"
               >
@@ -195,7 +196,7 @@ export function PreviewSlideout({
               size="sm"
               onClick={onSendTest}
               disabled={sendingTest || blocks.length === 0}
-              className="h-8"
+              className="h-8 border-graphite-line/70 bg-transparent text-ivory-soft hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.06] disabled:opacity-40"
             >
               {sendingTest ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -207,7 +208,7 @@ export function PreviewSlideout({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08]"
               onClick={onClose}
               title="Hide preview"
             >
@@ -217,17 +218,21 @@ export function PreviewSlideout({
         </div>
 
         {/* Test-as picker */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--color-border)]">
-          <span className="text-[10px] font-medium uppercase tracking-[0.15em] text-[var(--color-text-muted)]">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-graphite-line/55 bg-graphite/60">
+          <span className="font-[family-name:var(--font-meta)] text-[9.5px] font-medium uppercase tracking-[0.28em] text-bronze-light/85">
             Test as
           </span>
           <Select value={testAs} onValueChange={setTestAs}>
-            <SelectTrigger className="h-8 w-[200px]">
+            <SelectTrigger className="h-8 w-[200px] border-graphite-line/60 bg-ink/50 text-ivory hover:border-bronze/55">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-graphite border-graphite-line/60 text-ivory">
               {Object.entries(TEST_PROFILE_LABELS).map(([key, label]) => (
-                <SelectItem key={key} value={key}>
+                <SelectItem
+                  key={key}
+                  value={key}
+                  className="text-ivory focus:bg-bronze/[0.08] focus:text-bronze-light"
+                >
                   {label}
                 </SelectItem>
               ))}
@@ -235,23 +240,26 @@ export function PreviewSlideout({
           </Select>
         </div>
 
-        {/* Inbox-style email preview */}
-        <div className="flex-1 overflow-y-auto bg-[var(--color-surface-2)] p-6">
+        {/* Inbox-style email preview — the surrounding gutter is a
+            soft graphite-2 so the white inbox card lifts off it; the
+            card itself is white because that's how the email renders
+            in a real inbox. */}
+        <div className="flex-1 overflow-y-auto bg-graphite-2/60 p-6">
           <div
-            className="mx-auto bg-white shadow-md rounded-md overflow-hidden"
+            className="mx-auto bg-white shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] rounded-md overflow-hidden"
             style={{ maxWidth: device === 'mobile' ? 380 : 700 }}
           >
             {/* From / To / Subject header (like a real inbox) */}
-            <div className="px-5 py-4 border-b border-[var(--color-border)] bg-white">
-              <p className="text-xs text-[var(--color-text-muted)] mb-1">
-                <span className="text-[var(--color-text-dim)]">From:</span> {fromName}
+            <div className="px-5 py-4 border-b border-[#E5E0D8] bg-white">
+              <p className="text-xs text-[#6B6560] mb-1">
+                <span className="text-[#A09A93]">From:</span> {fromName}
               </p>
-              <p className="text-xs text-[var(--color-text-muted)] mb-2">
-                <span className="text-[var(--color-text-dim)]">To:</span> {toEmail}
+              <p className="text-xs text-[#6B6560] mb-2">
+                <span className="text-[#A09A93]">To:</span> {toEmail}
               </p>
-              <p className="text-sm font-medium text-[var(--color-text)]">{previewSubject}</p>
+              <p className="text-sm font-medium text-[#2C2825]">{previewSubject}</p>
               {preheader && (
-                <p className="text-xs text-[var(--color-text-dim)] mt-1 italic">
+                <p className="text-xs text-[#A09A93] mt-1 italic">
                   {replaceMergeTags(preheader, profile)}
                 </p>
               )}

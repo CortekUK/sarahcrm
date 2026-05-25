@@ -76,7 +76,7 @@ export function SortableList<T extends Reorderable>({
                     className={cn(
                       'transition-shadow',
                       dragSnapshot.isDragging &&
-                        'bg-white shadow-[var(--shadow-lg)] ring-1 ring-gold/30',
+                        'bg-surface-2 shadow-[var(--shadow-lg)] ring-1 ring-gold/40',
                     )}
                   >
                     {renderItem(item, dragProvided.dragHandleProps ?? {})}

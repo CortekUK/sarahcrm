@@ -152,12 +152,241 @@
 }
 
 /* ============================================================
+   .theme-night-admin — applied to the (admin) layout root.
+   ============================================================
+   Re-maps the legacy cream + gold tokens to the night palette so
+   the dashboard inherits the midnight + bronze vibe of the public
+   site without rewriting every UI primitive. Tailwind v4 compiles
+   `bg-surface`, `text-text`, `text-gold`, etc. to `var(--color-*)`
+   references at build time and resolves them at render time, so
+   overriding the tokens at any scope cascades through everything.
+   Portal + auth layouts don't get this class, so they keep cream. */
+.theme-night-admin {
+  /* Surfaces — invert from cream to ink */
+  --color-bg: var(--color-ink);
+  --color-bg-alt: var(--color-graphite);
+  --color-surface: var(--color-graphite-2);
+  --color-surface-2: var(--color-graphite-3);
+  --color-surface-3: #2C313B;
+
+  /* Text — invert to ivory family */
+  --color-text: var(--color-ivory);
+  --color-text-muted: var(--color-ivory-soft);
+  --color-text-dim: var(--color-slate-haze);
+
+  /* Gold → bronze (brand accent) */
+  --color-gold: var(--color-bronze);
+  --color-gold-light: var(--color-bronze-light);
+  --color-gold-dark: var(--color-bronze-dark);
+  --color-gold-muted: var(--color-bronze-muted);
+
+  /* Borders — graphite hairlines */
+  --color-border: var(--color-graphite-line);
+  --color-border-hover: #3A4151;
+  --color-border-gold: var(--color-bronze-line);
+
+  /* Accents — brighten slightly so they pop on dark surfaces */
+  --color-accent: #7AA189;          /* sage green for "active" badges */
+  --color-accent-warm: #D9866A;     /* warm terracotta for destructive */
+  --color-accent-blue: #7CA0BE;     /* blue for info badges */
+
+  /* Shadows — deeper near-black, more spread (warm-tinted shadows
+     read as smudges on dark surfaces; use true blacks instead). */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-card-hover: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+  /* Shadcn aliases (bare names — keep in sync with the brand tokens) */
+  --background: var(--color-ink);
+  --foreground: var(--color-ivory);
+  --card: var(--color-graphite-2);
+  --card-foreground: var(--color-ivory);
+  --popover: var(--color-graphite-2);
+  --popover-foreground: var(--color-ivory);
+  --primary: var(--color-bronze);
+  --primary-foreground: var(--color-ink);
+  --secondary: var(--color-graphite-3);
+  --secondary-foreground: var(--color-ivory);
+  --muted: var(--color-graphite);
+  --muted-foreground: var(--color-ivory-soft);
+  --accent: var(--color-graphite-3);
+  --accent-foreground: var(--color-ivory);
+  --destructive: #D9866A;
+  --destructive-foreground: var(--color-ink);
+  --input: var(--color-graphite-line);
+  --ring: rgba(168, 123, 79, 0.5);
+
+  /* The `--color-*` variants that Tailwind v4 reads for `bg-primary`,
+     `text-primary-foreground`, etc. */
+  --color-background: var(--color-ink);
+  --color-foreground: var(--color-ivory);
+  --color-primary: var(--color-bronze);
+  --color-primary-foreground: var(--color-ink);
+  --color-secondary: var(--color-graphite-3);
+  --color-secondary-foreground: var(--color-ivory);
+  --color-muted: var(--color-graphite);
+  --color-muted-foreground: var(--color-ivory-soft);
+  --color-destructive: #D9866A;
+  --color-destructive-foreground: var(--color-ink);
+  --color-input: var(--color-graphite-line);
+  --color-ring: rgba(168, 123, 79, 0.5);
+
+  /* Base — apply on the root so the admin shell paints ink behind
+     the sidebar gradient + main content, with ivory body text in Sora. */
+  background-color: var(--color-ink);
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+}
+
+/* Headings — Playfair stays, but they paint ivory on the dark canvas
+   instead of inheriting the global body color. */
+.theme-night-admin h1,
+.theme-night-admin h2,
+.theme-night-admin h3,
+.theme-night-admin h4,
+.theme-night-admin h5,
+.theme-night-admin h6 {
+  color: var(--color-ivory);
+}
+
+/* Dark scrollbar — matches the public site. */
+.theme-night-admin ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.theme-night-admin ::-webkit-scrollbar-track {
+  background: var(--color-ink);
+}
+.theme-night-admin ::-webkit-scrollbar-thumb {
+  background: var(--color-graphite-3);
+  border-radius: 6px;
+}
+.theme-night-admin ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-bronze-dark);
+}
+
+/* Bronze text selection */
+.theme-night-admin ::selection {
+  background: var(--color-bronze);
+  color: var(--color-ink);
+}
+
+/* Autofill — same `background-clip: text` trick as the public site so
+   Chrome's yellow autofill paint doesn't destroy the dark inputs. */
+.theme-night-admin input:-webkit-autofill,
+.theme-night-admin input:-webkit-autofill:hover,
+.theme-night-admin input:-webkit-autofill:focus,
+.theme-night-admin input:-webkit-autofill:active,
+.theme-night-admin textarea:-webkit-autofill,
+.theme-night-admin textarea:-webkit-autofill:hover,
+.theme-night-admin textarea:-webkit-autofill:focus,
+.theme-night-admin select:-webkit-autofill,
+.theme-night-admin select:-webkit-autofill:hover,
+.theme-night-admin select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-ivory) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  caret-color: var(--color-ivory) !important;
+  transition: background-color 99999s ease-in-out 0s,
+    color 99999s ease-in-out 0s;
+}
+
+/* Badge variant backgrounds in components/ui/Badge.tsx are hardcoded
+   `bg-[rgba(...)]` arbitrary values that Tailwind bakes literally into
+   the class — they don't pick up token overrides. Map them here to
+   slightly more saturated alpha tints that read on a dark surface. */
+.theme-night-admin .bg-\[rgba\(91\,123\,106\,0\.1\)\] { background-color: rgba(122, 161, 137, 0.16); }
+.theme-night-admin .bg-\[rgba\(184\,151\,90\,0\.1\)\] { background-color: rgba(192, 152, 112, 0.18); }
+.theme-night-admin .bg-\[rgba\(160\,154\,147\,0\.1\)\] { background-color: rgba(138, 134, 128, 0.18); }
+.theme-night-admin .bg-\[rgba\(196\,105\,74\,0\.1\)\] { background-color: rgba(217, 134, 106, 0.18); }
+.theme-night-admin .bg-\[rgba\(90\,123\,150\,0\.1\)\] { background-color: rgba(124, 160, 190, 0.18); }
+
+/* Status pills + active-toggle tints in events / bookings / settings —
+   slightly higher alpha so the colour reads on graphite. */
+.theme-night-admin .bg-\[rgba\(91\,123\,106\,0\.12\)\] { background-color: rgba(122, 161, 137, 0.18); }
+.theme-night-admin .bg-\[rgba\(91\,123\,106\,0\.2\)\]  { background-color: rgba(122, 161, 137, 0.28); }
+.theme-night-admin .bg-\[rgba\(90\,123\,150\,0\.12\)\] { background-color: rgba(124, 160, 190, 0.2); }
+.theme-night-admin .bg-\[rgba\(196\,105\,74\,0\.12\)\] { background-color: rgba(217, 134, 106, 0.2); }
+
+/* Warning / alert callouts (`bg-[rgba(196,105,74,0.08)]`) — bump alpha
+   so the soft terracotta panel doesn't vanish into the ink surface. */
+.theme-night-admin .bg-\[rgba\(196\,105\,74\,0\.08\)\] { background-color: rgba(217, 134, 106, 0.14); }
+.theme-night-admin .border-\[rgba\(196\,105\,74\,0\.2\)\] { border-color: rgba(217, 134, 106, 0.35); }
+
+/* Upload dropzone hover (`bg-[rgba(196,105,74,0.04)]`) — barely-there
+   warmth on cream becomes invisible on dark; bump to a usable tint. */
+.theme-night-admin .bg-\[rgba\(196\,105\,74\,0\.04\)\] { background-color: rgba(217, 134, 106, 0.1); }
+
+/* Interest / need pills in member detail + match suggestions —
+   `text-[#5A7B96]` (blue) and `text-[#5C8A6B]` (green) read fine on
+   cream but are too dim on graphite. Brighten the text + lift the
+   backing tint so the pills retain their colour-coding. */
+.theme-night-admin .bg-\[rgba\(90\,123\,150\,0\.1\)\] { background-color: rgba(124, 160, 190, 0.18); }
+.theme-night-admin .border-\[rgba\(90\,123\,150\,0\.25\)\] { border-color: rgba(124, 160, 190, 0.4); }
+.theme-night-admin .text-\[\#5A7B96\] { color: #9CB7D0; }
+.theme-night-admin .bg-\[rgba\(111\,143\,122\,0\.1\)\] { background-color: rgba(144, 178, 154, 0.18); }
+.theme-night-admin .border-\[rgba\(111\,143\,122\,0\.3\)\] { border-color: rgba(144, 178, 154, 0.42); }
+.theme-night-admin .text-\[\#5C8A6B\] { color: #98C2A6; }
+
+/* Modal + Confirm dialog backdrops are hardcoded warm rgba — re-tint
+   to ink with more blur so they sit comfortably on dark. */
+.theme-night-admin .bg-\[rgba\(44\,40\,37\,0\.4\)\] {
+  background-color: rgba(8, 9, 12, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.theme-night-admin .bg-\[rgba\(28\,25\,23\,0\.55\)\] {
+  background-color: rgba(8, 9, 12, 0.72);
+}
+/* Gallery thumb hover overlay (`bg-[rgba(44,40,37,0.5)]`) — keep the
+   "dim the photo on hover" idea but switch to pure ink. */
+.theme-night-admin .bg-\[rgba\(44\,40\,37\,0\.5\)\] {
+  background-color: rgba(8, 9, 12, 0.6);
+}
+
+/* Opt-out for the email template editor — a full-screen WYSIWYG that
+   intentionally previews on a true white surface (so designs look like
+   the final inbox render). Wrapping its layout in `.escape-night-admin`
+   restores the legacy cream + gold tokens for everything inside, so the
+   editor's chrome reads correctly without me having to retheme it. */
+.theme-night-admin .escape-night-admin {
+  --color-bg: #FAFAF7;
+  --color-bg-alt: #F3F0EA;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #F7F5F0;
+  --color-surface-3: #EEEBE4;
+  --color-text: #2C2825;
+  --color-text-muted: #6B6560;
+  --color-text-dim: #A09A93;
+  --color-gold: #B8975A;
+  --color-gold-light: #D4B978;
+  --color-gold-dark: #96793F;
+  --color-gold-muted: rgba(184, 151, 90, 0.08);
+  --color-border: #E5E0D8;
+  --color-border-hover: #D4CEC4;
+  --color-border-gold: rgba(184, 151, 90, 0.3);
+  --color-accent: #5B7B6A;
+  --color-accent-warm: #C4694A;
+  --color-accent-blue: #5A7B96;
+  --shadow-sm: 0 1px 2px rgba(44, 40, 37, 0.05);
+  --shadow-md: 0 4px 6px rgba(44, 40, 37, 0.07);
+  --shadow-lg: 0 10px 15px rgba(44, 40, 37, 0.1);
+  --shadow-xl: 0 20px 25px rgba(44, 40, 37, 0.12);
+  --shadow-card: 0 1px 3px rgba(44, 40, 37, 0.06);
+  --shadow-card-hover: 0 8px 25px rgba(44, 40, 37, 0.1);
+  color: #2C2825;
+  font-family: var(--font-body);
+}
+
+/* ============================================================
    .theme-night — applied to the public-site root in
    src/app/(public)/layout.tsx. Cascades the dark defaults so any
    un-styled <p>/<a>/heading inside the public marketing pages
    inherits the night palette without ad-hoc class overrides.
-   The admin + portal layouts don't get this class, so they keep
-   their cream + gold defaults.
+   The portal layout doesn't get this class, so it keeps cream.
    ============================================================ */
 .theme-night {
   background-color: var(--color-ink);

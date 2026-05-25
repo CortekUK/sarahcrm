@@ -115,6 +115,7 @@ export function DashboardPage() {
       introsRes,
       bookingsRes,
       revenueRes,
+      bookingRevenueRes,
       newMembersRes,
       introsLastRes,
       eventsRes,
@@ -146,6 +147,17 @@ export function DashboardPage() {
         .select('amount_pence')
         .eq('status', 'paid')
         .gte('paid_at', startOfMonth),
+
+      // Guest booking revenue MTD — guest bookings have no payment row
+      // (payments.member_id is NOT NULL), so we sum bookings directly.
+      // No paid_at on bookings; created_at is close enough since they
+      // confirm at checkout.
+      supabase
+        .from('bookings')
+        .select('amount_pence')
+        .eq('status', 'confirmed')
+        .is('member_id', null)
+        .gte('created_at', startOfMonth),
 
       // New members this month
       supabase
@@ -190,10 +202,15 @@ export function DashboardPage() {
         .limit(5),
     ])
 
-    const revenuePence = (revenueRes.data ?? []).reduce(
+    const paymentsPence = (revenueRes.data ?? []).reduce(
       (sum, p) => sum + (p.amount_pence ?? 0),
       0
     )
+    const guestBookingsPence = (bookingRevenueRes.data ?? []).reduce(
+      (sum, b) => sum + (b.amount_pence ?? 0),
+      0
+    )
+    const revenuePence = paymentsPence + guestBookingsPence
 
     setStats({
       totalActiveMembers: membersRes.count ?? 0,

@@ -84,16 +84,18 @@ const NAV_SECTIONS: NavSection[] = [
         label: 'Website',
         icon: Globe,
         children: [
+          { to: '/dashboard/website/memberships', label: 'Membership Plans' },
           { to: '/dashboard/website/galleries', label: 'Galleries' },
           { to: '/dashboard/website/hero-slides', label: 'Hero Slides' },
           { to: '/dashboard/website/testimonials', label: 'Testimonials' },
-          { to: '/dashboard/website/partners', label: 'Partners' },
           // Past-highlight showcase tiles for the Private Events page.
           // Real bookable private events are managed under Events with
           // event_type = curated_luxury, not here.
           { to: '/dashboard/website/experiences', label: 'Past Highlights' },
           { to: '/dashboard/website/videos', label: 'Videos' },
-          { to: '/dashboard/website/documents', label: 'Documents' },
+          // Hidden for now (routes still work via direct URL):
+          //   { to: '/dashboard/website/partners', label: 'Partners' },
+          //   { to: '/dashboard/website/documents', label: 'Documents' },
         ],
       },
     ],
@@ -125,8 +127,8 @@ function NavLink({
       className={cn(
         'group relative flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm transition-all',
         active
-          ? 'text-[var(--color-gold-dark)] font-medium bg-white shadow-[var(--shadow-sm)]'
-          : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-white/60',
+          ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-graphite-2)]/85 shadow-[var(--shadow-sm)] ring-1 ring-[var(--color-bronze)]/25'
+          : 'text-[var(--color-ivory-soft)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-graphite-2)]/55',
       )}
     >
       {active && (
@@ -176,8 +178,8 @@ function NavGroupRow({
         className={cn(
           'group relative flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm w-full transition-all',
           isActive
-            ? 'text-[var(--color-gold-dark)] font-medium bg-white shadow-[var(--shadow-sm)]'
-            : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-white/60',
+            ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-graphite-2)]/85 ring-1 ring-[var(--color-bronze)]/25'
+            : 'text-[var(--color-ivory-soft)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-graphite-2)]/55',
         )}
       >
         {isActive && (
@@ -188,7 +190,7 @@ function NavGroupRow({
           strokeWidth={1.6}
           className={cn(
             'transition-colors',
-            isActive ? 'text-[var(--color-gold)]' : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text)]',
+            isActive ? 'text-[var(--color-gold)]' : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-ivory)]',
           )}
         />
         <span className="flex-1 text-left truncate">{group.label}</span>
@@ -196,7 +198,8 @@ function NavGroupRow({
           size={13}
           strokeWidth={1.8}
           className={cn(
-            'transition-transform text-[var(--color-text-dim)]',
+            'transition-transform',
+            isActive ? 'text-[var(--color-bronze-light)]' : 'text-[var(--color-text-dim)]',
             expanded && 'rotate-180',
           )}
         />
@@ -223,8 +226,8 @@ function NavGroupRow({
                   className={cn(
                     'flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)] text-[13px] transition-colors',
                     childActive
-                      ? 'text-[var(--color-gold-dark)] font-medium bg-[var(--color-gold)]/8'
-                      : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-white/60',
+                      ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-bronze)]/12'
+                      : 'text-[var(--color-slate-haze)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-graphite-2)]/55',
                   )}
                 >
                   {ChildIcon && (
@@ -267,28 +270,36 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] flex">
-      {/* Sidebar */}
+    <div className="theme-night-admin min-h-screen bg-[var(--color-bg)] flex">
+      {/* Sidebar — graphite spine. The vertical gradient (graphite-3 top
+          → graphite bottom) reads as a soft elevation against the ink
+          main canvas. Right border is a single bronze-tinted hairline. */}
       <aside
         className="fixed left-0 top-0 bottom-0 w-[244px] flex flex-col z-40 border-r border-[var(--color-border)]"
         style={{
           background:
-            'linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-bg-alt) 100%)',
+            'linear-gradient(180deg, var(--color-graphite-3) 0%, var(--color-graphite) 100%)',
         }}
       >
-        {/* Brand header */}
+        {/* Brand header — diamond-C monogram + Playfair wordmark.
+            Logo-gold sits in the same bronze family as the sidebar
+            accents, so it reads as a continuation of the palette
+            rather than a separate brand asset bolted on top. */}
         <div className="px-6 pt-7 pb-5">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-[var(--radius-md)] bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-dark)] flex items-center justify-center shadow-[var(--shadow-sm)]">
-              <span className="font-[family-name:var(--font-heading)] text-white text-base font-semibold leading-none">
-                C
-              </span>
-            </div>
+            <Image
+              src="/logo-gold.png"
+              alt=""
+              width={36}
+              height={36}
+              priority
+              className="w-9 h-9 object-contain shrink-0"
+            />
             <div className="min-w-0">
-              <h1 className="font-[family-name:var(--font-heading)] text-[15px] font-semibold text-[var(--color-text)] leading-tight">
+              <h1 className="font-[family-name:var(--font-heading)] text-[15px] font-semibold text-[var(--color-ivory)] leading-tight">
                 The Club
               </h1>
-              <p className="font-[family-name:var(--font-label)] text-[9px] font-medium uppercase tracking-[0.22em] text-[var(--color-text-dim)] mt-0.5">
+              <p className="font-[family-name:var(--font-label)] text-[9px] font-medium uppercase tracking-[0.22em] text-[var(--color-slate-haze)] mt-0.5">
                 by Sarah Restrick
               </p>
             </div>
@@ -332,7 +343,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         <div className="border-t border-[var(--color-border)]/70 px-3 py-3 space-y-0.5">
           {profile && (
             <div className="flex items-center gap-2.5 px-3 py-2 mb-1">
-              <div className="w-8 h-8 rounded-full bg-[var(--color-gold-muted)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <div className="w-8 h-8 rounded-full bg-[var(--color-bronze)]/15 ring-1 ring-[var(--color-bronze)]/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
                 {profile.avatar_url ? (
                   <Image
                     src={profile.avatar_url}
@@ -342,16 +353,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     className="object-cover"
                   />
                 ) : (
-                  <span className="font-[family-name:var(--font-heading)] text-[var(--color-gold-dark)] text-sm font-semibold">
+                  <span className="font-[family-name:var(--font-heading)] text-[var(--color-bronze-light)] text-sm font-semibold">
                     {(profile.first_name?.[0] ?? '?').toUpperCase()}
                   </span>
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium text-[var(--color-text)] truncate leading-tight">
+                <p className="text-[13px] font-medium text-[var(--color-ivory)] truncate leading-tight">
                   {profile.first_name} {profile.last_name}
                 </p>
-                <p className="text-[11px] text-[var(--color-text-dim)] truncate">
+                <p className="text-[11px] text-[var(--color-slate-haze)] truncate">
                   {profile.email}
                 </p>
               </div>
@@ -365,7 +376,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           />
           <button
             onClick={handleSignOut}
-            className="group flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm text-[var(--color-text-muted)] hover:text-[var(--color-accent-warm)] hover:bg-white/60 transition-all w-full"
+            className="group flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm text-[var(--color-ivory-soft)] hover:text-[var(--color-accent-warm)] hover:bg-[var(--color-graphite-2)]/55 transition-all w-full"
           >
             <LogOut size={17} strokeWidth={1.6} />
             <span>Sign out</span>

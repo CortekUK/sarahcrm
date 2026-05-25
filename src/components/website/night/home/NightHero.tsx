@@ -31,12 +31,31 @@ interface NightHeroProps {
   video?: string
   /** Alt text for the still. */
   alt?: string
+  /** Eyebrow above the wordmark — small caps. */
+  eyebrow?: string
+  /** Main title — falls back to "The Club" wordmark animation. */
+  headline?: string
+  /** Italic sub-headline. */
+  lede?: string
+  /** Primary CTA — both label + href required to render. */
+  ctaPrimaryLabel?: string | null
+  ctaPrimaryHref?: string | null
+  /** Secondary text-link CTA. */
+  ctaSecondaryLabel?: string | null
+  ctaSecondaryHref?: string | null
 }
 
 export function NightHero({
   image = DEFAULT_IMAGE,
   video,
   alt = 'A candlelit private dining room',
+  eyebrow = 'Est. by Sarah Restrick',
+  headline = 'The Club',
+  lede = 'Connecting leaders in business through luxury experience.',
+  ctaPrimaryLabel = 'Apply for Membership',
+  ctaPrimaryHref = '/membership-application',
+  ctaSecondaryLabel = 'Discover The Club',
+  ctaSecondaryHref = '/about',
 }: NightHeroProps) {
   const wordmarkRef = useRef<HTMLDivElement>(null)
 
@@ -62,7 +81,21 @@ export function NightHero({
             muted
             loop
             playsInline
-            preload="metadata"
+            // `auto` (not `metadata`) — the homepage hero IS the video,
+            // so kick off the download immediately. Otherwise the
+            // browser waits for the metadata response and the video
+            // takes seconds to start, leaving the static poster visible.
+            preload="auto"
+            // Surface load failures in DevTools so admins can see why
+            // a swapped-in Cloudinary URL didn't play (often: CORS,
+            // 404, or unsupported codec).
+            onError={(e) => {
+              const v = e.currentTarget
+              console.warn('[NightHero] video failed to load', {
+                src: v.currentSrc,
+                error: v.error,
+              })
+            }}
             className="w-full h-full object-cover"
           />
         ) : (
@@ -117,50 +150,85 @@ export function NightHero({
         ref={wordmarkRef}
         className="hero-stack relative z-10 h-full flex flex-col items-center justify-center px-6 text-center"
       >
-        {/* Eyebrow */}
-        <span className="hero-eyebrow flex items-center gap-4 mb-7">
-          <span className="block h-px bg-bronze/60 hero-line" />
-          <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.42em] text-bronze-light">
-            Est. by Sarah Restrick
+        {/* Eyebrow — hides if blank so the bronze rails don't render
+           on their own. */}
+        {eyebrow && (
+          <span className="hero-eyebrow flex items-center gap-4 mb-7">
+            <span className="block h-px bg-bronze/60 hero-line" />
+            <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.42em] text-bronze-light">
+              {eyebrow}
+            </span>
+            <span className="block h-px bg-bronze/60 hero-line" />
           </span>
-          <span className="block h-px bg-bronze/60 hero-line" />
-        </span>
+        )}
 
         {/* Wordmark — text-shadow safety net for video brightness spikes.
-            The shadow is barely perceptible on a clean dark background
-            but rescues legibility against unexpectedly bright frames. */}
-        <h1
-          className="hero-title display-xl text-ivory"
-          style={{ textShadow: '0 2px 24px rgba(14,16,20,0.55), 0 1px 3px rgba(14,16,20,0.45)' }}
-        >
-          <span className="hero-word inline-block">The</span>{' '}
-          <span className="hero-word inline-block">Club</span>
-        </h1>
+            When the CMS headline matches the brand wordmark ("The Club")
+            we keep the per-word reveal animation; otherwise we treat it
+            as a custom title and reveal as a single block. */}
+        {(() => {
+          const isBrand =
+            !headline || headline.trim().toLowerCase() === 'the club'
+          if (isBrand) {
+            return (
+              <h1
+                className="hero-title display-xl text-ivory"
+                style={{
+                  textShadow:
+                    '0 2px 24px rgba(14,16,20,0.55), 0 1px 3px rgba(14,16,20,0.45)',
+                }}
+              >
+                <span className="hero-word inline-block">The</span>{' '}
+                <span className="hero-word inline-block">Club</span>
+              </h1>
+            )
+          }
+          return (
+            <h1
+              className="hero-title display-xl text-ivory max-w-5xl"
+              style={{
+                textShadow:
+                  '0 2px 24px rgba(14,16,20,0.55), 0 1px 3px rgba(14,16,20,0.45)',
+              }}
+            >
+              {headline}
+            </h1>
+          )
+        })()}
 
-        {/* Sub-headline — verbatim from the existing site. */}
-        <p
-          className="hero-sub mt-9 max-w-2xl font-[family-name:var(--font-editorial)] italic text-[clamp(1.125rem,1.6vw,1.5rem)] leading-relaxed text-ivory-soft"
-          style={{ textShadow: '0 1px 12px rgba(14,16,20,0.6)' }}
-        >
-          Connecting leaders in business through luxury experience.
-        </p>
+        {/* Sub-headline */}
+        {lede && (
+          <p
+            className="hero-sub mt-9 max-w-2xl font-[family-name:var(--font-editorial)] italic text-[clamp(1.125rem,1.6vw,1.5rem)] leading-relaxed text-ivory-soft"
+            style={{ textShadow: '0 1px 12px rgba(14,16,20,0.6)' }}
+          >
+            {lede}
+          </p>
+        )}
 
-        {/* CTAs */}
-        <div className="hero-ctas mt-12 flex items-center gap-4">
-          <Link
-            href="/membership-application"
-            className="inline-flex items-center gap-2 px-7 py-3.5 border border-bronze/70 bg-bronze/10 hover:bg-bronze hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.32em] text-ivory transition-all duration-500"
-          >
-            Apply for Membership
-          </Link>
-          <Link
-            href="/about"
-            className="inline-flex items-center gap-2 px-2 py-3.5 font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.32em] text-ivory-soft hover:text-bronze-light transition-colors duration-300"
-          >
-            Discover The Club
-            <span className="w-6 h-px bg-current opacity-70" />
-          </Link>
-        </div>
+        {/* CTAs — each one renders only if both label + href are set. */}
+        {(ctaPrimaryLabel && ctaPrimaryHref) ||
+        (ctaSecondaryLabel && ctaSecondaryHref) ? (
+          <div className="hero-ctas mt-12 flex items-center gap-4 flex-wrap justify-center">
+            {ctaPrimaryLabel && ctaPrimaryHref && (
+              <Link
+                href={ctaPrimaryHref}
+                className="inline-flex items-center gap-2 px-7 py-3.5 border border-bronze/70 bg-bronze/10 hover:bg-bronze hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.32em] text-ivory transition-all duration-500"
+              >
+                {ctaPrimaryLabel}
+              </Link>
+            )}
+            {ctaSecondaryLabel && ctaSecondaryHref && (
+              <Link
+                href={ctaSecondaryHref}
+                className="inline-flex items-center gap-2 px-2 py-3.5 font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.32em] text-ivory-soft hover:text-bronze-light transition-colors duration-300"
+              >
+                {ctaSecondaryLabel}
+                <span className="w-6 h-px bg-current opacity-70" />
+              </Link>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* Scroll indicator */}

@@ -350,29 +350,29 @@ export function AiPromptPanel({
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Header — category pill + history/new icons, IFG-style */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
+    <div className="relative flex flex-col h-full bg-graphite">
+      {/* Header — category pill + history/new icons */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-graphite-line/50">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[var(--color-gold)]" />
+          <Sparkles className="w-4 h-4 text-bronze-light" />
           <select
             value={category}
             onChange={(e) =>
               onCategoryChange?.(e.target.value as 'automation' | 'campaign' | 'transactional')
             }
-            className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--color-text-muted)] bg-transparent border-none cursor-pointer focus:outline-none focus:ring-0 hover:text-[var(--color-text)]"
+            className="font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light bg-transparent border-none cursor-pointer focus:outline-none focus:ring-0 hover:text-ivory"
             aria-label="Template category"
           >
-            <option value="campaign">CAMPAIGN</option>
-            <option value="automation">AUTOMATION</option>
-            <option value="transactional">TRANSACTIONAL</option>
+            <option value="campaign" className="bg-graphite text-ivory">CAMPAIGN</option>
+            <option value="automation" className="bg-graphite text-ivory">AUTOMATION</option>
+            <option value="transactional" className="bg-graphite text-ivory">TRANSACTIONAL</option>
           </select>
         </div>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08]"
             onClick={() => {
               setHistoryOpen((v) => !v)
               if (!historyOpen) refreshChats()
@@ -384,7 +384,7 @@ export function AiPromptPanel({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08]"
             onClick={startNewChat}
             title="New chat"
           >
@@ -395,34 +395,45 @@ export function AiPromptPanel({
 
       {/* History overlay */}
       {historyOpen && (
-        <div className="absolute inset-x-0 top-[57px] bottom-0 bg-white z-10 border-l border-[var(--color-border)] flex flex-col">
-          <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
-            <h4 className="text-sm font-medium">Chat history</h4>
-            <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(false)}>
+        <div className="absolute inset-x-0 top-[57px] bottom-0 bg-graphite z-10 border-l border-graphite-line/50 flex flex-col">
+          <div className="px-4 py-3 border-b border-graphite-line/50 flex items-center justify-between">
+            <h4 className="font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory">
+              Chat history
+            </h4>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08]"
+              onClick={() => setHistoryOpen(false)}
+            >
               Close
             </Button>
           </div>
           <ScrollArea className="flex-1">
             {chatsLoading ? (
-              <div className="p-4 text-sm text-[var(--color-text-dim)]">Loading…</div>
+              <div className="p-4 text-sm text-slate-haze">Loading…</div>
             ) : chats.length === 0 ? (
-              <div className="p-4 text-sm text-[var(--color-text-dim)]">No chats yet.</div>
+              <div className="p-4 font-[family-name:var(--font-editorial)] italic text-sm text-ivory-soft/80">
+                No chats yet.
+              </div>
             ) : (
               <div className="p-2">
                 {chats.map((c) => (
                   <div
                     key={c.id}
                     className={cn(
-                      'group flex items-center justify-between px-3 py-2 rounded-md hover:bg-[var(--color-surface-2)] cursor-pointer',
-                      chatId === c.id && 'bg-[var(--color-surface-2)]',
+                      'group flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors',
+                      chatId === c.id
+                        ? 'bg-bronze/[0.08]'
+                        : 'hover:bg-bronze/[0.05]',
                     )}
                     onClick={() => loadChat(c.id)}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-[var(--color-text)] truncate">
+                      <p className="text-sm font-medium text-ivory truncate">
                         {c.title || 'Untitled chat'}
                       </p>
-                      <p className="text-xs text-[var(--color-text-dim)]">
+                      <p className="text-xs text-slate-haze">
                         {new Date(c.updated_at).toLocaleString()}
                       </p>
                     </div>
@@ -431,7 +442,7 @@ export function AiPromptPanel({
                         e.stopPropagation()
                         deleteChat(c.id)
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-[var(--color-text-dim)] hover:text-[var(--color-accent-warm)] ml-2"
+                      className="opacity-0 group-hover:opacity-100 text-slate-haze hover:text-rose-300 ml-2 transition-colors"
                       aria-label="Delete chat"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -448,27 +459,27 @@ export function AiPromptPanel({
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="pt-4">
-            <div className="text-center mb-6">
-              <div className="w-12 h-12 mx-auto rounded-full bg-[var(--color-gold-muted)] flex items-center justify-center mb-3">
-                <Sparkles className="w-5 h-5 text-[var(--color-gold)]" />
+            <div className="text-center mb-7">
+              <div className="w-12 h-12 mx-auto rounded-full border border-bronze/40 bg-bronze/10 flex items-center justify-center mb-4">
+                <Sparkles className="w-5 h-5 text-bronze-light" />
               </div>
-              <p className="text-base font-[family-name:var(--font-heading)] font-semibold text-[var(--color-text)]">
+              <p className="font-[family-name:var(--font-display)] text-[18px] text-ivory leading-tight">
                 What email do you want?
               </p>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1.5 max-w-[260px] mx-auto leading-relaxed">
-                I’ll write it using The Club’s merge tags + Sarah Restrick’s voice.
+              <p className="mt-3 font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/85 max-w-[280px] mx-auto leading-[1.65]">
+                I&rsquo;ll write it using The Club&rsquo;s merge tags + Sarah Restrick&rsquo;s voice.
               </p>
             </div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.15em] text-[var(--color-text-muted)] px-1 mb-2">
+            <p className="font-[family-name:var(--font-meta)] text-[9.5px] font-medium uppercase tracking-[0.28em] text-bronze-light/85 px-1 mb-3">
               Try one of these
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setInput(s)}
-                  className="w-full text-left px-3 py-2.5 rounded-md border border-[var(--color-border)] bg-white hover:border-[var(--color-gold)] hover:bg-[var(--color-gold-muted)] transition-colors text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                  className="w-full text-left px-3.5 py-3 rounded-md border border-graphite-line/55 bg-ink/40 hover:border-bronze/55 hover:bg-bronze/[0.06] transition-colors text-[13px] text-ivory-soft hover:text-ivory leading-[1.55]"
                 >
                   {s}
                 </button>
@@ -486,10 +497,10 @@ export function AiPromptPanel({
           >
             <div
               className={cn(
-                'max-w-[85%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap',
+                'max-w-[85%] px-3.5 py-2.5 rounded-lg text-[13.5px] whitespace-pre-wrap leading-[1.55]',
                 m.role === 'user'
-                  ? 'bg-[var(--color-gold)] text-white'
-                  : 'bg-[var(--color-surface-2)] text-[var(--color-text)]',
+                  ? 'bg-bronze text-ink'
+                  : 'bg-ink/50 border border-graphite-line/45 text-ivory',
               )}
             >
               {m.content}
@@ -498,8 +509,9 @@ export function AiPromptPanel({
         ))}
         {busy && (
           <div className="flex gap-2 justify-start">
-            <div className="px-3 py-2 rounded-lg text-sm bg-[var(--color-surface-2)] text-[var(--color-text-muted)]">
-              <Loader2 className="inline w-3 h-3 animate-spin mr-1" /> Thinking…
+            <div className="px-3.5 py-2.5 rounded-lg text-[13px] bg-ink/50 border border-graphite-line/45 text-ivory-soft">
+              <Loader2 className="inline w-3 h-3 animate-spin mr-1.5 text-bronze-light" />
+              Thinking…
             </div>
           </div>
         )}
@@ -507,24 +519,24 @@ export function AiPromptPanel({
 
       {/* Attachment chips */}
       {attachments.length > 0 && (
-        <div className="px-3 py-2 border-t border-[var(--color-border)] bg-[var(--color-surface-2)] flex flex-wrap gap-2">
+        <div className="px-3 py-2 border-t border-graphite-line/50 bg-ink/40 flex flex-wrap gap-2">
           {attachments.map((a, i) => (
             <div
               key={i}
-              className="inline-flex items-center gap-1.5 bg-white border border-[var(--color-border)] rounded-md px-2 py-1 text-xs"
+              className="inline-flex items-center gap-1.5 bg-graphite border border-graphite-line/55 rounded-md px-2 py-1 text-xs text-ivory"
             >
               {a.kind === 'image' ? (
-                <ImageIcon className="w-3 h-3 text-[var(--color-text-muted)]" />
+                <ImageIcon className="w-3 h-3 text-bronze-light/85" />
               ) : (
-                <FileText className="w-3 h-3 text-[var(--color-text-muted)]" />
+                <FileText className="w-3 h-3 text-bronze-light/85" />
               )}
-              <span className="font-mono text-[10px] uppercase text-[var(--color-text-dim)]">
+              <span className="font-mono text-[10px] uppercase text-slate-haze">
                 {chipBadge(a.name, a.kind === 'image' ? 'image' : 'text')}
               </span>
               <span className="max-w-[120px] truncate">{a.name}</span>
               <button
                 onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+                className="text-slate-haze hover:text-bronze-light transition-colors"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -534,7 +546,7 @@ export function AiPromptPanel({
       )}
 
       {/* Input */}
-      <div className="border-t border-[var(--color-border)] p-3">
+      <div className="border-t border-graphite-line/50 p-3 bg-ink/30">
         <div className="relative">
           <textarea
             value={input}
@@ -546,7 +558,7 @@ export function AiPromptPanel({
                 : 'Tell me how to tweak it…'
             }
             rows={3}
-            className="w-full resize-none rounded-md border border-[var(--color-border)] bg-white px-3 py-2 pr-20 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-gold-muted)] focus:border-[var(--color-gold)]"
+            className="w-full resize-none rounded-md border border-graphite-line/60 bg-ink/50 text-ivory placeholder:text-slate-haze px-3 py-2.5 pr-20 text-sm focus:outline-none focus:ring-1 focus:ring-bronze/40 focus:border-bronze/60 transition-colors"
           />
           <input
             ref={fileInputRef}
@@ -563,7 +575,7 @@ export function AiPromptPanel({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 text-ivory-soft hover:text-bronze-light hover:bg-bronze/[0.08] disabled:opacity-40"
               onClick={() => fileInputRef.current?.click()}
               disabled={attachments.length >= MAX_ATTACHMENTS}
               title="Attach file"
@@ -572,7 +584,7 @@ export function AiPromptPanel({
             </Button>
             <Button
               size="icon"
-              className="h-8 w-8 bg-[var(--color-gold)] hover:bg-[var(--color-gold-dark)]"
+              className="h-8 w-8 bg-bronze text-ink hover:bg-bronze-light disabled:opacity-40 disabled:hover:bg-bronze"
               onClick={send}
               disabled={busy || (!input.trim() && attachments.length === 0)}
               title="Send"
@@ -581,7 +593,7 @@ export function AiPromptPanel({
             </Button>
           </div>
         </div>
-        <p className="text-[10px] text-[var(--color-text-dim)] mt-1 px-1">
+        <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.22em] text-slate-haze mt-2 px-1">
           Enter to send · Shift+Enter for newline
         </p>
       </div>

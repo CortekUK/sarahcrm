@@ -54,7 +54,7 @@ export type Database = {
           guests_invited: number
           id: string
           is_guest: boolean
-          member_id: string
+          member_id: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           special_requests: string | null
           sponsor_package: string | null
@@ -77,7 +77,7 @@ export type Database = {
           guests_invited?: number
           id?: string
           is_guest?: boolean
-          member_id: string
+          member_id?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           special_requests?: string | null
           sponsor_package?: string | null
@@ -100,7 +100,7 @@ export type Database = {
           guests_invited?: number
           id?: string
           is_guest?: boolean
-          member_id?: string
+          member_id?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           special_requests?: string | null
           sponsor_package?: string | null
@@ -551,37 +551,67 @@ export type Database = {
       }
       hero_slides: {
         Row: {
-          alt_text: string
+          alt_text: string | null
           created_at: string
+          cta_primary_href: string | null
+          cta_primary_label: string | null
+          cta_secondary_href: string | null
+          cta_secondary_label: string | null
           display_order: number
+          eyebrow: string | null
+          headline: string | null
           id: string
-          image_url: string
+          image_url: string | null
           is_active: boolean
+          lede: string | null
+          media_type: string
           overlay_text: string | null
           page_slug: string
           updated_at: string
+          video_poster_url: string | null
+          video_url: string | null
         }
         Insert: {
-          alt_text?: string
+          alt_text?: string | null
           created_at?: string
+          cta_primary_href?: string | null
+          cta_primary_label?: string | null
+          cta_secondary_href?: string | null
+          cta_secondary_label?: string | null
           display_order?: number
+          eyebrow?: string | null
+          headline?: string | null
           id?: string
-          image_url: string
+          image_url?: string | null
           is_active?: boolean
+          lede?: string | null
+          media_type?: string
           overlay_text?: string | null
           page_slug?: string
           updated_at?: string
+          video_poster_url?: string | null
+          video_url?: string | null
         }
         Update: {
-          alt_text?: string
+          alt_text?: string | null
           created_at?: string
+          cta_primary_href?: string | null
+          cta_primary_label?: string | null
+          cta_secondary_href?: string | null
+          cta_secondary_label?: string | null
           display_order?: number
+          eyebrow?: string | null
+          headline?: string | null
           id?: string
-          image_url?: string
+          image_url?: string | null
           is_active?: boolean
+          lede?: string | null
+          media_type?: string
           overlay_text?: string | null
           page_slug?: string
           updated_at?: string
+          video_poster_url?: string | null
+          video_url?: string | null
         }
         Relationships: []
       }
@@ -845,72 +875,189 @@ export type Database = {
       }
       membership_applications: {
         Row: {
+          address_line_1: string | null
+          address_line_2: string | null
+          amount_paid_pence: number | null
+          annual_turnover: string | null
           bio: string | null
+          city: string | null
           company: string | null
           created_at: string
           email: string
+          employees: string | null
           first_name: string
           id: string
+          identifies_as: string | null
           industry: string | null
+          instagram_url: string | null
           interests: string[] | null
           last_name: string
           linkedin_url: string | null
+          nationality: string | null
           notes: string | null
+          paid_at: string | null
+          payment_preference: string | null
           phone: string | null
+          photo_url: string | null
           position: string | null
+          postcode: string | null
           preferred_location: string | null
           preferred_tier: string | null
+          pronouns: string | null
           referral_name: string | null
           referral_source: string | null
           reviewed_at: string | null
           reviewed_by: string | null
           status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          tiktok_url: string | null
           updated_at: string
+          website_url: string | null
+          work_email: string | null
+          x_url: string | null
+          youtube_url: string | null
         }
         Insert: {
+          address_line_1?: string | null
+          address_line_2?: string | null
+          amount_paid_pence?: number | null
+          annual_turnover?: string | null
           bio?: string | null
+          city?: string | null
           company?: string | null
           created_at?: string
           email: string
+          employees?: string | null
           first_name: string
           id?: string
+          identifies_as?: string | null
           industry?: string | null
+          instagram_url?: string | null
           interests?: string[] | null
           last_name: string
           linkedin_url?: string | null
+          nationality?: string | null
           notes?: string | null
+          paid_at?: string | null
+          payment_preference?: string | null
           phone?: string | null
+          photo_url?: string | null
           position?: string | null
+          postcode?: string | null
           preferred_location?: string | null
           preferred_tier?: string | null
+          pronouns?: string | null
           referral_name?: string | null
           referral_source?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          tiktok_url?: string | null
           updated_at?: string
+          website_url?: string | null
+          work_email?: string | null
+          x_url?: string | null
+          youtube_url?: string | null
         }
         Update: {
+          address_line_1?: string | null
+          address_line_2?: string | null
+          amount_paid_pence?: number | null
+          annual_turnover?: string | null
           bio?: string | null
+          city?: string | null
           company?: string | null
           created_at?: string
           email?: string
+          employees?: string | null
           first_name?: string
           id?: string
+          identifies_as?: string | null
           industry?: string | null
+          instagram_url?: string | null
           interests?: string[] | null
           last_name?: string
           linkedin_url?: string | null
+          nationality?: string | null
           notes?: string | null
+          paid_at?: string | null
+          payment_preference?: string | null
           phone?: string | null
+          photo_url?: string | null
           position?: string | null
+          postcode?: string | null
           preferred_location?: string | null
           preferred_tier?: string | null
+          pronouns?: string | null
           referral_name?: string | null
           referral_source?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          tiktok_url?: string | null
+          updated_at?: string
+          website_url?: string | null
+          work_email?: string | null
+          x_url?: string | null
+          youtube_url?: string | null
+        }
+        Relationships: []
+      }
+      membership_plans: {
+        Row: {
+          annual_price_pence: number
+          contract_terms: string | null
+          created_at: string
+          display_order: number
+          features: string[]
+          id: string
+          image_url: string | null
+          is_active: boolean
+          is_featured: boolean
+          lede: string | null
+          monthly_price_pence: number
+          name: string
+          slug: string
+          tier_classification: string | null
+          updated_at: string
+        }
+        Insert: {
+          annual_price_pence?: number
+          contract_terms?: string | null
+          created_at?: string
+          display_order?: number
+          features?: string[]
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          is_featured?: boolean
+          lede?: string | null
+          monthly_price_pence?: number
+          name: string
+          slug: string
+          tier_classification?: string | null
+          updated_at?: string
+        }
+        Update: {
+          annual_price_pence?: number
+          contract_terms?: string | null
+          created_at?: string
+          display_order?: number
+          features?: string[]
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          is_featured?: boolean
+          lede?: string | null
+          monthly_price_pence?: number
+          name?: string
+          slug?: string
+          tier_classification?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1008,6 +1155,7 @@ export type Database = {
           payment_type: string
           reference_id: string | null
           status: Database["public"]["Enums"]["payment_status"]
+          stripe_checkout_session_id: string | null
           stripe_invoice_id: string | null
           stripe_payment_intent_id: string | null
           updated_at: string
@@ -1027,6 +1175,7 @@ export type Database = {
           payment_type: string
           reference_id?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
+          stripe_checkout_session_id?: string | null
           stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
           updated_at?: string
@@ -1046,6 +1195,7 @@ export type Database = {
           payment_type?: string
           reference_id?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
+          stripe_checkout_session_id?: string | null
           stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
           updated_at?: string

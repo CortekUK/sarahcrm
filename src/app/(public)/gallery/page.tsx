@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import {
@@ -7,6 +7,7 @@ import {
   type GalleryItem,
 } from '@/components/website/night/gallery/GalleriesBrowser'
 import { FeaturedGalleryCarousel } from '@/components/website/night/gallery/FeaturedGalleryCarousel'
+import { getPageHero } from '@/lib/cms/heroes'
 
 export const revalidate = 60
 
@@ -23,11 +24,22 @@ const HERO_IMAGE = '/gallery/bigland.png' // PLACEHOLDER
 
 export default async function GalleryPage() {
   const supabase = await createClient()
-  const { data: galleries } = await supabase
-    .from('galleries')
-    .select('id, slug, title, category, event_date, venue_name, location, cover_image_url')
-    .eq('is_published', true)
-    .order('event_date', { ascending: false, nullsFirst: false })
+  const [{ data: galleries }, hero] = await Promise.all([
+    supabase
+      .from('galleries')
+      .select('id, slug, title, category, event_date, venue_name, location, cover_image_url')
+      .eq('is_published', true)
+      .order('event_date', { ascending: false, nullsFirst: false }),
+    getPageHero('gallery', {
+      page_slug: 'gallery',
+      media_type: 'image',
+      image_url: HERO_IMAGE,
+      alt_text: 'The atlas',
+      eyebrow: 'The Atlas',
+      headline: 'Gallery.',
+      lede: 'Explore a captivating collection of images capturing the essence of our exclusive gatherings — from the stylish ambiance of high-profile events to the intimate moments shared among like-minded individuals. Join us in reliving the moments that make The Club an unrivalled platform for forging meaningful connections in a unique setting.',
+    }),
+  ])
 
   const items: GalleryItem[] = galleries ?? []
 
@@ -35,36 +47,38 @@ export default async function GalleryPage() {
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
       <section className="relative min-h-[78vh] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="A members' evening"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.6}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 min-h-[78vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              The Atlas
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4rem)] leading-[1.1] tracking-[-0.01em] text-ivory">
-              Gallery.
-            </h1>
-          </Reveal>
-          <Reveal type="up" delay={400}>
-            <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.75] text-ivory-soft mt-7 max-w-3xl">
-              Explore a captivating collection of images capturing the essence of our exclusive
-              gatherings &mdash; from the stylish ambiance of high-profile events to the intimate
-              moments shared among like-minded individuals. Join us in reliving the moments that
-              make The Club an unrivalled platform for forging meaningful connections in a unique
-              setting.
-            </p>
-          </Reveal>
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
+          {hero.headline && (
+            <Reveal type="clip" delay={150}>
+              <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4rem)] leading-[1.1] tracking-[-0.01em] text-ivory">
+                {hero.headline}
+              </h1>
+            </Reveal>
+          )}
+          {hero.lede && (
+            <Reveal type="up" delay={400}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.75] text-ivory-soft mt-7 max-w-3xl">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 

@@ -1,9 +1,11 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { KenBurnsImage, FullBleed } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
 import { PullQuote } from '@/components/website/night/primitives/PullQuote'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
+import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, MapPin, Train } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────
@@ -40,27 +42,45 @@ const ROOMS = [
   },
 ]
 
-export default function OneLondonRoadPage() {
+export default async function OneLondonRoadPage() {
+  const hero = await getPageHero('one-london-road', {
+    page_slug: 'one-london-road',
+    media_type: 'image',
+    image_url: HERO_IMAGE,
+    alt_text: 'One London Road by night',
+    eyebrow: 'The Address · London · Marylebone',
+    headline: 'One London Road.',
+    lede:
+      'A four-storey townhouse off Marylebone Lane. The home of The Club, and most of the rooms we host in.',
+  })
+
+  // The EditorialMeta stamp is split out of the eyebrow string —
+  // anything after the bullet becomes the stamp, the rest becomes
+  // the label. Falls back to gracefully if the admin removes the bullet.
+  const eyebrowParts = (hero.eyebrow ?? '').split('·').map((s) => s.trim())
+  const editorialLabel = eyebrowParts[0] ?? 'The Address'
+  const editorialStamp = eyebrowParts.slice(1).join(' · ') || undefined
+
   return (
     <>
       {/* ── 00 · Hero ───────────────────────────────────────────────── */}
       <section className="relative h-[85vh] min-h-[640px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="One London Road by night"
-          motion="in"
-          duration={36}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.5}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          <EditorialMeta label="The Address" stamp="London · Marylebone" />
-          <h1 className="display-xl mt-8 max-w-4xl">One London Road.</h1>
-          <p className="lede mt-7 max-w-xl">
-            A four-storey townhouse off Marylebone Lane. The home of The Club, and most of the rooms we host in.
-          </p>
+          <EditorialMeta label={editorialLabel} stamp={editorialStamp} />
+          {hero.headline && (
+            <h1 className="display-xl mt-8 max-w-4xl">{hero.headline}</h1>
+          )}
+          {hero.lede && <p className="lede mt-7 max-w-xl">{hero.lede}</p>}
         </div>
       </section>
 

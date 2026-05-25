@@ -13,8 +13,36 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { ImageUpload } from '@/components/ui/ImageUpload'
-import { ArrowLeft, Plus, Trash2, Save, Send } from 'lucide-react'
+import { MultiImageUpload } from '@/components/ui/MultiImageUpload'
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { Plus, Trash2, Save, Send } from 'lucide-react'
 import { slugify } from '@/lib/utils'
+
+// ─────────────────────────────────────────────────────────────────────
+// Event create / edit form
+//
+// Field-by-field mapping to the public site (so the form's UI signals
+// which inputs feed which surfaces):
+//
+//   Public                       ← Field
+//   ────────────────────────────   ─────────────────────────────────
+//   /events card hero            ← cover_image_url
+//   /events card title           ← title (always required)
+//   /events card type tag        ← event_type
+//   /events card date/time       ← start_date (+ optional doors_open)
+//   /events card venue line      ← venue_name + venue_city
+//   /events card price line      ← member_price / guest_price
+//   /events card teaser          ← description (line-clamped)
+//   /events/[slug] hero          ← cover_image_url + title + start_date
+//   /events/[slug] body          ← description (paragraphs)
+//   /events/[slug] particulars   ← start_date, doors_open, full venue,
+//                                  capacity, member/guest price
+//   /events/[slug] agenda        ← agenda[] (time, title, description)
+//   /events/[slug] past gallery  ← gallery_urls[] (only on past events)
+//
+// Empty optional fields are hidden on the frontend. Required fields are
+// marked as such in the schema below.
+// ─────────────────────────────────────────────────────────────────────
 
 const speakerSchema = z.object({
   name: z.string().min(1, 'Name required'),
@@ -51,6 +79,7 @@ const eventSchema = z.object({
   guest_list_visible: z.boolean(),
   auto_confirm: z.boolean(),
   cover_image_url: z.string().optional(),
+  gallery_urls: z.array(z.string()).default([]),
   speakers: z.array(speakerSchema),
   agenda: z.array(agendaSchema),
 })
@@ -85,6 +114,7 @@ export function EventFormPage() {
       accommodation_available: false,
       guest_list_visible: false,
       auto_confirm: true,
+      gallery_urls: [],
       speakers: [],
       agenda: [],
     },
@@ -93,7 +123,8 @@ export function EventFormPage() {
   const speakersField = useFieldArray({ control: form.control, name: 'speakers' })
   const agendaField = useFieldArray({ control: form.control, name: 'agenda' })
 
-  // Auto-generate slug from title
+  // Auto-generate slug from title on create. On edit we don't touch
+  // the slug because it's already the public URL.
   const title = form.watch('title')
   useEffect(() => {
     if (!isEdit && title) {
@@ -135,6 +166,7 @@ export function EventFormPage() {
               guest_list_visible: data.guest_list_visible,
               auto_confirm: data.auto_confirm,
               cover_image_url: data.cover_image_url ?? '',
+              gallery_urls: (data.gallery_urls as string[] | null) ?? [],
               speakers: (data.speakers as Array<{ name: string; title?: string }>) ?? [],
               agenda: (data.agenda as Array<{ time: string; title: string; description?: string }>) ?? [],
             })
@@ -153,7 +185,7 @@ export function EventFormPage() {
       slug: data.slug,
       description: data.description || null,
       event_type: data.event_type,
-      status: publish ? 'published' as const : (isEdit ? undefined : 'draft' as const),
+      status: publish ? ('published' as const) : isEdit ? undefined : ('draft' as const),
       venue_name: data.venue_name || null,
       venue_address: data.venue_address || null,
       venue_city: data.venue_city || null,
@@ -173,16 +205,14 @@ export function EventFormPage() {
       guest_list_visible: data.guest_list_visible,
       auto_confirm: data.auto_confirm,
       cover_image_url: data.cover_image_url || null,
+      gallery_urls: data.gallery_urls && data.gallery_urls.length > 0 ? data.gallery_urls : null,
       speakers: data.speakers,
       agenda: data.agenda,
     }
 
     try {
       if (isEdit && id) {
-        const { error: err } = await supabase
-          .from('events')
-          .update(payload)
-          .eq('id', id)
+        const { error: err } = await supabase.from('events').update(payload).eq('id', id)
         if (err) throw err
         router.push(`/dashboard/events/${id}`)
       } else {
@@ -202,52 +232,55 @@ export function EventFormPage() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-          <span className="text-sm text-text-muted">Loading event...</span>
+          <span className="text-sm text-text-muted">Loading event…</span>
         </div>
       </div>
     )
   }
 
+  const accomOn = form.watch('accommodation_available')
+
   return (
-    <div className="p-8 max-w-4xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => router.push('/dashboard/events')}
-          className="flex items-center gap-2 text-sm text-text-muted hover:text-text transition-colors"
-        >
-          <ArrowLeft size={16} strokeWidth={1.5} />
-          Back to Events
-        </button>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            icon={<Save size={14} />}
-            size="sm"
-            loading={saving}
-            onClick={form.handleSubmit((d: EventFormData) => onSubmit(d, false))}
-          >
-            {isEdit ? 'Save Changes' : 'Save as Draft'}
-          </Button>
-          {!isEdit && (
+    <div className="p-4 md:p-8 max-w-4xl">
+      <AdminPageHeader
+        title={isEdit ? 'Edit event' : 'Create event'}
+        description={
+          isEdit
+            ? 'Update event details, pricing, agenda, and gallery. Every field below maps to a slot on the public site — empty optional fields are hidden, not shown blank.'
+            : 'Build a new event end-to-end. You can save it as a draft first and publish once details are confirmed. Empty optional fields are hidden on the public site rather than displayed blank.'
+        }
+        backHref="/dashboard/events"
+        breadcrumbs={[
+          { label: 'Events', href: '/dashboard/events' },
+          { label: isEdit ? 'Edit' : 'New' },
+        ]}
+        actions={
+          <>
             <Button
-              icon={<Send size={14} />}
+              variant="secondary"
+              icon={<Save size={14} />}
               size="sm"
               loading={saving}
-              onClick={form.handleSubmit((d: EventFormData) => onSubmit(d, true))}
+              onClick={form.handleSubmit((d: EventFormData) => onSubmit(d, false))}
             >
-              Save & Publish
+              {isEdit ? 'Save changes' : 'Save as draft'}
             </Button>
-          )}
-        </div>
-      </div>
-
-      <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text mb-6">
-        {isEdit ? 'Edit Event' : 'Create Event'}
-      </h1>
+            {!isEdit && (
+              <Button
+                icon={<Send size={14} />}
+                size="sm"
+                loading={saving}
+                onClick={form.handleSubmit((d: EventFormData) => onSubmit(d, true))}
+              >
+                Save &amp; publish
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {error && (
         <div className="mb-5 px-4 py-3 rounded-[var(--radius-md)] bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">
@@ -256,77 +289,150 @@ export function EventFormPage() {
       )}
 
       <div className="space-y-6">
-        {/* Basic info */}
+        {/* ── Basic info ─────────────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>Basic Information</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Basic information</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Event Title" error={form.formState.errors.title?.message} {...form.register('title')} />
-              <Input label="Slug" error={form.formState.errors.slug?.message} {...form.register('slug')} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Event title"
+                error={form.formState.errors.title?.message}
+                {...form.register('title')}
+              />
+              <Input
+                label="Slug"
+                hint="Used as the URL: /events/<slug>"
+                error={form.formState.errors.slug?.message}
+                {...form.register('slug')}
+              />
             </div>
-            <Select label="Event Type" options={eventTypeOptions} {...form.register('event_type')} />
-            <Textarea label="Description" rows={3} {...form.register('description')} />
+            <Select label="Event type" options={eventTypeOptions} {...form.register('event_type')} />
+            <Textarea
+              label="Description"
+              rows={6}
+              placeholder="What is the evening about? Separate paragraphs with a blank line — they'll render as separate paragraphs on the event page."
+              hint="Shown on the public event card (line-clamped) and as the editorial body on the detail page. Hidden if empty."
+              {...form.register('description')}
+            />
             <ImageUpload
               label="Cover image"
               value={form.watch('cover_image_url')}
-              onChange={(url) =>
-                form.setValue('cover_image_url', url ?? '', { shouldDirty: true })
-              }
+              onChange={(url) => form.setValue('cover_image_url', url ?? '', { shouldDirty: true })}
               bucket="content"
               folder="events"
               aspect="16 / 10"
-              hint="Shown on event cards across the public site, the homepage strip, and admin lists. Landscape works best."
+              hint="Used on event cards, the dashboard list, and the detail-page hero. Landscape works best. Falls back to the event's first letter if blank."
             />
           </CardContent>
         </Card>
 
-        {/* Date & time */}
+        {/* ── Date & time ────────────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>Date & Time</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Date &amp; time</CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4">
-              <Input label="Start Date & Time" type="datetime-local" error={form.formState.errors.start_date?.message} {...form.register('start_date')} />
-              <Input label="End Date & Time" type="datetime-local" {...form.register('end_date')} />
-              <Input label="Doors Open" type="datetime-local" {...form.register('doors_open')} />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input
+                label="Start date &amp; time"
+                type="datetime-local"
+                error={form.formState.errors.start_date?.message}
+                {...form.register('start_date')}
+              />
+              <Input label="End date &amp; time" type="datetime-local" {...form.register('end_date')} />
+              <Input
+                label="Doors open"
+                type="datetime-local"
+                hint="If set, the public time line reads “Doors HH:MM · From HH:MM”."
+                {...form.register('doors_open')}
+              />
             </div>
           </CardContent>
         </Card>
 
-        {/* Venue */}
+        {/* ── Venue ───────────────────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>Venue</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Venue</CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Venue Name" {...form.register('venue_name')} />
-              <Input label="Website" placeholder="https://" {...form.register('venue_url')} />
-              <Input label="Address" className="col-span-2" {...form.register('venue_address')} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label="Venue name" {...form.register('venue_name')} />
+              <Input
+                label="Website"
+                placeholder="https://"
+                hint="Optional — internal reference only, not shown publicly."
+                {...form.register('venue_url')}
+              />
+              <Input label="Address" className="md:col-span-2" {...form.register('venue_address')} />
               <Input label="City" {...form.register('venue_city')} />
               <Input label="Postcode" {...form.register('venue_postcode')} />
             </div>
+            <p className="mt-3 text-[11.5px] text-text-dim">
+              The card line shows <span className="text-text-muted">venue + city</span>. The detail-page
+              particulars row joins all four with commas, skipping any that are blank.
+            </p>
           </CardContent>
         </Card>
 
-        {/* Capacity & pricing */}
+        {/* ── Capacity & pricing ──────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>Capacity & Pricing</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Capacity &amp; pricing</CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <Input label="Total Capacity" type="number" {...form.register('capacity')} />
-              <Input label="Guest Spots" type="number" {...form.register('guest_ticket_capacity')} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Total capacity"
+                type="number"
+                hint="Shown publicly as “N seats”. Hidden if blank."
+                {...form.register('capacity')}
+              />
+              <Input
+                label="Guest spots (within capacity)"
+                type="number"
+                hint="Internal — caps how many guest tickets the booking widget can sell."
+                {...form.register('guest_ticket_capacity')}
+              />
             </div>
-            <div className="grid grid-cols-3 gap-4 mt-4">
-              <Input label="Member Price" type="number" step="0.01" prefix="£" {...form.register('member_price', { valueAsNumber: true })} />
-              <Input label="Guest Price" type="number" step="0.01" prefix="£" {...form.register('guest_price', { valueAsNumber: true })} />
-              <Input label="Sponsor Price" type="number" step="0.01" prefix="£" {...form.register('sponsor_price', { valueAsNumber: true })} />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+              <Input
+                label="Member price"
+                type="number"
+                step="0.01"
+                prefix="£"
+                hint="0 → “Complimentary” for members."
+                {...form.register('member_price', { valueAsNumber: true })}
+              />
+              <Input
+                label="Guest price"
+                type="number"
+                step="0.01"
+                prefix="£"
+                hint="0 → “Complimentary” for guests."
+                {...form.register('guest_price', { valueAsNumber: true })}
+              />
+              <Input
+                label="Sponsor price"
+                type="number"
+                step="0.01"
+                prefix="£"
+                hint="Internal — not shown on the public site."
+                {...form.register('sponsor_price', { valueAsNumber: true })}
+              />
             </div>
           </CardContent>
         </Card>
 
-        {/* Options */}
+        {/* ── Options ─────────────────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>Options</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Options</CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-y-3 gap-x-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-6">
               {[
                 { name: 'travel_included' as const, label: 'Travel included' },
                 { name: 'accommodation_available' as const, label: 'Accommodation available' },
@@ -343,10 +449,10 @@ export function EventFormPage() {
                 </label>
               ))}
             </div>
-            {form.watch('accommodation_available') && (
-              <div className="mt-4 w-64">
+            {accomOn && (
+              <div className="mt-4 max-w-xs">
                 <Input
-                  label="Accommodation Price"
+                  label="Accommodation price"
                   type="number"
                   step="0.01"
                   prefix="£"
@@ -354,48 +460,67 @@ export function EventFormPage() {
                 />
               </div>
             )}
+            <p className="mt-4 text-[11.5px] text-text-dim">
+              These flags are internal (used by the booking widget + portal). They aren't rendered as labels on the public detail page.
+            </p>
           </CardContent>
         </Card>
 
-        {/* Speakers — dynamic JSON */}
+        {/* ── Agenda — public ─────────────────────────────────────── */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Speakers</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <div>
+              <CardTitle>Agenda</CardTitle>
+              <p className="text-[11.5px] text-text-dim mt-1">
+                Renders the timeline on the public detail page. Hidden entirely if empty.
+              </p>
+            </div>
             <Button
               type="button"
               variant="ghost"
               size="sm"
               icon={<Plus size={14} />}
-              onClick={() => speakersField.append({ name: '', title: '' })}
+              onClick={() => agendaField.append({ time: '', title: '', description: '' })}
             >
-              Add Speaker
+              Add item
             </Button>
           </CardHeader>
           <CardContent>
-            {speakersField.fields.length === 0 ? (
-              <p className="text-sm text-text-dim">No speakers added</p>
+            {agendaField.fields.length === 0 ? (
+              <p className="text-sm text-text-dim">No agenda items yet.</p>
             ) : (
               <div className="space-y-3">
-                {speakersField.fields.map((field, index) => (
-                  <div key={field.id} className="flex items-end gap-3">
-                    <div className="flex-1">
+                {agendaField.fields.map((field, index) => (
+                  <div
+                    key={field.id}
+                    className="flex flex-col sm:flex-row gap-3 sm:items-end pb-3 border-b border-border/60 last:border-b-0 last:pb-0"
+                  >
+                    <div className="sm:w-28">
                       <Input
-                        label={index === 0 ? 'Name' : undefined}
-                        placeholder="Speaker name"
-                        {...form.register(`speakers.${index}.name`)}
+                        label={index === 0 ? 'Time' : undefined}
+                        placeholder="19:00"
+                        {...form.register(`agenda.${index}.time`)}
                       />
                     </div>
                     <div className="flex-1">
                       <Input
-                        label={index === 0 ? 'Title / Role' : undefined}
-                        placeholder="e.g. Founder, CEO"
-                        {...form.register(`speakers.${index}.title`)}
+                        label={index === 0 ? 'Title' : undefined}
+                        placeholder="Welcome reception"
+                        {...form.register(`agenda.${index}.title`)}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Input
+                        label={index === 0 ? 'Description' : undefined}
+                        placeholder="Optional"
+                        {...form.register(`agenda.${index}.description`)}
                       />
                     </div>
                     <button
                       type="button"
-                      onClick={() => speakersField.remove(index)}
-                      className="p-2.5 text-text-dim hover:text-accent-warm transition-colors"
+                      onClick={() => agendaField.remove(index)}
+                      className="self-end p-2.5 text-text-dim hover:text-accent-warm transition-colors"
+                      aria-label="Remove agenda item"
                     >
                       <Trash2 size={16} strokeWidth={1.5} />
                     </button>
@@ -406,52 +531,78 @@ export function EventFormPage() {
           </CardContent>
         </Card>
 
-        {/* Agenda — dynamic JSON */}
+        {/* ── Gallery (past events) ───────────────────────────────── */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Agenda</CardTitle>
+          <CardHeader>
+            <CardTitle>Photo gallery</CardTitle>
+            <p className="text-[11.5px] text-text-dim mt-1">
+              Shown only on the public detail page <strong>after the event has happened</strong> — the
+              “From the evening” strip. Add 4–12 photos at a 1:1 ratio. The whole section is hidden if no
+              photos are added.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <MultiImageUpload
+              value={form.watch('gallery_urls') ?? []}
+              onChange={(urls) =>
+                form.setValue('gallery_urls', urls, { shouldDirty: true })
+              }
+              bucket="content"
+              folder="event-galleries"
+              maxCount={24}
+              hint="Order matters — drag the ◀ / ▶ buttons on each tile to re-sort."
+            />
+          </CardContent>
+        </Card>
+
+        {/* ── Speakers — internal ─────────────────────────────────── */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <div>
+              <CardTitle>Speakers</CardTitle>
+              <p className="text-[11.5px] text-text-dim mt-1">
+                Internal reference for the team — not currently rendered on the public site.
+              </p>
+            </div>
             <Button
               type="button"
               variant="ghost"
               size="sm"
               icon={<Plus size={14} />}
-              onClick={() => agendaField.append({ time: '', title: '', description: '' })}
+              onClick={() => speakersField.append({ name: '', title: '' })}
             >
-              Add Item
+              Add speaker
             </Button>
           </CardHeader>
           <CardContent>
-            {agendaField.fields.length === 0 ? (
-              <p className="text-sm text-text-dim">No agenda items</p>
+            {speakersField.fields.length === 0 ? (
+              <p className="text-sm text-text-dim">No speakers added.</p>
             ) : (
               <div className="space-y-3">
-                {agendaField.fields.map((field, index) => (
-                  <div key={field.id} className="flex items-end gap-3">
-                    <div className="w-28">
+                {speakersField.fields.map((field, index) => (
+                  <div
+                    key={field.id}
+                    className="flex flex-col sm:flex-row gap-3 sm:items-end pb-3 border-b border-border/60 last:border-b-0 last:pb-0"
+                  >
+                    <div className="flex-1">
                       <Input
-                        label={index === 0 ? 'Time' : undefined}
-                        placeholder="09:00"
-                        {...form.register(`agenda.${index}.time`)}
+                        label={index === 0 ? 'Name' : undefined}
+                        placeholder="Speaker name"
+                        {...form.register(`speakers.${index}.name`)}
                       />
                     </div>
                     <div className="flex-1">
                       <Input
-                        label={index === 0 ? 'Title' : undefined}
-                        placeholder="Agenda item title"
-                        {...form.register(`agenda.${index}.title`)}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Input
-                        label={index === 0 ? 'Description' : undefined}
-                        placeholder="Optional details"
-                        {...form.register(`agenda.${index}.description`)}
+                        label={index === 0 ? 'Title / role' : undefined}
+                        placeholder="e.g. Founder, CEO"
+                        {...form.register(`speakers.${index}.title`)}
                       />
                     </div>
                     <button
                       type="button"
-                      onClick={() => agendaField.remove(index)}
-                      className="p-2.5 text-text-dim hover:text-accent-warm transition-colors"
+                      onClick={() => speakersField.remove(index)}
+                      className="self-end p-2.5 text-text-dim hover:text-accent-warm transition-colors"
+                      aria-label="Remove speaker"
                     >
                       <Trash2 size={16} strokeWidth={1.5} />
                     </button>

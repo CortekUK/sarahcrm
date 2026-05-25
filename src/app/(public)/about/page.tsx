@@ -1,6 +1,6 @@
 import Image from 'next/image'
 import { createClient } from '@supabase/supabase-js'
-import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
@@ -8,6 +8,7 @@ import { TracingBeam } from '@/components/website/night/effects/TracingBeam'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 import { VideoGallery, type VideoEntry } from '@/components/website/night/VideoGallery'
 import { StoryCarousel } from '@/components/website/night/StoryCarousel'
+import { getPageHero } from '@/lib/cms/heroes'
 
 // ─────────────────────────────────────────────────────────────────────
 // /about — "The Club" page.
@@ -45,42 +46,58 @@ async function getVideos(): Promise<VideoEntry[]> {
 }
 
 export default async function AboutPage() {
-  const videos = await getVideos()
+  const [videos, hero] = await Promise.all([
+    getVideos(),
+    getPageHero('about', {
+      page_slug: 'about',
+      media_type: 'image',
+      image_url: HERO_PORTRAIT,
+      alt_text: 'Sarah Restrick',
+      eyebrow: 'The Club · Founder',
+      headline: 'A visionary in luxury and connections.',
+      lede: 'Sarah Restrick’s journey.',
+    }),
+  ])
 
   return (
     <>
       {/* ── 01 · Hero ────────────────────────────────────────────────
-         Restrained typography — the previous draft used display-xl on
-         this long phrase and the title sprawled across the hero and
-         clobbered the image. display-lg + a sensible max-w keeps it
-         elegant. The second clause sits italic on its own line. */}
+         Eyebrow + headline + lede are CMS-driven (hero_slides table,
+         page_slug='about'). The hardcoded fallback above keeps the
+         page looking right if the DB row is removed or fails to load. */}
       <section className="relative h-[78vh] min-h-[560px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_PORTRAIT}
-          alt="Sarah Restrick"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.62}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              The Club · Founder
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4.25rem)] leading-[1.1] tracking-[-0.01em] text-ivory max-w-3xl">
-              A visionary in luxury and connections.
-            </h1>
-          </Reveal>
-          <Reveal type="up" delay={400}>
-            <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.25rem,1.8vw,1.75rem)] text-bronze-light mt-5">
-              Sarah Restrick&apos;s journey.
-            </p>
-          </Reveal>
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
+          {hero.headline && (
+            <Reveal type="clip" delay={150}>
+              <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4.25rem)] leading-[1.1] tracking-[-0.01em] text-ivory max-w-3xl">
+                {hero.headline}
+              </h1>
+            </Reveal>
+          )}
+          {hero.lede && (
+            <Reveal type="up" delay={400}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.25rem,1.8vw,1.75rem)] text-bronze-light mt-5">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 

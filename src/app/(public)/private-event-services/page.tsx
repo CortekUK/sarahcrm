@@ -2,6 +2,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/server'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
@@ -9,6 +10,7 @@ import {
   VideoGallery,
   type VideoEntry,
 } from '@/components/website/night/VideoGallery'
+import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, BookOpen, Mail, Phone } from 'lucide-react'
 
 export const revalidate = 60
@@ -38,7 +40,7 @@ const CONTACT_PHONE = '+44 7880 351 645'
 export default async function PrivateEventServicesPage() {
   const supabase = await createClient()
 
-  const [{ data: curated }, { data: videoRows }] = await Promise.all([
+  const [{ data: curated }, { data: videoRows }, hero] = await Promise.all([
     supabase
       .from('curated_experiences')
       .select('id, title, description, image_url, link_url')
@@ -50,6 +52,14 @@ export default async function PrivateEventServicesPage() {
       .eq('page_slug', 'private-events')
       .eq('is_active', true)
       .order('display_order', { ascending: true }),
+    getPageHero('private-event-services', {
+      page_slug: 'private-event-services',
+      media_type: 'image',
+      image_url: HERO_IMAGE,
+      alt_text: 'A private dining setup',
+      eyebrow: 'At The Club',
+      headline: 'Private Events.',
+    }),
   ])
 
   const videos: VideoEntry[] = (videoRows as VideoEntry[]) ?? []
@@ -58,27 +68,38 @@ export default async function PrivateEventServicesPage() {
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
       <section className="relative min-h-[68vh] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="A private dining setup"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.55}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 min-h-[68vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              At The Club
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4rem)] leading-[1.1] tracking-[-0.01em] text-ivory max-w-3xl">
-              Private Events.
-            </h1>
-          </Reveal>
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
+          {hero.headline && (
+            <Reveal type="clip" delay={150}>
+              <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4rem)] leading-[1.1] tracking-[-0.01em] text-ivory max-w-3xl">
+                {hero.headline}
+              </h1>
+            </Reveal>
+          )}
+          {hero.lede && (
+            <Reveal type="up" delay={350}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.7] text-ivory-soft mt-6 max-w-2xl">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 

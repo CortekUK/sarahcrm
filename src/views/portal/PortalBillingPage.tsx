@@ -3,19 +3,18 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@/components/ui/Table'
-import { formatDate, formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import { CreditCard, ExternalLink } from 'lucide-react'
+import {
+  PortalBadge,
+  PortalButton,
+  PortalCard,
+  PortalEmptyState,
+  PortalLoading,
+  PortalPageHeader,
+  PortalSectionTitle,
+  type PortalBadgeVariant,
+} from '@/components/portal/PortalChrome'
 import type { Database } from '@/types/database'
 
 type MemberTier = Database['public']['Enums']['membership_tier']
@@ -32,9 +31,17 @@ interface MemberBilling {
   stripe_subscription_id: string | null
 }
 
-interface TierPricing {
+// What we show in the Subscription card. Resolved from the matched
+// membership_plan first (preferred — it's the public/admin source of
+// truth for what members are charged), then falls back to the
+// internal membership_tiers table if no plan matches.
+interface PlanDisplay {
+  /** Plan name to display, e.g. "Business" or "Individual". */
   name: string
-  price_pence: number
+  /** Amount charged this cadence in pence (annual or monthly). */
+  amount_pence: number
+  /** Whether the amount is per month or per year. */
+  cadence: 'monthly' | 'annual'
 }
 
 interface PaymentRow {
@@ -48,19 +55,12 @@ interface PaymentRow {
 }
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier 1',
-  tier_2: 'Tier 2',
-  tier_3: 'Tier 3',
+  tier_1: 'Tier I',
+  tier_2: 'Tier II',
+  tier_3: 'Tier III',
 }
 
-const statusVariant: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urgent'> = {
-  active: 'active',
-  pending: 'upcoming',
-  expired: 'draft',
-  cancelled: 'urgent',
-}
-
-const paymentStatusVariant: Record<PaymentStatus, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
+const paymentStatusVariant: Record<PaymentStatus, PortalBadgeVariant> = {
   paid: 'active',
   pending: 'upcoming',
   overdue: 'urgent',
@@ -71,7 +71,7 @@ const paymentStatusVariant: Record<PaymentStatus, 'active' | 'upcoming' | 'draft
 export function PortalBillingPage() {
   const { profile } = useAuth()
   const [member, setMember] = useState<MemberBilling | null>(null)
-  const [tierPricing, setTierPricing] = useState<TierPricing | null>(null)
+  const [planDisplay, setPlanDisplay] = useState<PlanDisplay | null>(null)
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<'subscribe' | 'portal' | null>(null)
@@ -84,7 +84,9 @@ export function PortalBillingPage() {
   async function fetchData(profileId: string) {
     const { data: memberData } = await supabase
       .from('members')
-      .select('id, membership_tier, membership_type, membership_status, renewal_date, stripe_customer_id, stripe_subscription_id')
+      .select(
+        'id, membership_tier, membership_type, membership_status, renewal_date, stripe_customer_id, stripe_subscription_id',
+      )
       .eq('profile_id', profileId)
       .single()
 
@@ -92,18 +94,25 @@ export function PortalBillingPage() {
       setLoading(false)
       return
     }
-
     setMember(memberData as MemberBilling)
 
-    // Fetch tier pricing and membership payments in parallel
-    const [tierRes, paymentsRes] = await Promise.all([
+    // Resolve the actual plan + cadence in three steps:
+    //   1. Most recent approved application for this profile (has the
+    //      original preferred_tier + payment_preference).
+    //   2. Match that against `membership_plans` by slug to get name +
+    //      price for the cadence the user actually picked.
+    //   3. Fall back to membership_tier-derived plan if no application
+    //      is on file (e.g. admin-added members).
+    //
+    // Done in parallel with payments fetch to keep this snappy.
+    const [appRes, paymentsRes] = await Promise.all([
       supabase
-        .from('membership_tiers')
-        .select('name, price_pence')
-        .eq('tier', memberData.membership_tier)
-        .eq('membership_type', memberData.membership_type)
-        .eq('billing_interval', 'month')
-        .eq('is_active', true)
+        .from('membership_applications')
+        .select('preferred_tier, payment_preference, amount_paid_pence')
+        .eq('email', profile?.email ?? '__none__')
+        .eq('status', 'approved')
+        .order('reviewed_at', { ascending: false, nullsFirst: false })
+        .limit(1)
         .maybeSingle(),
       supabase
         .from('payments')
@@ -114,7 +123,58 @@ export function PortalBillingPage() {
         .limit(20),
     ])
 
-    if (tierRes.data) setTierPricing(tierRes.data)
+    const cadence: 'monthly' | 'annual' =
+      (appRes.data?.payment_preference as 'monthly' | 'annual' | undefined) ??
+      'monthly'
+    const planSlug = appRes.data?.preferred_tier ?? null
+
+    let plan: PlanDisplay | null = null
+
+    // 1. Plan from membership_plans by slug
+    if (planSlug) {
+      const { data: planRow } = await supabase
+        .from('membership_plans')
+        .select('name, annual_price_pence, monthly_price_pence')
+        .eq('slug', planSlug)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (planRow) {
+        plan = {
+          name: planRow.name,
+          amount_pence:
+            cadence === 'annual'
+              ? planRow.annual_price_pence
+              : planRow.monthly_price_pence,
+          cadence,
+        }
+      }
+    }
+
+    // 2. Fallback to membership_plans by tier_classification (manual
+    //    members never went through the public form, so they don't have
+    //    a preferred_tier on file).
+    if (!plan) {
+      const { data: byTier } = await supabase
+        .from('membership_plans')
+        .select('name, annual_price_pence, monthly_price_pence')
+        .eq('tier_classification', memberData.membership_tier)
+        .eq('is_active', true)
+        .order('display_order', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (byTier) {
+        plan = {
+          name: byTier.name,
+          amount_pence:
+            cadence === 'annual'
+              ? byTier.annual_price_pence
+              : byTier.monthly_price_pence,
+          cadence,
+        }
+      }
+    }
+
+    setPlanDisplay(plan)
     if (paymentsRes.data) setPayments(paymentsRes.data as unknown as PaymentRow[])
     setLoading(false)
   }
@@ -122,19 +182,17 @@ export function PortalBillingPage() {
   async function handleSetupSubscription() {
     setActionLoading('subscribe')
     setError(null)
-
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'subscription-checkout',
-        { body: {} }
-      )
-
+      const { data, error: fnError } = await supabase.functions.invoke('subscription-checkout', {
+        body: {},
+      })
       if (fnError || !data?.url) {
-        setError(await extractFunctionErrorMessage(fnError, data, 'Failed to create checkout session'))
+        setError(
+          await extractFunctionErrorMessage(fnError, data, 'Failed to create checkout session'),
+        )
         setActionLoading(null)
         return
       }
-
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
@@ -145,19 +203,13 @@ export function PortalBillingPage() {
   async function handleManageBilling() {
     setActionLoading('portal')
     setError(null)
-
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'billing-portal',
-        { body: {} }
-      )
-
+      const { data, error: fnError } = await supabase.functions.invoke('billing-portal', { body: {} })
       if (fnError || !data?.url) {
         setError(await extractFunctionErrorMessage(fnError, data, 'Failed to open billing portal'))
         setActionLoading(null)
         return
       }
-
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
@@ -165,9 +217,6 @@ export function PortalBillingPage() {
     }
   }
 
-  // Same pattern as PortalEventDetailPage — pulls the JSON {error: "..."}
-  // body out of a failed Edge Function response so we don't end up
-  // showing "Edge Function returned a non-2xx status code" to the user.
   async function extractFunctionErrorMessage(
     fnError: { message?: string; context?: { response?: Response } } | null,
     data: unknown,
@@ -195,17 +244,20 @@ export function PortalBillingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 py-12">
-        <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-        <span className="text-sm text-text-muted">Loading billing...</span>
+      <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-12">
+        <PortalLoading label="Loading billing" />
       </div>
     )
   }
 
   if (!member) {
     return (
-      <div className="py-12 text-center">
-        <p className="text-sm text-text-dim">Member record not found.</p>
+      <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-16">
+        <PortalEmptyState
+          icon={<CreditCard size={18} strokeWidth={1.5} />}
+          title="Member record not found."
+          description="Speak to The Club team if you think this is an error."
+        />
       </div>
     )
   }
@@ -213,141 +265,153 @@ export function PortalBillingPage() {
   const hasSubscription = !!member.stripe_subscription_id
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
-          Billing
-        </h1>
-        <p className="text-sm text-text-muted mt-1">
-          Manage your membership subscription and payment history
-        </p>
-      </div>
+    <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
+      <PortalPageHeader
+        eyebrow="The Ledger"
+        title="Billing."
+        subtitle="Your subscription, your renewal date, and a record of every membership payment."
+      />
 
       {error && (
-        <div className="mb-6 p-4 bg-accent-warm/10 border border-accent-warm/20 rounded-[var(--radius-md)]">
-          <p className="text-sm text-accent-warm">{error}</p>
+        <div className="mb-6 px-5 py-4 border-l-2 border-rose-500/70 bg-rose-900/15">
+          <p className="font-[family-name:var(--font-editorial)] italic text-[13.5px] text-rose-200">
+            {error}
+          </p>
         </div>
       )}
 
-      {/* Subscription Status */}
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <CreditCard size={16} className="text-gold" />
-            <CardTitle>Subscription</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
-                  Status
-                </p>
-                <div className="mt-1">
-                  {hasSubscription ? (
-                    <Badge variant="active" dot>Active</Badge>
-                  ) : (
-                    <Badge variant="draft" dot>No Subscription</Badge>
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
-                  Tier
-                </p>
-                <p className="text-sm font-medium text-text mt-1">
-                  {tierLabels[member.membership_tier]} — <span className="capitalize">{member.membership_type}</span>
-                </p>
-              </div>
-              <div>
-                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
-                  Monthly Price
-                </p>
-                <p className="text-sm font-medium text-text mt-1">
-                  {tierPricing ? formatCurrency(tierPricing.price_pence) : '—'}
-                  <span className="text-text-dim font-normal">/month</span>
-                </p>
-              </div>
-              <div>
-                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
-                  Next Billing Date
-                </p>
-                <p className="text-sm font-medium text-text mt-1">
-                  {member.renewal_date ? formatDate(member.renewal_date) : '—'}
-                </p>
-              </div>
-            </div>
+      {/* Subscription summary */}
+      <PortalCard className="mb-6 p-6 lg:p-8">
+        <PortalSectionTitle eyebrow="Subscription">
+          <span className="inline-flex items-center gap-2.5">
+            <CreditCard size={14} strokeWidth={1.5} className="text-bronze-light" />
+            Current standing.
+          </span>
+        </PortalSectionTitle>
 
-            <div className="flex gap-3 pt-2">
+        <dl className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
+          <div>
+            <dt className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
+              Status
+            </dt>
+            <dd>
               {hasSubscription ? (
-                <Button
-                  variant="secondary"
-                  icon={<ExternalLink size={14} />}
-                  loading={actionLoading === 'portal'}
-                  onClick={handleManageBilling}
-                >
-                  Manage Billing
-                </Button>
+                <PortalBadge variant="active" dot>
+                  Active
+                </PortalBadge>
               ) : (
-                <Button
-                  icon={<CreditCard size={14} />}
-                  loading={actionLoading === 'subscribe'}
-                  onClick={handleSetupSubscription}
-                >
-                  Set Up Subscription
-                </Button>
+                <PortalBadge variant="draft" dot>
+                  No subscription
+                </PortalBadge>
               )}
-            </div>
+            </dd>
           </div>
-        </CardContent>
-      </Card>
+          <div>
+            <dt className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
+              Plan
+            </dt>
+            <dd className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight">
+              {planDisplay?.name ?? tierLabels[member.membership_tier]}
+              <span className="text-ivory-soft font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] ml-2">
+                · {member.membership_type}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
+              {planDisplay?.cadence === 'annual' ? 'Annually' : 'Monthly'}
+            </dt>
+            <dd className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight tabular-nums">
+              {planDisplay ? formatCurrency(planDisplay.amount_pence) : '—'}
+              <span className="text-slate-haze font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] ml-1">
+                / {planDisplay?.cadence === 'annual' ? 'year' : 'month'}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
+              Next billing
+            </dt>
+            <dd className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight">
+              {member.renewal_date ? formatDate(member.renewal_date) : '—'}
+            </dd>
+          </div>
+        </dl>
 
-      {/* Payment History */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Payment History</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {payments.length === 0 ? (
-            <div className="px-6 py-10 text-center">
-              <p className="text-sm text-text-dim">No membership payments yet</p>
-            </div>
+        <div className="mt-7 flex gap-3">
+          {hasSubscription ? (
+            <PortalButton
+              variant="secondary"
+              icon={<ExternalLink size={13} strokeWidth={1.5} />}
+              loading={actionLoading === 'portal'}
+              onClick={handleManageBilling}
+            >
+              Manage billing
+            </PortalButton>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Description</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payments.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="text-text-muted">
-                      {p.description || 'Membership payment'}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {formatCurrency(p.amount_pence)}
-                    </TableCell>
-                    <TableCell className="text-text-muted">
-                      {p.paid_at ? formatDate(p.paid_at) : formatDate(p.created_at)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={paymentStatusVariant[p.status]} dot>
-                        {p.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <PortalButton
+              icon={<CreditCard size={13} strokeWidth={1.5} />}
+              loading={actionLoading === 'subscribe'}
+              onClick={handleSetupSubscription}
+            >
+              Set up subscription
+            </PortalButton>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </PortalCard>
+
+      {/* Payment history */}
+      <PortalCard className="p-6 lg:p-8">
+        <PortalSectionTitle eyebrow="History">Payments.</PortalSectionTitle>
+
+        {payments.length === 0 ? (
+          <div className="py-10 text-center">
+            <p className="font-[family-name:var(--font-editorial)] italic text-[14px] text-ivory-soft/85">
+              No membership payments yet.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[640px]">
+              <thead>
+                <tr className="border-b border-graphite-line/55">
+                  {['Description', 'Amount', 'Date', 'Status'].map((h) => (
+                    <th
+                      key={h}
+                      className="pb-4 font-[family-name:var(--font-meta)] text-[9.5px] font-medium uppercase tracking-[0.32em] text-bronze-light/85"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr
+                    key={p.id}
+                    className="border-b border-graphite-line/30 hover:bg-graphite/30 transition-colors"
+                  >
+                    <td className="py-4 font-[family-name:var(--font-editorial)] text-[13.5px] text-ivory-soft">
+                      {p.description || 'Membership payment'}
+                    </td>
+                    <td className="py-4 font-[family-name:var(--font-display)] text-[14px] text-ivory tabular-nums">
+                      {formatCurrency(p.amount_pence)}
+                    </td>
+                    <td className="py-4 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-slate-haze">
+                      {p.paid_at ? formatDate(p.paid_at) : formatDate(p.created_at)}
+                    </td>
+                    <td className="py-4">
+                      <PortalBadge variant={paymentStatusVariant[p.status]} dot>
+                        {p.status}
+                      </PortalBadge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </PortalCard>
     </div>
   )
 }

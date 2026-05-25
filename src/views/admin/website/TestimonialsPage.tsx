@@ -20,6 +20,18 @@ import type { Database } from '@/types/database'
 
 type Testimonial = Database['public']['Tables']['testimonials']['Row']
 
+// Public surface that displays testimonials — the homepage's
+// VoicesChapter reads from this table. Flushing `/` after any change
+// makes the new/edited/removed quote appear immediately instead of
+// waiting for the 60s ISR window.
+function flushHomepageCache() {
+  void fetch('/api/admin/revalidate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ paths: ['/'] }),
+  }).catch(() => {})
+}
+
 const schema = z.object({
   person_name: z.string().min(1, 'Name is required'),
   person_title: z.string().optional(),
@@ -126,6 +138,7 @@ export function TestimonialsPage() {
       setModalOpen(false)
       setEditingItem(null)
       fetchItems()
+      flushHomepageCache()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -146,6 +159,7 @@ export function TestimonialsPage() {
     if (!ok) return
     await supabase.from('testimonials').delete().eq('id', id)
     setItems((prev) => prev.filter((i) => i.id !== id))
+    flushHomepageCache()
   }
 
   async function handleToggleActive(item: Testimonial, next: boolean) {
@@ -158,6 +172,7 @@ export function TestimonialsPage() {
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, is_active: !next } : i)))
       throw err
     }
+    flushHomepageCache()
   }
 
   async function handleReorder(next: Testimonial[]) {
@@ -167,6 +182,7 @@ export function TestimonialsPage() {
         supabase.from('testimonials').update({ display_order: i.display_order }).eq('id', i.id),
       ),
     )
+    flushHomepageCache()
   }
 
   if (loading) {
@@ -184,7 +200,7 @@ export function TestimonialsPage() {
     <div className="p-8 max-w-5xl">
       <AdminPageHeader
         title="Testimonials"
-        description="Member quotes shown on the homepage testimonials carousel. Drag to reorder; toggle inactive to hide without deleting."
+        description="Member quotes shown on the homepage In Their Own Words carousel. Drag to reorder; toggle inactive to hide without deleting. When all testimonials are removed or inactive, the homepage section is hidden entirely — no placeholder quotes are ever shown to the public."
         meta={
           <span className="text-xs text-text-dim">
             {items.length} testimonial{items.length !== 1 ? 's' : ''}

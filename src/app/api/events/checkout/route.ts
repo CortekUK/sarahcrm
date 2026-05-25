@@ -70,6 +70,10 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Insert booking (pending — webhook flips to confirmed) ──────
+    // payment_method is a postgres enum: stripe | gocardless | invoice
+    // | manual. We're sending the user to Stripe Checkout, so 'stripe'
+    // is the right value here — anything else (including 'card')
+    // produces a 22P02 invalid_enum error and the whole insert fails.
     const { data: booking, error: bookErr } = await admin
       .from('bookings')
       .insert({
@@ -83,15 +87,25 @@ export async function POST(req: NextRequest) {
         special_requests: body.special_requests || null,
         amount_pence: price,
         status: 'pending',
-        payment_method: 'card',
+        payment_method: 'stripe',
       })
       .select('id')
       .single()
 
     if (bookErr || !booking) {
       console.error('booking insert failed', bookErr)
+      // Surface the real DB error in dev so we don't have to debug
+      // through "please try again" again — but keep production safe.
+      const detail =
+        process.env.NODE_ENV !== 'production' && bookErr
+          ? `${bookErr.code ?? ''} ${bookErr.message}`.trim()
+          : null
       return NextResponse.json(
-        { error: 'Could not reserve your seat. Please try again.' },
+        {
+          error: detail
+            ? `Could not reserve your seat: ${detail}`
+            : 'Could not reserve your seat. Please try again.',
+        },
         { status: 500 },
       )
     }

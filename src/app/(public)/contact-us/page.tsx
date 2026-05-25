@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useState } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Controller, useForm } from 'react-hook-form'
@@ -8,11 +8,36 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { supabase } from '@/lib/supabase/client'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
+import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { ArrowUpRight, Check, Mail, MapPin, Phone } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Lightweight hero shape — populated from the CMS in a useEffect so the
+// page can stay a client component (the contact form needs interactivity).
+interface HeroData {
+  media_type: 'image' | 'video'
+  image_url: string | null
+  alt_text: string
+  video_url: string | null
+  video_poster_url: string | null
+  eyebrow: string | null
+  headline: string | null
+  lede: string | null
+}
+
+const HERO_FALLBACK: HeroData = {
+  media_type: 'image',
+  image_url: '/theclub-section.png',
+  alt_text: 'The Club',
+  video_url: null,
+  video_poster_url: null,
+  eyebrow: 'Get in Touch',
+  headline: 'Contact us.',
+  lede: 'A short note is enough — the team writes back personally.',
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // /contact-us — premium editorial contact page.
@@ -63,6 +88,37 @@ type EnquiryData = z.infer<typeof enquirySchema>
 export default function ContactPage() {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hero, setHero] = useState<HeroData>(HERO_FALLBACK)
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('hero_slides')
+      .select(
+        'media_type, image_url, alt_text, video_url, video_poster_url, eyebrow, headline, lede',
+      )
+      .eq('page_slug', 'contact-us')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        setHero({
+          media_type: ((data.media_type as 'image' | 'video') ?? 'image'),
+          image_url: data.image_url ?? HERO_FALLBACK.image_url,
+          alt_text: data.alt_text ?? HERO_FALLBACK.alt_text,
+          video_url: data.video_url,
+          video_poster_url: data.video_poster_url,
+          eyebrow: data.eyebrow ?? HERO_FALLBACK.eyebrow,
+          headline: data.headline ?? HERO_FALLBACK.headline,
+          lede: data.lede ?? HERO_FALLBACK.lede,
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const {
     register,
@@ -92,20 +148,36 @@ export default function ContactPage() {
     <>
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden bg-ink">
-        <KenBurnsImage
-          src={HERO_IMAGE}
-          alt="The Club"
-          motion="in"
-          duration={32}
+        <PageHeroMedia
+          mediaType={hero.media_type}
+          imageUrl={hero.image_url}
+          alt={hero.alt_text}
+          videoUrl={hero.video_url}
+          videoPosterUrl={hero.video_poster_url}
           overlay={0.55}
           priority
-          className="absolute inset-0"
         />
         <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
-          <Reveal type="clip" delay={150}>
-            <h1 className="display-xl max-w-4xl">Write to us.</h1>
-          </Reveal>
+          {hero.eyebrow && (
+            <Reveal type="up" delay={0}>
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                {hero.eyebrow}
+              </p>
+            </Reveal>
+          )}
+          {hero.headline && (
+            <Reveal type="clip" delay={150}>
+              <h1 className="display-xl max-w-4xl">{hero.headline}</h1>
+            </Reveal>
+          )}
+          {hero.lede && (
+            <Reveal type="up" delay={400}>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.7] text-ivory-soft mt-6 max-w-2xl">
+                {hero.lede}
+              </p>
+            </Reveal>
+          )}
         </div>
       </section>
 

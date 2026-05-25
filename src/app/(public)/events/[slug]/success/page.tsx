@@ -1,19 +1,49 @@
+'use client'
+
+import { use, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowUpRight } from 'lucide-react'
+import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
 
-export const dynamic = 'force-dynamic'
+// Post-Stripe landing for event bookings. Stripe redirects here with
+// ?session_id=cs_… in the URL. We fire-and-forget POST to
+// /api/events/sync so the booking flips to 'confirmed' + a payment
+// row is inserted, without depending on the Stripe webhook (which
+// doesn't fire in localhost without a tunnel).
 
-// Post-Stripe landing for guest event bookings. The actual booking
-// status is flipped to 'confirmed' by the stripe-webhook function
-// using the booking_id we stored in payment_intent metadata. This
-// page just lands the user somewhere on-brand.
-
-export default async function EventBookingSuccessPage({
+export default function EventBookingSuccessPage({
   params,
 }: {
   params: Promise<{ slug: string }>
 }) {
-  const { slug } = await params
+  const { slug } = use(params)
+  const searchParams = useSearchParams()
+  const sessionId = searchParams.get('session_id')
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'failed'>(
+    'idle',
+  )
+
+  useEffect(() => {
+    if (!sessionId) return
+    setSyncState('syncing')
+    fetch('/api/events/sync', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        if (res.ok && json.ok) setSyncState('done')
+        else {
+          console.warn('[event-success] sync did not complete', json)
+          setSyncState('failed')
+        }
+      })
+      .catch((err) => {
+        console.warn('[event-success] sync request failed', err)
+        setSyncState('failed')
+      })
+  }, [sessionId])
 
   return (
     <section className="relative min-h-[80vh] bg-ink flex items-center justify-center px-6 py-24">
@@ -31,6 +61,14 @@ export default async function EventBookingSuccessPage({
           Your payment is secured and the booking is with the team. A confirmation note will land in
           your inbox within the next few minutes.
         </p>
+
+        {syncState === 'syncing' && (
+          <p className="mt-5 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.32em] text-slate-haze">
+            <Loader2 size={11} className="animate-spin" />
+            Recording payment…
+          </p>
+        )}
+
         <div className="mt-10 flex flex-wrap items-center justify-center gap-6">
           <Link
             href={`/events/${slug}`}

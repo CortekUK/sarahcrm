@@ -177,7 +177,7 @@ export function ImageUpload({
                 type="button"
                 onClick={() => inputRef.current?.click()}
                 disabled={uploading}
-                className="px-3 py-1.5 text-xs font-medium rounded bg-white text-text hover:bg-white/90 transition-colors flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs font-medium rounded bg-surface text-text hover:bg-surface-2 transition-colors flex items-center gap-1.5"
               >
                 <Upload className="w-3 h-3" />
                 Replace

@@ -262,9 +262,19 @@ Deno.serve(async (req) => {
 
       if (session.mode === 'subscription') {
         // ── Subscription checkout ──
-        const { member_id } = session.metadata ?? {}
-        if (!member_id) {
-          console.error('Missing member_id on subscription checkout:', session.id)
+        // Two flows hit this branch:
+        //   A) Existing member upgrades / re-subscribes → metadata.member_id
+        //   B) Public application + pay flow → metadata.application_id
+        //      (no member exists yet — they're still under admin review).
+        // We handle both: A links the sub to the member directly; B saves
+        // the sub IDs onto the application row so the approve flow can
+        // copy them to the new member when admin clicks Approve.
+        const { member_id, application_id, cadence } = session.metadata ?? {}
+        if (!member_id && !application_id) {
+          console.error(
+            'Missing member_id and application_id on subscription checkout:',
+            session.id,
+          )
           return new Response('Missing metadata', { status: 400 })
         }
 
@@ -272,19 +282,161 @@ Deno.serve(async (req) => {
           typeof session.subscription === 'string'
             ? session.subscription
             : session.subscription?.id ?? null
+        const customerId =
+          typeof session.customer === 'string'
+            ? session.customer
+            : session.customer?.id ?? null
+        const amountPence = session.amount_total ?? 0
+        const paidAt = new Date().toISOString()
+
+        // Compute the next renewal date from cadence so the Subscription
+        // card has a sensible value immediately. The next invoice.paid
+        // event will refresh this from Stripe's authoritative
+        // current_period_end. Done inline (not via shared helper) because
+        // the webhook is a Deno edge function and imports differ.
+        function nextRenewal(iso: string, cad: string | undefined): string {
+          const d = new Date(iso)
+          if (cad === 'annual') d.setFullYear(d.getFullYear() + 1)
+          else d.setMonth(d.getMonth() + 1)
+          return d.toISOString()
+        }
+        const renewalDate = nextRenewal(paidAt, cadence)
+
+        // Flow B — application paid before member exists. Persist the
+        // Stripe ids on the app row so the eventual approve flow can
+        // attach them to the provisioned member.
+        if (application_id && !member_id) {
+          const { error: appUpdErr } = await supabaseAdmin
+            .from('membership_applications')
+            .update({
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscriptionId,
+              paid_at: paidAt,
+              amount_paid_pence: amountPence,
+            })
+            .eq('id', application_id)
+          if (appUpdErr) {
+            console.error('Failed to update application after payment:', appUpdErr)
+            return new Response('Failed to update application', { status: 500 })
+          }
+
+          // If a member ALREADY exists for this email (e.g. admin
+          // pre-provisioned, or re-application), link the sub to them
+          // and record the payment now.
+          const { data: app } = await supabaseAdmin
+            .from('membership_applications')
+            .select('email')
+            .eq('id', application_id)
+            .single()
+          if (app?.email) {
+            const { data: existingMember } = await supabaseAdmin
+              .from('members')
+              .select('id')
+              .eq(
+                'profile_id',
+                (
+                  await supabaseAdmin
+                    .from('profiles')
+                    .select('id')
+                    .eq('email', app.email)
+                    .maybeSingle()
+                ).data?.id ?? '__none__',
+              )
+              .maybeSingle()
+
+            if (existingMember) {
+              await supabaseAdmin
+                .from('members')
+                .update({
+                  stripe_customer_id: customerId,
+                  stripe_subscription_id: subscriptionId,
+                  membership_status: 'active',
+                  renewal_date: renewalDate,
+                })
+                .eq('id', existingMember.id)
+
+              // Initial subscription payment — idempotent on
+              // checkout-session id so we don't double-insert if Stripe
+              // retries the webhook.
+              const { data: existingPayment } = await supabaseAdmin
+                .from('payments')
+                .select('id')
+                .eq('stripe_checkout_session_id', session.id)
+                .maybeSingle()
+              if (!existingPayment) {
+                await supabaseAdmin.from('payments').insert({
+                  member_id: existingMember.id,
+                  amount_pence: amountPence,
+                  currency: 'GBP',
+                  payment_type: 'membership',
+                  payment_method: 'stripe',
+                  status: 'paid',
+                  paid_at: paidAt,
+                  stripe_checkout_session_id: session.id,
+                  description: 'Membership — initial subscription payment',
+                })
+              }
+            }
+          }
+
+          console.log(
+            'Application payment recorded:',
+            application_id,
+            'sub:',
+            subscriptionId,
+          )
+          // Done — welcome email waits until admin approves & member
+          // exists. Avoid sending welcome to someone who hasn't been
+          // approved yet.
+          return new Response(JSON.stringify({ received: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Flow A — existing member subscription
+        // (proceeds to original code below)
+        if (!member_id) {
+          // Already handled flow B above; this is a safety net.
+          return new Response(JSON.stringify({ received: true }), { status: 200 })
+        }
 
         // Save subscription ID + activate member
         const { error: updateError } = await supabaseAdmin
           .from('members')
           .update({
+            stripe_customer_id: customerId,
             stripe_subscription_id: subscriptionId,
             membership_status: 'active',
+            renewal_date: renewalDate,
           })
           .eq('id', member_id)
 
         if (updateError) {
           console.error('Failed to update member subscription:', updateError)
           return new Response('Failed to update member', { status: 500 })
+        }
+
+        // Initial subscription payment — Flow A also needs this so the
+        // dashboard Revenue MTD and Finance page reflect it. Idempotent
+        // on session id.
+        const { data: existingPayment } = await supabaseAdmin
+          .from('payments')
+          .select('id')
+          .eq('stripe_checkout_session_id', session.id)
+          .maybeSingle()
+        if (!existingPayment) {
+          await supabaseAdmin.from('payments').insert({
+            member_id,
+            amount_pence: amountPence,
+            currency: 'GBP',
+            payment_type: 'membership',
+            payment_method: 'stripe',
+            status: 'paid',
+            paid_at: paidAt,
+            stripe_checkout_session_id: session.id,
+            description: 'Membership — initial subscription payment',
+          })
         }
 
         // ── Send membership welcome email ──

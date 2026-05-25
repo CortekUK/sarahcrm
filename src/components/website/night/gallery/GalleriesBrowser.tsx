@@ -76,32 +76,37 @@ export function GalleriesBrowser({ items }: { items: GalleryItem[] }) {
   return (
     <>
       {/* ── Filter chips — single row, horizontal-scroll on
-         smaller viewports. flex-nowrap forces one line; the
-         no-scrollbar utility hides the scrollbar so the row reads
-         clean even when it overflows. */}
+         smaller viewports. The outer wrapper handles overflow; the
+         inner track is `w-max mx-auto`, which centers itself when
+         the chips fit and pins to the start (so all items remain
+         scrollable) when they don't. Avoids the `justify-center`
+         + `overflow-x-auto` trap where overflow clips both sides
+         and the leftmost items become unreachable. */}
       <div className="mb-12 lg:mb-16">
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light text-center mb-7">
           Event Style
         </p>
-        <div className="flex flex-nowrap gap-2.5 lg:gap-3 justify-start lg:justify-center overflow-x-auto no-scrollbar px-2 lg:px-0">
-          {FILTERS.map((f) => {
-            const active = filter === f.value
-            return (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => selectFilter(f.value)}
-                className={cn(
-                  'shrink-0 px-4 py-2.5 rounded-full border font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.26em] transition-all duration-300',
-                  active
-                    ? 'border-bronze bg-bronze/15 text-bronze-light shadow-[0_0_22px_-10px_rgba(192,152,112,0.65)]'
-                    : 'border-graphite-line/70 text-ivory-soft hover:border-bronze/60 hover:text-ivory',
-                )}
-              >
-                {f.label}
-              </button>
-            )
-          })}
+        <div className="overflow-x-auto no-scrollbar px-2 lg:px-0">
+          <div className="flex flex-nowrap gap-2.5 lg:gap-3 w-max mx-auto">
+            {FILTERS.map((f) => {
+              const active = filter === f.value
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => selectFilter(f.value)}
+                  className={cn(
+                    'shrink-0 px-4 py-2.5 rounded-full border font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.26em] transition-all duration-300',
+                    active
+                      ? 'border-bronze bg-bronze/15 text-bronze-light shadow-[0_0_22px_-10px_rgba(192,152,112,0.65)]'
+                      : 'border-graphite-line/70 text-ivory-soft hover:border-bronze/60 hover:text-ivory',
+                  )}
+                >
+                  {f.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         <p className="text-center mt-7 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] tabular-nums text-slate-haze">

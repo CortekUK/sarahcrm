@@ -16,7 +16,7 @@ export function Toaster() {
             'pointer-events-auto rounded-lg border shadow-lg p-4 pr-10 relative animate-in fade-in slide-in-from-bottom-4',
             toast.variant === 'destructive'
               ? 'bg-[var(--color-accent-warm)] border-[var(--color-accent-warm)] text-white'
-              : 'bg-white border-[var(--color-border)] text-[var(--color-text)]',
+              : 'bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)]',
           )}
         >
           {toast.title && <div className="font-medium text-sm">{toast.title}</div>}

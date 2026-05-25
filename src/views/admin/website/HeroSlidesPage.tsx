@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useMemo, useState } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { supabase } from '@/lib/supabase/client'
@@ -9,61 +9,140 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
-import { ImageUpload } from '@/components/ui/ImageUpload'
+import { Textarea } from '@/components/ui/Textarea'
+import { MediaPicker } from '@/components/ui/MediaPicker'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
-import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { Thumbnail } from '@/components/admin/Thumbnail'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
-import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
-import { Plus, Pencil, Trash2, Images } from 'lucide-react'
+import { toast } from '@/lib/hooks/use-toast'
+import { cn } from '@/lib/utils'
+import {
+  normalizeCloudinaryImageUrl,
+  normalizeCloudinaryVideoUrl,
+} from '@/lib/cms/cloudinary'
+import { Pencil, Trash2, Film, ImageIcon, Plus } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type HeroSlide = Database['public']['Tables']['hero_slides']['Row']
 
-const schema = z.object({
-  image_url: z.string().url('Valid URL required'),
-  alt_text: z.string().min(1, 'Alt text is required'),
-  overlay_text: z.string().optional(),
-  page_slug: z.string().min(1, 'Page slug is required'),
-  display_order: z.coerce.number().int().min(0),
-  is_active: z.boolean(),
-})
+// The full canonical list of pages the public site renders. Each one
+// becomes a row in this admin page whether or not a hero_slides row
+// exists for it — admin always sees the complete set and edits in place.
+// `path` is the public URL we hit via /api/admin/revalidate after save
+// so the new hero shows up immediately, not after the 60s window.
+const PAGES: {
+  value: string
+  label: string
+  description: string
+  path: string
+}[] = [
+  { value: 'home', label: 'Homepage', description: 'The cinematic cold-open at /', path: '/' },
+  { value: 'about', label: 'About', description: 'Sarah’s founder story at /about', path: '/about' },
+  {
+    value: 'memberships',
+    label: 'Memberships',
+    description: 'Pricing + tiers at /memberships',
+    path: '/memberships',
+  },
+  { value: 'events', label: 'Events', description: 'The calendar at /events', path: '/events' },
+  { value: 'gallery', label: 'Gallery', description: 'Past gatherings at /gallery', path: '/gallery' },
+  {
+    value: 'private-event-services',
+    label: 'Private Events',
+    description: 'Bespoke commissions at /private-event-services',
+    path: '/private-event-services',
+  },
+  {
+    value: 'contact-us',
+    label: 'Contact',
+    description: 'Enquiry form at /contact-us',
+    path: '/contact-us',
+  },
+  {
+    value: 'membership-application',
+    label: 'Membership Application',
+    description: 'The 8-step apply flow',
+    path: '/membership-application',
+  },
+  {
+    value: 'club-rules',
+    label: 'Club Rules',
+    description: 'The nine articles',
+    path: '/club-rules',
+  },
+  {
+    value: 'privacy-policy',
+    label: 'Privacy Policy',
+    description: 'The data notice',
+    path: '/privacy-policy',
+  },
+]
+
+function pageMeta(slug: string) {
+  return PAGES.find((p) => p.value === slug)
+}
+
+// Modal schema — page_slug is mandatory but locked from the UI (it's
+// chosen by which row the admin clicked Edit on). The .refine ensures
+// the matching media URL is set for the chosen type.
+const schema = z
+  .object({
+    page_slug: z.string().min(1),
+    is_active: z.boolean(),
+    media_type: z.enum(['image', 'video']),
+    image_url: z.string().optional(),
+    alt_text: z.string().optional(),
+    video_url: z.string().optional(),
+    video_poster_url: z.string().optional(),
+    eyebrow: z.string().optional(),
+    headline: z.string().optional(),
+    lede: z.string().optional(),
+    cta_primary_label: z.string().optional(),
+    cta_primary_href: z.string().optional(),
+    cta_secondary_label: z.string().optional(),
+    cta_secondary_href: z.string().optional(),
+  })
+  .refine(
+    (d) => {
+      if (d.media_type === 'image') return Boolean(d.image_url)
+      return Boolean(d.video_url)
+    },
+    {
+      message: 'Please add the media (upload or paste a URL) before saving.',
+      path: ['image_url'],
+    },
+  )
 
 type FormData = z.infer<typeof schema>
-
-// Pages the public site reads hero slides from. Free-text page_slug let
-// admins type slugs the site doesn't render — invisible content.
-const PAGE_SLUGS: { value: string; label: string }[] = [
-  { value: 'home', label: 'Homepage' },
-  { value: 'about', label: 'About Sarah' },
-  { value: 'gallery', label: 'Gallery' },
-  { value: 'events', label: 'Events' },
-  { value: 'memberships', label: 'Memberships' },
-  { value: 'private-event-services', label: 'Private Event Services' },
-  { value: 'contact-us', label: 'Contact Us' },
-]
 
 export function HeroSlidesPage() {
   const confirm = useConfirm()
   const [items, setItems] = useState<HeroSlide[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingItem, setEditingItem] = useState<HeroSlide | null>(null)
+  const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pageFilter, setPageFilter] = useState<string>('all')
 
   const form = useForm<FormData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(schema) as any,
     defaultValues: {
+      page_slug: '',
+      is_active: true,
+      media_type: 'image',
       image_url: '',
       alt_text: '',
-      overlay_text: '',
-      page_slug: 'home',
-      display_order: 0,
-      is_active: true,
+      video_url: '',
+      video_poster_url: '',
+      eyebrow: '',
+      headline: '',
+      lede: '',
+      cta_primary_label: '',
+      cta_primary_href: '',
+      cta_secondary_label: '',
+      cta_secondary_href: '',
     },
   })
 
@@ -71,32 +150,64 @@ export function HeroSlidesPage() {
     fetchItems()
   }, [])
 
-  useEffect(() => {
-    if (modalOpen) {
-      if (editingItem) {
-        form.reset({
-          image_url: editingItem.image_url,
-          alt_text: editingItem.alt_text,
-          overlay_text: editingItem.overlay_text ?? '',
-          page_slug: editingItem.page_slug,
-          display_order: editingItem.display_order,
-          is_active: editingItem.is_active,
-        })
-      } else {
-        form.reset({
-          image_url: '',
-          alt_text: '',
-          overlay_text: '',
-          page_slug: pageFilter !== 'all' ? pageFilter : 'home',
-          display_order: items.length,
-          is_active: true,
-        })
+  // Each known page → existing hero row (display_order=0) or null. Built
+  // here so the render loop never has to defend against missing rows.
+  const heroByPage = useMemo(() => {
+    const map = new Map<string, HeroSlide | null>()
+    for (const p of PAGES) map.set(p.value, null)
+    for (const h of items) {
+      if (h.display_order === 0 && map.has(h.page_slug)) {
+        map.set(h.page_slug, h)
       }
-      setError(null)
     }
-  }, [modalOpen, editingItem, form, items.length, pageFilter])
+    return map
+  }, [items])
+
+  useEffect(() => {
+    if (!modalOpen || !editingSlug) return
+    const existing = heroByPage.get(editingSlug)
+    if (existing) {
+      form.reset({
+        page_slug: existing.page_slug,
+        is_active: existing.is_active,
+        media_type: (existing.media_type as 'image' | 'video') ?? 'image',
+        image_url: existing.image_url ?? '',
+        alt_text: existing.alt_text ?? '',
+        video_url: existing.video_url ?? '',
+        video_poster_url: existing.video_poster_url ?? '',
+        eyebrow: existing.eyebrow ?? '',
+        headline: existing.headline ?? '',
+        lede: existing.lede ?? '',
+        cta_primary_label: existing.cta_primary_label ?? '',
+        cta_primary_href: existing.cta_primary_href ?? '',
+        cta_secondary_label: existing.cta_secondary_label ?? '',
+        cta_secondary_href: existing.cta_secondary_href ?? '',
+      })
+    } else {
+      // Setting up a hero for the first time — start fresh with the page
+      // pinned and active by default.
+      form.reset({
+        page_slug: editingSlug,
+        is_active: true,
+        media_type: 'image',
+        image_url: '',
+        alt_text: '',
+        video_url: '',
+        video_poster_url: '',
+        eyebrow: '',
+        headline: '',
+        lede: '',
+        cta_primary_label: '',
+        cta_primary_href: '',
+        cta_secondary_label: '',
+        cta_secondary_href: '',
+      })
+    }
+    setError(null)
+  }, [modalOpen, editingSlug, heroByPage, form])
 
   async function fetchItems() {
+    setLoading(true)
     const { data } = await supabase
       .from('hero_slides')
       .select('*')
@@ -109,25 +220,74 @@ export function HeroSlidesPage() {
   async function onSubmit(data: FormData) {
     setSaving(true)
     setError(null)
+    // Source-of-truth rule: media_type wins. Whichever media URL doesn't
+    // match the chosen type is force-cleared so a leftover JPG from a
+    // previous "image" save can't show up in the row thumbnail or be
+    // accidentally rendered by the public page. Video poster stays for
+    // both (it's only used when media_type === 'video' anyway).
+    const isVideo = data.media_type === 'video'
+    // Cloudinary URLs without an f_auto,q_auto transformation deliver
+    // the raw original file (hero videos can be 100 MB+) which kills
+    // autoplay performance. Normalise on the way in so admins don't
+    // have to remember the transformation pattern.
+    const normalizedImage = data.image_url
+      ? normalizeCloudinaryImageUrl(data.image_url)
+      : null
+    const normalizedVideo = data.video_url
+      ? normalizeCloudinaryVideoUrl(data.video_url)
+      : null
+    const normalizedPoster = data.video_poster_url
+      ? normalizeCloudinaryImageUrl(data.video_poster_url)
+      : null
+
     const payload = {
-      image_url: data.image_url,
-      alt_text: data.alt_text,
-      overlay_text: data.overlay_text || null,
       page_slug: data.page_slug,
-      display_order: data.display_order,
+      display_order: 0,
       is_active: data.is_active,
+      media_type: data.media_type,
+      image_url: isVideo ? null : normalizedImage,
+      video_url: isVideo ? normalizedVideo : null,
+      video_poster_url: isVideo ? normalizedPoster : null,
+      alt_text: data.alt_text || null,
+      eyebrow: data.eyebrow || null,
+      headline: data.headline || null,
+      lede: data.lede || null,
+      cta_primary_label: data.cta_primary_label || null,
+      cta_primary_href: data.cta_primary_href || null,
+      cta_secondary_label: data.cta_secondary_label || null,
+      cta_secondary_href: data.cta_secondary_href || null,
     }
     try {
-      if (editingItem) {
-        const { error: err } = await supabase.from('hero_slides').update(payload).eq('id', editingItem.id)
+      const existing = heroByPage.get(data.page_slug)
+      if (existing) {
+        const { error: err } = await supabase
+          .from('hero_slides')
+          .update(payload)
+          .eq('id', existing.id)
         if (err) throw err
       } else {
         const { error: err } = await supabase.from('hero_slides').insert(payload)
         if (err) throw err
       }
       setModalOpen(false)
-      setEditingItem(null)
+      setEditingSlug(null)
       fetchItems()
+      // Flush the public page's ISR cache so the admin sees the new
+      // hero right away instead of waiting for the 60s revalidate
+      // window. Fire-and-forget — failures here are silent because
+      // the save itself succeeded and the cache will catch up naturally.
+      const path = pageMeta(data.page_slug)?.path
+      if (path) {
+        fetch('/api/admin/revalidate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ paths: [path] }),
+        }).catch(() => {})
+      }
+      toast({
+        title: 'Hero saved',
+        description: `${pageMeta(data.page_slug)?.label ?? data.page_slug} updated. The public page will refresh on its next visit.`,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -135,19 +295,42 @@ export function HeroSlidesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    const slide = items.find((i) => i.id === id)
+  async function handleResetToDefault(slug: string) {
+    const existing = heroByPage.get(slug)
+    if (!existing) return
     const ok = await confirm({
-      title: 'Delete hero slide?',
-      description: slide
-        ? `"${slide.alt_text}" will be removed from the ${slide.page_slug} hero. This cannot be undone.`
-        : 'This cannot be undone.',
-      confirmLabel: 'Delete',
+      title: `Reset ${pageMeta(slug)?.label ?? slug} hero?`,
+      description: (
+        <span>
+          The custom hero you set for this page will be removed and the public site falls back to
+          the hardcoded default. You can set it up again any time. This action does not delete other
+          slides if there were ever any extra ones — only the main hero.
+        </span>
+      ),
+      confirmLabel: 'Reset to default',
       tone: 'danger',
     })
     if (!ok) return
-    await supabase.from('hero_slides').delete().eq('id', id)
-    setItems((prev) => prev.filter((i) => i.id !== id))
+    const { error: err } = await supabase.from('hero_slides').delete().eq('id', existing.id)
+    if (err) {
+      toast({ title: 'Reset failed', description: err.message, variant: 'destructive' })
+      return
+    }
+    toast({
+      title: 'Hero reset',
+      description: `${pageMeta(slug)?.label ?? slug} is back to its default.`,
+    })
+    fetchItems()
+    // Same fire-and-forget flush as save — the deleted row leaves the
+    // page on its hardcoded fallback, which we want visible immediately.
+    const path = pageMeta(slug)?.path
+    if (path) {
+      fetch('/api/admin/revalidate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ paths: [path] }),
+      }).catch(() => {})
+    }
   }
 
   async function handleToggleActive(item: HeroSlide, next: boolean) {
@@ -158,159 +341,148 @@ export function HeroSlidesPage() {
       .eq('id', item.id)
     if (err) {
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, is_active: !next } : i)))
-      throw err
+      toast({ title: 'Toggle failed', description: err.message, variant: 'destructive' })
     }
   }
 
-  async function handleReorder(next: HeroSlide[]) {
-    setItems(next)
-    await Promise.all(
-      next.map((i) =>
-        supabase.from('hero_slides').update({ display_order: i.display_order }).eq('id', i.id),
-      ),
-    )
-  }
-
-  const filteredItems =
-    pageFilter === 'all' ? items : items.filter((i) => i.page_slug === pageFilter)
-
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-          <span className="text-sm text-text-muted">Loading hero slides...</span>
+          <span className="text-sm text-text-muted">Loading heroes…</span>
         </div>
       </div>
     )
   }
 
+  const liveCount = Array.from(heroByPage.values()).filter(
+    (h) => h && h.is_active,
+  ).length
+
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 md:p-8 max-w-6xl">
       <AdminPageHeader
-        title="Hero slides"
-        description="Cinematic hero images shown at the top of each public page. Drag to reorder within a page; toggle off to hide a slide without deleting it."
+        title="Page heroes"
+        description="The cinematic top section on each public page — image or video, with eyebrow + headline + lede + optional CTAs. The page list is fixed (one hero per page); edit any row to change what visitors see. Pages without a custom hero render their built-in defaults."
         meta={
           <span className="text-xs text-text-dim">
-            {items.length} slide{items.length !== 1 ? 's' : ''}
-            {' · '}
-            {items.filter((i) => i.is_active).length} active
+            {PAGES.length} pages · {liveCount} customised
           </span>
-        }
-        actions={
-          <Button
-            icon={<Plus size={16} />}
-            onClick={() => {
-              setEditingItem(null)
-              setModalOpen(true)
-            }}
-          >
-            Add slide
-          </Button>
         }
       />
 
-      {/* Page filter chips */}
-      <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-        <button
-          onClick={() => setPageFilter('all')}
-          className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
-            pageFilter === 'all'
-              ? 'bg-gold text-white border-gold'
-              : 'bg-white text-text-muted border-border hover:border-border-hover'
-          }`}
-        >
-          All pages
-        </button>
-        {PAGE_SLUGS.map((s) => {
-          const count = items.filter((i) => i.page_slug === s.value).length
-          if (count === 0 && pageFilter !== s.value) return null
-          return (
-            <button
-              key={s.value}
-              onClick={() => setPageFilter(s.value)}
-              className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
-                pageFilter === s.value
-                  ? 'bg-gold text-white border-gold'
-                  : 'bg-white text-text-muted border-border hover:border-border-hover'
-              }`}
-            >
-              {s.label} {count > 0 && `· ${count}`}
-            </button>
-          )
-        })}
-      </div>
-
       <Card>
         <CardContent className="p-0">
-          {filteredItems.length === 0 ? (
-            <AdminEmptyState
-              icon={Images}
-              title={pageFilter === 'all' ? 'No hero slides yet' : `No slides for this page`}
-              description="Add a hero image to display at the top of the page."
-              action={
-                <Button
-                  icon={<Plus size={16} />}
-                  onClick={() => {
-                    setEditingItem(null)
-                    setModalOpen(true)
-                  }}
-                >
-                  Add first slide
-                </Button>
-              }
-            />
-          ) : (
-            <SortableList
-              items={filteredItems}
-              onReorder={handleReorder}
-              renderItem={(item, dragHandleProps) => (
-                <div className="flex items-center gap-4 px-5 py-3 border-b border-border last:border-b-0 group hover:bg-surface-2/50 transition-colors">
-                  <DragHandle dragHandleProps={dragHandleProps} />
-                  <Thumbnail
-                    src={item.image_url}
-                    alt={item.alt_text}
-                    aspect="16 / 9"
-                    width={96}
-                  />
+          {PAGES.map((page, idx) => {
+            const hero = heroByPage.get(page.value)
+            const isLast = idx === PAGES.length - 1
+            return (
+              <div
+                key={page.value}
+                className={cn(
+                  'flex flex-col sm:flex-row sm:items-center gap-3 px-4 sm:px-5 py-4 group hover:bg-surface-2/50 transition-colors',
+                  !isLast && 'border-b border-border',
+                )}
+              >
+                <div className="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+                  {/* Thumb or placeholder slot */}
+                  <div className="relative flex-shrink-0">
+                    {hero ? (
+                      <>
+                        <Thumbnail
+                          // Video heroes show their poster (or the URL itself
+                          // if no poster is set); image heroes show the image.
+                          // Without this branch a stale image_url from an
+                          // earlier media-type swap would mask the actual
+                          // active poster.
+                          src={
+                            hero.media_type === 'video'
+                              ? (hero.video_poster_url ?? hero.image_url)
+                              : (hero.image_url ?? hero.video_poster_url)
+                          }
+                          alt={hero.alt_text ?? hero.headline ?? page.label}
+                          aspect="16 / 9"
+                          width={96}
+                        />
+                        <span className="absolute -top-1 -right-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-ink/85 text-ivory-soft border border-graphite-line/60">
+                          {hero.media_type === 'video' ? (
+                            <Film size={10} strokeWidth={1.8} />
+                          ) : (
+                            <ImageIcon size={10} strokeWidth={1.8} />
+                          )}
+                        </span>
+                      </>
+                    ) : (
+                      <div className="w-24 aspect-[16/9] rounded bg-surface-2 border border-dashed border-border flex items-center justify-center text-text-dim">
+                        <ImageIcon size={16} strokeWidth={1.4} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Page label + hero summary */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text truncate">{item.alt_text}</p>
-                    {item.overlay_text && (
-                      <p className="text-[11px] text-text-muted italic mt-0.5 truncate">
-                        “{item.overlay_text}”
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-text">{page.label}</p>
+                      {!hero && (
+                        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-dim bg-surface-2 border border-border px-2 py-0.5 rounded-full">
+                          Using default
+                        </span>
+                      )}
+                      {hero && !hero.is_active && (
+                        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-accent-warm bg-[rgba(196,105,74,0.1)] border border-[rgba(196,105,74,0.25)] px-2 py-0.5 rounded-full">
+                          Hidden
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[12px] text-text-dim">{page.description}</p>
+                    {hero?.headline && (
+                      <p className="mt-1.5 text-[13px] text-text-muted truncate">
+                        <span className="text-text font-medium">{hero.headline}</span>
+                        {hero.lede && (
+                          <span className="text-text-dim italic"> · {hero.lede}</span>
+                        )}
                       </p>
                     )}
                   </div>
-                  <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-text-dim px-2 py-1 rounded-full bg-surface-2 whitespace-nowrap">
-                    {PAGE_SLUGS.find((s) => s.value === item.page_slug)?.label ?? item.page_slug}
-                  </span>
-                  <ActiveToggle
-                    active={item.is_active}
-                    onChange={(next) => handleToggleActive(item, next)}
-                  />
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-3 flex-shrink-0">
+                  {hero && (
+                    <ActiveToggle
+                      active={hero.is_active}
+                      onChange={(next) => handleToggleActive(hero, next)}
+                    />
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant={hero ? 'secondary' : 'primary'}
+                      icon={hero ? <Pencil size={13} /> : <Plus size={13} />}
                       onClick={() => {
-                        setEditingItem(item)
+                        setEditingSlug(page.value)
                         setModalOpen(true)
                       }}
-                      className="p-1.5 text-text-dim hover:text-text rounded hover:bg-surface-2 transition-colors"
-                      title="Edit"
                     >
-                      <Pencil size={14} strokeWidth={1.5} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="p-1.5 text-text-dim hover:text-accent-warm rounded hover:bg-surface-2 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} strokeWidth={1.5} />
-                    </button>
+                      {hero ? 'Edit' : 'Customise'}
+                    </Button>
+                    {hero && (
+                      <button
+                        type="button"
+                        onClick={() => handleResetToDefault(page.value)}
+                        className="p-1.5 text-text-dim hover:text-accent-warm rounded hover:bg-surface-2 transition-colors"
+                        title="Reset to built-in default"
+                        aria-label="Reset to default"
+                      >
+                        <Trash2 size={14} strokeWidth={1.5} />
+                      </button>
+                    )}
                   </div>
                 </div>
-              )}
-            />
-          )}
+              </div>
+            )
+          })}
         </CardContent>
       </Card>
 
@@ -318,100 +490,200 @@ export function HeroSlidesPage() {
         open={modalOpen}
         onClose={() => {
           setModalOpen(false)
-          setEditingItem(null)
+          setEditingSlug(null)
         }}
-        title={editingItem ? 'Edit hero slide' : 'Add hero slide'}
-        size="lg"
+        title={
+          editingSlug
+            ? `${pageMeta(editingSlug)?.label ?? editingSlug} hero`
+            : 'Hero'
+        }
+        size="xl"
       >
         {error && (
           <div className="mb-5 px-4 py-3 rounded-[var(--radius-md)] bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">
             <p className="text-sm text-accent-warm">{error}</p>
           </div>
         )}
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <ImageUpload
-            label="Hero image"
-            value={form.watch('image_url')}
-            onChange={(url) =>
-              form.setValue('image_url', url ?? '', { shouldValidate: true, shouldDirty: true })
-            }
-            bucket="heroes"
-            aspect="16 / 7"
-            error={form.formState.errors.image_url?.message}
-            hint="Wide cinematic crops (16:7 or similar) work best — they fill the page hero on desktop."
-          />
-          <Input
-            label="Alt text"
-            error={form.formState.errors.alt_text?.message}
-            {...form.register('alt_text')}
-          />
-          <Input
-            label="Overlay text"
-            placeholder="Optional overlay text"
-            {...form.register('overlay_text')}
-          />
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">
-              Page
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {/* Locked page badge — admin sees which page they're editing.
+             page_slug is registered as a hidden field; the select is
+             gone because rows are 1:1 to pages now. */}
+          <input type="hidden" {...form.register('page_slug')} />
+          <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 px-4 py-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-text-dim">
+                Editing
+              </p>
+              <p className="text-sm font-medium text-text mt-0.5">
+                {pageMeta(editingSlug ?? '')?.label}
+              </p>
+              <p className="text-[11.5px] text-text-muted mt-0.5">
+                {pageMeta(editingSlug ?? '')?.description}
+              </p>
+            </div>
+            <label className="flex items-center gap-2.5 cursor-pointer flex-shrink-0">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded border-border text-gold accent-gold"
+                {...form.register('is_active')}
+              />
+              <span className="text-sm text-text">Live</span>
             </label>
-            <select
-              {...form.register('page_slug')}
-              className="w-full px-3 py-2 border border-border rounded-[var(--radius-md)] bg-surface text-text text-sm focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            >
-              {PAGE_SLUGS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-            {form.formState.errors.page_slug && (
-              <p className="text-xs text-accent-warm mt-1">
-                {form.formState.errors.page_slug.message}
+          </div>
+
+          {/* Media */}
+          <div>
+            <p className="font-[family-name:var(--font-label)] text-[10px] font-medium uppercase tracking-[0.22em] text-text-dim mb-3">
+              Background media
+            </p>
+            <HeroMediaPicker form={form} />
+            {form.formState.errors.image_url && (
+              <p className="mt-1.5 text-[11px] text-accent-warm">
+                {form.formState.errors.image_url.message}
               </p>
             )}
+            <div className="mt-4">
+              <Input
+                label="Alt text"
+                hint="For screen readers + SEO. Recommended for any non-decorative hero."
+                {...form.register('alt_text')}
+              />
+            </div>
           </div>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="w-4 h-4 rounded border-border text-gold accent-gold"
-              {...form.register('is_active')}
-            />
-            <span className="text-sm text-text">Active</span>
-          </label>
-          <div className="flex justify-between pt-5 border-t border-border mt-5 -mx-6 px-6">
-            <div>
-              {editingItem && (
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={() => {
-                    handleDelete(editingItem.id)
-                    setModalOpen(false)
-                    setEditingItem(null)
-                  }}
-                >
-                  Delete
-                </Button>
-              )}
+
+          {/* Text overlay */}
+          <div>
+            <p className="font-[family-name:var(--font-label)] text-[10px] font-medium uppercase tracking-[0.22em] text-text-dim mb-3">
+              Text overlay
+            </p>
+            <div className="space-y-4">
+              <Input
+                label="Eyebrow"
+                placeholder="e.g. At The Club"
+                hint="Small-caps tag above the headline. Leave blank to hide."
+                {...form.register('eyebrow')}
+              />
+              <Input
+                label="Headline"
+                placeholder="e.g. Memberships."
+                hint="The big display title."
+                {...form.register('headline')}
+              />
+              <Textarea
+                label="Lede"
+                rows={3}
+                placeholder="A short italic paragraph that sets the tone for the page."
+                hint="Hidden if blank."
+                {...form.register('lede')}
+              />
             </div>
-            <div className="flex gap-3">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setModalOpen(false)
-                  setEditingItem(null)
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" loading={saving}>
-                {editingItem ? 'Save changes' : 'Add slide'}
-              </Button>
+          </div>
+
+          {/* CTAs */}
+          <div>
+            <p className="font-[family-name:var(--font-label)] text-[10px] font-medium uppercase tracking-[0.22em] text-text-dim mb-3">
+              Call-to-action buttons (optional)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Primary label"
+                placeholder="Apply for Membership"
+                {...form.register('cta_primary_label')}
+              />
+              <Input
+                label="Primary link"
+                placeholder="/membership-application"
+                {...form.register('cta_primary_href')}
+              />
+              <Input
+                label="Secondary label"
+                placeholder="Discover The Club"
+                {...form.register('cta_secondary_label')}
+              />
+              <Input
+                label="Secondary link"
+                placeholder="/about"
+                {...form.register('cta_secondary_href')}
+              />
             </div>
+            <p className="mt-3 text-[11px] text-text-dim">
+              Each CTA hides if either its label or link is blank. Only used by the homepage hero
+              today, but kept available for future page additions.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-5 border-t border-border mt-5 -mx-6 px-6">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setModalOpen(false)
+                setEditingSlug(null)
+              }}
+              className="flex-1 sm:flex-none"
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving} className="flex-1 sm:flex-none">
+              Save changes
+            </Button>
           </div>
         </form>
       </Modal>
     </div>
+  )
+}
+
+// ─── HeroMediaPicker — isolated useWatch subscription ─────────────────
+// Wrapping the MediaPicker in its own subcomponent that calls useWatch
+// means the picker re-renders the moment any of (image_url, video_url,
+// video_poster_url, media_type) changes — including when the upload
+// finishes via onChange. The old form.watch(...) calls inline in the
+// parent JSX subscribed inconsistently because react-hook-form has to
+// see them in the active render tree, which under some action sequences
+// it didn't. useWatch establishes an explicit subscription that fires
+// reliably.
+
+function HeroMediaPicker({
+  form,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  form: any
+}) {
+  const mediaType = useWatch({ control: form.control, name: 'media_type' }) as
+    | 'image'
+    | 'video'
+  const imageUrl = (useWatch({ control: form.control, name: 'image_url' }) as
+    | string
+    | undefined) ?? ''
+  const videoUrl = (useWatch({ control: form.control, name: 'video_url' }) as
+    | string
+    | undefined) ?? ''
+  const videoPosterUrl = (useWatch({
+    control: form.control,
+    name: 'video_poster_url',
+  }) as string | undefined) ?? ''
+
+  return (
+    <MediaPicker
+      value={mediaType === 'image' ? imageUrl : videoUrl}
+      onChange={(url) => {
+        if (form.getValues('media_type') === 'image') {
+          form.setValue('image_url', url, { shouldValidate: true, shouldDirty: true })
+        } else {
+          form.setValue('video_url', url, { shouldValidate: true, shouldDirty: true })
+        }
+      }}
+      mediaType={mediaType}
+      onMediaTypeChange={(t) => form.setValue('media_type', t, { shouldDirty: true })}
+      posterUrl={videoPosterUrl}
+      onPosterUrlChange={(url) =>
+        form.setValue('video_poster_url', url, { shouldDirty: true })
+      }
+      bucket="heroes"
+      folder=""
+      hint="Wide 16:9 crops work best — videos should be muted-loopable (mp4 or webm)."
+    />
   )
 }
