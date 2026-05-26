@@ -77,6 +77,7 @@ interface UpcomingEvent {
   venue_city: string | null
   event_type: string | null
   description: string | null
+  cover_image_url: string | null
 }
 
 async function fetchUpcomingEvents(
@@ -85,7 +86,7 @@ async function fetchUpcomingEvents(
   const nowIso = new Date().toISOString()
   const { data, error } = await admin
     .from('events')
-    .select('id, title, start_date, end_date, venue_name, venue_city, event_type, description, status')
+    .select('id, title, start_date, end_date, venue_name, venue_city, event_type, description, cover_image_url, status')
     .in('status', ['published', 'live'])
     .gte('start_date', nowIso)
     .order('start_date', { ascending: true })
@@ -120,7 +121,51 @@ function formatEventForPrompt(e: UpcomingEvent, idx: number): string {
   const venue = [e.venue_name, e.venue_city].filter(Boolean).join(', ') || 'Venue TBC'
   const blurb = e.description ? ` — ${e.description.replace(/\s+/g, ' ').trim().slice(0, 200)}` : ''
   const type = e.event_type ? ` [${e.event_type}]` : ''
-  return `${idx + 1}. "${e.title}"${type}\n   ${dateLabel}\n   ${venue}${blurb}`
+  const image = e.cover_image_url ? `\n   cover_image=${e.cover_image_url}` : '\n   cover_image=(none)'
+  return `${idx + 1}. id=${e.id} · "${e.title}"${type}\n   ${dateLabel}\n   ${venue}${blurb}${image}`
+}
+
+interface EventPickDetail {
+  id: string
+  title: string
+  date_label: string
+  venue: string
+  event_type: string | null
+  description: string | null
+  cover_image_url: string | null
+}
+
+function buildEventPickDetail(e: UpcomingEvent): EventPickDetail {
+  const dateLabel = (() => {
+    try {
+      const d = new Date(e.start_date)
+      const datePart = new Intl.DateTimeFormat('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }).format(d)
+      const timePart = new Intl.DateTimeFormat('en-GB', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(d)
+      return `${datePart} · ${timePart}`
+    } catch {
+      return e.start_date
+    }
+  })()
+  const venue = [e.venue_name, e.venue_city].filter(Boolean).join(', ') || 'Venue TBC'
+  const description = e.description ? e.description.replace(/\s+/g, ' ').trim().slice(0, 180) : null
+  return {
+    id: e.id,
+    title: e.title,
+    date_label: dateLabel,
+    venue,
+    event_type: e.event_type,
+    description,
+    cover_image_url: e.cover_image_url,
+  }
 }
 
 function deriveChatTitle(text: string): string {
@@ -296,14 +341,15 @@ Use \`{{#if var}}…{{/if}}\` for conditional blocks — keep rare and obvious.
 
 # Upcoming events — you have live access
 
-Each turn, the user message includes an "Upcoming events in the database" section listing the next published events (title, date, venue, type). Treat this as ground truth.
+Each turn, the user message includes an "Upcoming events in the database" section listing the next published events. Each line begins with the event's UUID (\`id=<uuid>\`) — this is what you reference in \`event_picks\`. Treat this list as ground truth.
 
 How to use it:
 
-- **When the user asks about upcoming events** ("what events are coming up?", "what events can I include?", "any events to mention?", "show me upcoming events") → **answer** mode. Number the events in your reply, bold the title, and put the formatted date + venue underneath. Then ask which ones they want in the email. The canvas stays untouched.
-- **When the user picks events to include** ("include the first two", "use the dinner one", "add events 1 and 3", "all of them") → **create** or **enhance** mode. Bake the REAL event title, formatted date, and venue directly into the copy as plain text. Do NOT use {{event_name}} / {{event_date}} merge tags when listing specific events — those only resolve to ONE event at send time, and would render blank or wrong for a multi-event roundup. Use the actual values.
-- **For a single-event email tied to a send pipeline** (booking confirmation, reminder for ONE specific event chosen at send time) → you may still use {{event_name}} / {{event_date}} merge tags. Only switch to hardcoded values when the user is naming specific events from the list.
-- **If the upcoming events list is empty** → say so honestly. Don't invent events. Suggest the user creates one first, or fall back to a generic template using merge tags.`
+- **When the user asks about upcoming events** ("what events are coming up?", "what events can I include?", "any events to mention?", "show me upcoming events") → **answer** mode. Set \`event_picks\` to the array of event UUIDs you want to offer (usually all of them, or a relevant subset). Keep \`reply\` SHORT — one warm sentence like: "Here are the upcoming events — tap any you'd like to include and I'll add them to the email." Do NOT number or describe the events in \`reply\` — the UI renders them as clickable cards from \`event_picks\`. The canvas stays untouched.
+- **When the user picks events to include** (the next turn after they select cards: "Include these events in the email: id=<uuid1>, id=<uuid2>") → **create** or **enhance** mode. For EACH selected event, bake the REAL event title, formatted date, and venue directly into the copy as plain text. Do NOT use {{event_name}} / {{event_date}} merge tags when listing specific events — those only resolve to ONE event at send time, and would render blank or wrong for a multi-event roundup. Use the actual values from the upcoming-events list. **If the event's \`cover_image=\` value in the context is a real URL (not "(none)"), include an \`image\` block with that exact URL placed right above the heading/title for that event** — it's a real asset from the database, NOT an invented placeholder, so it's safe to emit. A natural structure per event is: image → heading (event title) → text (date + venue + 1-2 line description) → button (optional, "Reserve your spot"). Set \`event_picks\` to \`null\` on this turn.
+- **For a single-event email tied to a send pipeline** (booking confirmation, reminder for ONE specific event chosen at send time) → you may still use {{event_name}} / {{event_date}} merge tags. Only switch to hardcoded values when the user is naming specific events from the list. Set \`event_picks\` to \`null\`.
+- **If the upcoming events list is empty** → say so honestly in \`reply\`. Don't invent events. Set \`event_picks\` to \`null\`. Suggest the user creates one first, or fall back to a generic template using merge tags.
+- **For all other turns** (no event question, no event selection) → set \`event_picks\` to \`null\`.`
 
 function getApiKey(): string | null {
   return process.env.OPENAI_API_KEY ?? null
@@ -623,6 +669,15 @@ export async function POST(req: NextRequest) {
       if (msgErr) console.error('[ai-generate] failed to log messages:', msgErr)
     }
 
+    const eventPicks: EventPickDetail[] = []
+    if (aiIntent === 'answer' && Array.isArray(validation.data.event_picks)) {
+      const eventById = new Map(upcomingEvents.map((e) => [e.id, e]))
+      for (const id of validation.data.event_picks) {
+        const matched = eventById.get(id)
+        if (matched) eventPicks.push(buildEventPickDetail(matched))
+      }
+    }
+
     return Response.json({
       intent: aiIntent,
       reply,
@@ -632,6 +687,7 @@ export async function POST(req: NextRequest) {
       blocks,
       theme,
       chat_id: chatId,
+      event_picks: eventPicks,
     })
   } catch (e) {
     console.error('[ai-generate] unhandled error:', e)

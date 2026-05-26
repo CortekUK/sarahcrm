@@ -191,6 +191,7 @@ export const aiTemplateResponseSchema = z.object({
       bodyBgColor: z.string().nullish(),
     })
     .nullish(),
+  event_picks: z.array(z.string()).max(10).nullish(),
 })
 export type AiTemplateResponse = z.infer<typeof aiTemplateResponseSchema>
 
@@ -407,7 +408,7 @@ export const openAiJsonSchema = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['intent', 'reply', 'name', 'subject', 'preheader', 'blocks', 'theme'],
+    required: ['intent', 'reply', 'name', 'subject', 'preheader', 'blocks', 'theme', 'event_picks'],
     properties: {
       intent: { type: 'string', enum: ['answer', 'create', 'enhance'] },
       reply: { type: 'string' },
@@ -422,6 +423,12 @@ export const openAiJsonSchema = {
             imageBranch, signatureBranch, htmlBranch, videoBranch, socialBranch, columnsBranch,
           ],
         },
+      },
+      event_picks: {
+        anyOf: [
+          { type: 'array', items: { type: 'string' } },
+          { type: 'null' },
+        ],
       },
       theme: {
         anyOf: [

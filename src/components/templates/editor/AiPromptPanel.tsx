@@ -12,6 +12,9 @@ import {
   History,
   Plus,
   Trash2,
+  Calendar,
+  Check,
+  MapPin,
 } from 'lucide-react'
 import { Button } from '@/components/ui-shadcn/button'
 import { ScrollArea } from '@/components/ui-shadcn/scroll-area'
@@ -54,6 +57,16 @@ const SUGGESTIONS = [
   'Introduction email pairing two members, with a short personal note.',
 ]
 
+interface EventPick {
+  id: string
+  title: string
+  date_label: string
+  venue: string
+  event_type: string | null
+  description: string | null
+  cover_image_url: string | null
+}
+
 interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -62,6 +75,7 @@ interface ChatMessage {
   blocksSnapshot?: EditorBlock[] | null
   subjectSnapshot?: string | null
   preheaderSnapshot?: string | null
+  eventPicks?: EventPick[] | null
 }
 
 interface ChatListEntry {
@@ -90,6 +104,17 @@ export function AiPromptPanel({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [chats, setChats] = useState<ChatListEntry[]>([])
   const [chatsLoading, setChatsLoading] = useState(false)
+  // Per-message picker selection: { [messageId]: Set<eventId> }
+  const [selectedByMessage, setSelectedByMessage] = useState<Record<string, Set<string>>>({})
+
+  function toggleEventPick(messageId: string, eventId: string) {
+    setSelectedByMessage((prev) => {
+      const current = new Set(prev[messageId] ?? [])
+      if (current.has(eventId)) current.delete(eventId)
+      else current.add(eventId)
+      return { ...prev, [messageId]: current }
+    })
+  }
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -240,8 +265,8 @@ export function AiPromptPanel({
     }
   }
 
-  async function send() {
-    const prompt = input.trim()
+  async function send(opts?: { overridePrompt?: string; displayLabel?: string }) {
+    const prompt = (opts?.overridePrompt ?? input).trim()
     if (!prompt && attachments.length === 0) return
     if (busy) return
 
@@ -249,11 +274,11 @@ export function AiPromptPanel({
     const userMessage: ChatMessage = {
       id: `tmp_${Date.now()}_u`,
       role: 'user',
-      content: prompt || '(attachment)',
+      content: opts?.displayLabel ?? prompt ?? '(attachment)',
       timestamp: Date.now(),
     }
     setMessages((prev) => [...prev, userMessage])
-    setInput('')
+    if (!opts?.overridePrompt) setInput('')
 
     try {
       const mode = blocks.length > 0 ? 'enhance' : 'create'
@@ -297,6 +322,7 @@ export function AiPromptPanel({
       const newPreheader = String(json.preheader || '')
       const newChatId = json.chat_id as string | null
       const themeUpdates = (json.theme || null) as Partial<TemplateTheme> | null
+      const eventPicks = Array.isArray(json.event_picks) ? (json.event_picks as EventPick[]) : null
 
       if (newChatId) setChatId(newChatId)
 
@@ -310,6 +336,7 @@ export function AiPromptPanel({
           blocksSnapshot: intent === 'answer' ? null : newBlocks,
           subjectSnapshot: intent === 'answer' ? null : newSubject,
           preheaderSnapshot: intent === 'answer' ? null : newPreheader,
+          eventPicks: eventPicks && eventPicks.length > 0 ? eventPicks : null,
         },
       ])
 
@@ -488,26 +515,147 @@ export function AiPromptPanel({
             </div>
           </div>
         )}
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={cn(
-              'flex gap-2',
-              m.role === 'user' ? 'justify-end' : 'justify-start',
-            )}
-          >
+        {messages.map((m) => {
+          const picks = m.eventPicks ?? null
+          const selected = selectedByMessage[m.id] ?? new Set<string>()
+          return (
             <div
+              key={m.id}
               className={cn(
-                'max-w-[85%] px-3.5 py-2.5 rounded-lg text-[13.5px] whitespace-pre-wrap leading-[1.55]',
-                m.role === 'user'
-                  ? 'bg-bronze text-ink'
-                  : 'bg-ink/50 border border-graphite-line/45 text-ivory',
+                'flex gap-2',
+                m.role === 'user' ? 'justify-end' : 'justify-start',
               )}
             >
-              {m.content}
+              <div
+                className={cn(
+                  'max-w-[85%] flex flex-col gap-2.5',
+                  m.role === 'user' ? 'items-end' : 'items-start',
+                )}
+              >
+                <div
+                  className={cn(
+                    'px-3.5 py-2.5 rounded-lg text-[13.5px] whitespace-pre-wrap leading-[1.55]',
+                    m.role === 'user'
+                      ? 'bg-bronze text-ink'
+                      : 'bg-ink/50 border border-graphite-line/45 text-ivory',
+                  )}
+                >
+                  {m.content}
+                </div>
+
+                {picks && picks.length > 0 && (
+                  <div className="w-full flex flex-col gap-1.5">
+                    {picks.map((ev) => {
+                      const isSelected = selected.has(ev.id)
+                      return (
+                        <button
+                          key={ev.id}
+                          type="button"
+                          onClick={() => toggleEventPick(m.id, ev.id)}
+                          className={cn(
+                            'group w-full text-left rounded-lg border overflow-hidden transition-all',
+                            isSelected
+                              ? 'border-bronze bg-bronze/[0.12] shadow-[0_0_0_1px_var(--bronze)]'
+                              : 'border-graphite-line/55 bg-ink/40 hover:border-bronze/60 hover:bg-bronze/[0.06]',
+                          )}
+                        >
+                          <div className="flex items-stretch gap-0">
+                            {ev.cover_image_url ? (
+                              <div className="relative w-[88px] h-[88px] flex-shrink-0 bg-ink overflow-hidden">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={ev.cover_image_url}
+                                  alt=""
+                                  className="absolute inset-0 w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none'
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-[88px] h-[88px] flex-shrink-0 bg-ink/60 border-r border-graphite-line/40 flex items-center justify-center">
+                                <ImageIcon className="w-5 h-5 text-slate-haze/50" />
+                              </div>
+                            )}
+                            <div className="flex items-start gap-2 px-3 py-2.5 min-w-0 flex-1">
+                              <div
+                                className={cn(
+                                  'mt-0.5 w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors',
+                                  isSelected
+                                    ? 'bg-bronze border-bronze'
+                                    : 'border-slate-haze/60 group-hover:border-bronze/60',
+                                )}
+                              >
+                                {isSelected && <Check className="w-3 h-3 text-ink" strokeWidth={3} />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-[13px] font-medium text-ivory leading-tight">
+                                    {ev.title}
+                                  </p>
+                                  {ev.event_type && (
+                                    <span className="font-[family-name:var(--font-meta)] text-[8.5px] uppercase tracking-[0.18em] text-bronze-light/85 border border-bronze/30 rounded px-1.5 py-0.5">
+                                      {ev.event_type.replace(/_/g, ' ')}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-[11.5px] text-ivory-soft/85">
+                                  <Calendar className="w-3 h-3 text-bronze-light/70 flex-shrink-0" />
+                                  <span>{ev.date_label}</span>
+                                </div>
+                                <div className="mt-0.5 flex items-center gap-1 text-[11.5px] text-ivory-soft/75">
+                                  <MapPin className="w-3 h-3 text-bronze-light/70 flex-shrink-0" />
+                                  <span className="truncate">{ev.venue}</span>
+                                </div>
+                                {ev.description && (
+                                  <p className="mt-1.5 text-[11.5px] italic text-ivory-soft/65 leading-snug line-clamp-2">
+                                    {ev.description}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <p className="text-[11px] text-slate-haze">
+                        {selected.size === 0
+                          ? 'Tap events to select.'
+                          : `${selected.size} selected`}
+                      </p>
+                      <Button
+                        size="sm"
+                        className="h-8 bg-bronze text-ink hover:bg-bronze-light disabled:opacity-40 disabled:hover:bg-bronze text-[12px] px-3"
+                        disabled={selected.size === 0 || busy}
+                        onClick={() => {
+                          const chosen = picks.filter((p) => selected.has(p.id))
+                          if (chosen.length === 0) return
+                          const idsLine = chosen.map((c) => `id=${c.id}`).join(', ')
+                          const summary = chosen.map((c) => `"${c.title}"`).join(', ')
+                          const withImages = chosen.filter((c) => c.cover_image_url)
+                          const imageHint =
+                            withImages.length > 0
+                              ? ` Include each event's cover image as an image block above its title — use these exact URLs: ${withImages
+                                  .map((c) => `${c.title}: ${c.cover_image_url}`)
+                                  .join(' | ')}.`
+                              : ''
+                          send({
+                            overridePrompt: `Include these events in the email: ${idsLine}. Use their real titles, dates and venues directly in the copy (not merge tags).${imageHint}`,
+                            displayLabel: `Include ${chosen.length === 1 ? 'event' : 'events'}: ${summary}`,
+                          })
+                        }}
+                      >
+                        Include in email
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {busy && (
           <div className="flex gap-2 justify-start">
             <div className="px-3.5 py-2.5 rounded-lg text-[13px] bg-ink/50 border border-graphite-line/45 text-ivory-soft">
@@ -586,7 +734,7 @@ export function AiPromptPanel({
             <Button
               size="icon"
               className="h-8 w-8 bg-bronze text-ink hover:bg-bronze-light disabled:opacity-40 disabled:hover:bg-bronze"
-              onClick={send}
+              onClick={() => send()}
               disabled={busy || (!input.trim() && attachments.length === 0)}
               title="Send"
             >
