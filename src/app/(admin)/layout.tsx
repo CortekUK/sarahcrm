@@ -6,6 +6,8 @@ import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { AuthProvider, useAuth } from '@/providers/AuthProvider'
 import { QueryProvider } from '@/providers/QueryProvider'
+import { useTheme } from '@/providers/ThemeProvider'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { Toaster } from '@/components/ui-shadcn/toaster'
 import { ConfirmDialogProvider } from '@/components/admin/ConfirmDialog'
 import { ProgressProvider } from '@/components/admin/TopProgressBar'
@@ -15,6 +17,9 @@ import {
   CalendarDays,
   Handshake,
   Mail,
+  Inbox,
+  MailPlus,
+  Quote,
   PoundSterling,
   Globe,
   ChevronDown,
@@ -64,6 +69,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Engage',
     items: [
+      { to: '/dashboard/enquiries', label: 'Enquiries', icon: Inbox },
+      { to: '/dashboard/reviews', label: 'Reviews', icon: Quote },
+      { to: '/dashboard/newsletter', label: 'Newsletter', icon: MailPlus },
       {
         to: '/dashboard/communications',
         label: 'Communications',
@@ -88,6 +96,7 @@ const NAV_SECTIONS: NavSection[] = [
           { to: '/dashboard/website/galleries', label: 'Galleries' },
           { to: '/dashboard/website/hero-slides', label: 'Hero Slides' },
           { to: '/dashboard/website/testimonials', label: 'Testimonials' },
+          { to: '/dashboard/website/instagram', label: 'Instagram' },
           // Past-highlight showcase tiles for the Private Events page.
           // Real bookable private events are managed under Events with
           // event_type = curated_luxury, not here.
@@ -261,16 +270,25 @@ function NavGroupRow({
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { signOut, profile } = useAuth()
+  const { theme } = useTheme()
   const router = useRouter()
   const pathname = usePathname()
 
   async function handleSignOut() {
     await signOut()
-    router.replace('/login')
+    router.replace('/admin/login')
   }
 
+  // `theme-night-admin` re-maps the cream/gold tokens to the night
+  // palette. In day mode we drop it so the admin shell falls back to
+  // the default cream + gold tokens defined in @theme. The night
+  // palette tokens are still remapped to cream by `.theme-day` on
+  // <html>, so any direct uses of bg-ink/text-ivory inside admin pages
+  // also flip correctly.
+  const themeClass = theme === 'day' ? '' : 'theme-night-admin'
+
   return (
-    <div className="theme-night-admin min-h-screen bg-[var(--color-bg)] flex">
+    <div className={cn('min-h-screen bg-[var(--color-bg)] flex', themeClass)}>
       {/* Sidebar — graphite spine. The vertical gradient (graphite-3 top
           → graphite bottom) reads as a soft elevation against the ink
           main canvas. Right border is a single bronze-tinted hairline. */}
@@ -374,13 +392,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             Icon={Settings}
             active={pathname.startsWith('/dashboard/settings')}
           />
-          <button
-            onClick={handleSignOut}
-            className="group flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm text-[var(--color-ivory-soft)] hover:text-[var(--color-accent-warm)] hover:bg-[var(--color-graphite-2)]/55 transition-all w-full"
-          >
-            <LogOut size={17} strokeWidth={1.6} />
-            <span>Sign out</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleSignOut}
+              className="group flex flex-1 items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm text-[var(--color-ivory-soft)] hover:text-[var(--color-accent-warm)] hover:bg-[var(--color-graphite-2)]/55 transition-all"
+            >
+              <LogOut size={17} strokeWidth={1.6} />
+              <span>Sign out</span>
+            </button>
+            <ThemeToggle variant="icon" />
+          </div>
         </div>
       </aside>
 

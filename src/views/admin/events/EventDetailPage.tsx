@@ -512,7 +512,22 @@ export function EventDetailPage() {
                               {guest.status}
                             </Badge>
                           </TableCell>
-                          <TableCell>{formatCurrency(guest.amount_pence)}</TableCell>
+                          <TableCell>
+                            {guest.amount_pence > 0 ? (
+                              formatCurrency(guest.amount_pence)
+                            ) : (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-full border border-bronze/35 bg-bronze/10 text-[10.5px] font-medium uppercase tracking-[0.14em] text-bronze-light italic"
+                                title={
+                                  guest.is_guest
+                                    ? 'Host invite — no charge'
+                                    : 'Member tier benefit'
+                                }
+                              >
+                                Complimentary
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-text-muted capitalize">
                             {guest.payment_method || '—'}
                           </TableCell>
@@ -571,8 +586,14 @@ export function EventDetailPage() {
                         {email && <p className="text-xs text-text-dim truncate">{email}</p>}
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <span className="text-xs text-text-muted">
-                            {formatCurrency(guest.amount_pence)}
-                            {guest.payment_method && (
+                            {guest.amount_pence > 0 ? (
+                              formatCurrency(guest.amount_pence)
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full border border-bronze/35 bg-bronze/10 text-[10px] font-medium uppercase tracking-[0.14em] text-bronze-light italic">
+                                Complimentary
+                              </span>
+                            )}
+                            {guest.payment_method && guest.amount_pence > 0 && (
                               <span className="text-text-dim ml-2 capitalize">
                                 · {guest.payment_method}
                               </span>

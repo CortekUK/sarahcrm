@@ -46,6 +46,11 @@ export function useEmailEditor(templateId?: string) {
     setActiveTemplateId(templateId ?? null)
   }, [templateId])
 
+  // The current is_draft state of the loaded row, so Save & Exit can
+  // detect when it needs to force-save (publish/unpublish) even if the
+  // user made zero block edits.
+  const [currentIsDraft, setCurrentIsDraft] = useState<boolean | null>(null)
+
   const savingRef = useRef(false)
 
   const [history, setHistory] = useState<HistoryState>({
@@ -118,12 +123,13 @@ export function useEmailEditor(templateId?: string) {
           fromNameType: (data.from_name_type === 'fixed' ? 'fixed' : 'sender'),
           fixedFromName: data.fixed_from_name || '',
           fixedFromEmail: data.fixed_from_email || '',
-          category: data.category || 'campaign',
+          category: (data.category || 'campaign') as TemplateSettings['category'],
           theme: loadedTheme,
         }
         setBlocks(loadedBlocks)
         setSettings(loadedSettings)
         setHistory({ stack: [loadedBlocks], index: 0, lastCommitAt: 0 })
+        setCurrentIsDraft(Boolean(data.is_draft))
       }
     } catch (error) {
       console.error('Failed to load template:', error)
@@ -289,7 +295,15 @@ export function useEmailEditor(templateId?: string) {
         if (exit && !silent) return
         return
       }
-      if (!hasUnsavedChanges && !silent) {
+      // If isDraft is explicitly passed and would flip the row's
+      // current draft state, force the save even when there are no
+      // content changes — that's the user clicking Publish / Save Draft
+      // to flip the badge, which needs to hit the DB.
+      const draftFlipPending =
+        isDraft !== undefined &&
+        currentIsDraft !== null &&
+        isDraft !== currentIsDraft
+      if (!hasUnsavedChanges && !silent && !draftFlipPending) {
         toast({ title: 'Already saved', description: 'No changes to save.' })
         if (exit) router.push('/dashboard/communications/templates')
         return
@@ -363,6 +377,8 @@ export function useEmailEditor(templateId?: string) {
         if (derivedName !== settings.name) {
           setSettings((prev) => ({ ...prev, name: derivedName }))
         }
+        if (isDraft !== undefined) setCurrentIsDraft(isDraft)
+        else if (currentIsDraft === null) setCurrentIsDraft(false) // newly created via Save & Exit defaults to published
         setHasUnsavedChanges(false)
         setLastSavedAt(new Date())
         if (exit) router.push('/dashboard/communications/templates')
@@ -383,7 +399,7 @@ export function useEmailEditor(templateId?: string) {
         setIsAutoSaving(false)
       }
     },
-    [activeTemplateId, blocks, settings, supabase, router, hasUnsavedChanges],
+    [activeTemplateId, blocks, settings, supabase, router, hasUnsavedChanges, currentIsDraft],
   )
 
   useEffect(() => {

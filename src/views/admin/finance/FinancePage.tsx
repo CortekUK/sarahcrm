@@ -71,7 +71,6 @@ function memberName(p: { first_name: string | null; last_name: string | null } |
 export function FinancePage() {
   const [totalRevenue, setTotalRevenue] = useState(0)
   const [outstanding, setOutstanding] = useState(0)
-  const [activeMemberships, setActiveMemberships] = useState(0)
   const [activeSubscriptions, setActiveSubscriptions] = useState(0)
   const [mrr, setMrr] = useState(0)
   const [recentPayments, setRecentPayments] = useState<PaymentRow[]>([])
@@ -87,8 +86,9 @@ export function FinancePage() {
     const [
       revenueRes,
       bookingsRevenueRes,
+      refundedApplicationsRes,
+      pendingPaidApplicationsRes,
       outstandingRes,
-      membersRes,
       recentRes,
       recentGuestBookingsRes,
       overdueRes,
@@ -110,18 +110,47 @@ export function FinancePage() {
         .eq('status', 'confirmed')
         .is('member_id', null),
 
+      // Refunded application payments — when admin rejects a paid
+      // application we refund the Stripe charge. The payment row that
+      // was recorded at approval time never existed (rejection happens
+      // before approval), so the membership payment never hit
+      // `payments`. We:
+      //   1. deduct the refunded amount from total revenue (below)
+      //   2. surface each refund as a ledger row in Recent Payments
+      //      with status='refunded' (synthesised into PaymentRow shape)
+      supabase
+        .from('membership_applications')
+        .select(
+          'id, refund_amount_pence, amount_paid_pence, refunded_at, refund_id, first_name, last_name, company',
+        )
+        .not('refunded_at', 'is', null)
+        .order('refunded_at', { ascending: false }),
+
+      // Pending-but-paid applications — the applicant paid via Stripe
+      // up front, but admin hasn't approved yet. No payment row exists
+      // for them (the approve route creates the payment row at approval
+      // time). Without this query their revenue was invisible to
+      // Finance — the gap the user flagged. We:
+      //   1. add the paid amount into total revenue
+      //   2. synthesise an "invoice" ledger row in Recent Payments
+      // Excludes rejected + approved (approved is already in payments)
+      // and excludes refunded (already counted in refunds branch).
+      supabase
+        .from('membership_applications')
+        .select(
+          'id, amount_paid_pence, paid_at, stripe_subscription_id, first_name, last_name, company, payment_preference, preferred_tier, status',
+        )
+        .gt('amount_paid_pence', 0)
+        .not('paid_at', 'is', null)
+        .is('refunded_at', null)
+        .in('status', ['pending', 'shortlisted'])
+        .order('paid_at', { ascending: false }),
+
       // Outstanding (pending + overdue)
       supabase
         .from('payments')
         .select('amount_pence')
         .in('status', ['pending', 'overdue']),
-
-      // Active memberships
-      supabase
-        .from('members')
-        .select('id', { count: 'exact', head: true })
-        .eq('membership_status', 'active')
-        .is('deleted_at', null),
 
       // Recent payments (last 15)
       supabase
@@ -185,15 +214,52 @@ export function FinancePage() {
       (sum, b) => sum + (b.amount_pence ?? 0),
       0,
     )
-    setTotalRevenue(paymentsRevenue + bookingsRevenue)
+    // Refunded application accounting needs BOTH sides of the ledger
+    // — the original payment that was captured by Stripe AND the
+    // refund that returned it. Without adding the original first,
+    // the subtraction goes net-negative because the original was
+    // never counted in `payments` (the refund happens pre-approval,
+    // so no payment row was ever created).
+    //
+    // For each refunded application we therefore:
+    //   + add amount_paid_pence   (the original captured charge)
+    //   − subtract refund_amount_pence (what Stripe returned)
+    // Net per refund: ≈ 0 (typically same value).
+    const refundedOriginalsTotal = (refundedApplicationsRes.data ?? []).reduce(
+      (sum, r) => sum + (r.amount_paid_pence ?? 0),
+      0,
+    )
+    // refund_amount_pence is the source of truth (what Stripe actually
+    // returned). Falls back to amount_paid_pence for legacy rows that
+    // were refunded manually before the column existed.
+    const refundedTotal = (refundedApplicationsRes.data ?? []).reduce(
+      (sum, r) => sum + ((r.refund_amount_pence ?? r.amount_paid_pence) ?? 0),
+      0,
+    )
+    // Pending-but-paid applications contribute to revenue too — the
+    // money has already been captured by Stripe. Once admin approves
+    // them the approve route inserts a payment row, the application
+    // exits the 'pending'/'shortlisted' set, and this query stops
+    // double-counting them.
+    const pendingPaidTotal = (pendingPaidApplicationsRes.data ?? []).reduce(
+      (sum, r) => sum + (r.amount_paid_pence ?? 0),
+      0,
+    )
+    setTotalRevenue(
+      paymentsRevenue +
+        bookingsRevenue +
+        pendingPaidTotal +
+        refundedOriginalsTotal -
+        refundedTotal,
+    )
     setOutstanding(
       (outstandingRes.data ?? []).reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
     )
-    setActiveMemberships(membersRes.count ?? 0)
     setActiveSubscriptions(subsRes.count ?? 0)
 
-    // Synthesise guest bookings into PaymentRow shape and merge with
-    // real payments, then sort by created_at desc and trim to 15.
+    // Synthesise guest bookings + refunded applications into the
+    // PaymentRow shape and merge with real payments, then sort by
+    // created_at desc and trim to 15.
     const memberPaymentRows = (recentRes.data ?? []) as unknown as PaymentRow[]
     const guestBookingRows: PaymentRow[] = (recentGuestBookingsRes.data ?? []).map((b) => {
       const ev = b.events as { title: string | null } | null
@@ -216,7 +282,73 @@ export function FinancePage() {
         },
       }
     })
-    const mergedRecent = [...memberPaymentRows, ...guestBookingRows]
+    // Pending-paid invoice rows — applicants whose money is captured
+    // by Stripe but not yet promoted into a `payments` row by the
+    // approve flow. Surfaces them as 'pending' (yellow badge) in the
+    // ledger so admin can see "money in, awaiting review".
+    const pendingInvoiceRows: PaymentRow[] = (
+      pendingPaidApplicationsRes.data ?? []
+    ).map((r) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ra = r as any
+      const amount = (ra.amount_paid_pence ?? 0) as number
+      const cadence: string | null = ra.payment_preference ?? null
+      const tier: string | null = ra.preferred_tier ?? null
+      return {
+        id: `pending-${ra.id}`,
+        payment_type: 'membership',
+        amount_pence: amount,
+        status: 'pending' as PaymentStatus,
+        payment_method: 'stripe' as PaymentMethod,
+        due_date: null,
+        paid_at: ra.paid_at,
+        description: `Membership invoice — application ${ra.status}${
+          tier ? ` (${tier.replace('_', ' ')}` : ''
+        }${tier && cadence ? `, ${cadence})` : tier ? ')' : ''}`,
+        created_at: ra.paid_at ?? new Date().toISOString(),
+        members: {
+          company_name: ra.company ?? null,
+          profiles: {
+            first_name: ra.first_name ?? 'Applicant',
+            last_name: ra.last_name ?? '',
+          },
+        },
+      }
+    })
+
+    // Refund ledger rows — one per refunded application. Amount is
+    // displayed as a negative pence value so the row reads as money
+    // leaving the books, and status='refunded' colour-codes it in the
+    // status badge.
+    const refundLedgerRows: PaymentRow[] = (refundedApplicationsRes.data ?? []).map((r) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ra = r as any
+      const amount = (ra.refund_amount_pence ?? ra.amount_paid_pence ?? 0) as number
+      return {
+        id: `refund-${ra.id}`,
+        payment_type: 'membership',
+        amount_pence: -Math.abs(amount),
+        status: 'refunded' as PaymentStatus,
+        payment_method: 'stripe' as PaymentMethod,
+        due_date: null,
+        paid_at: ra.refunded_at,
+        description: `Refund — application rejected${ra.refund_id ? ` (${ra.refund_id})` : ''}`,
+        created_at: ra.refunded_at ?? new Date().toISOString(),
+        members: {
+          company_name: ra.company ?? null,
+          profiles: {
+            first_name: ra.first_name ?? 'Applicant',
+            last_name: ra.last_name ?? '',
+          },
+        },
+      }
+    })
+    const mergedRecent = [
+      ...memberPaymentRows,
+      ...guestBookingRows,
+      ...pendingInvoiceRows,
+      ...refundLedgerRows,
+    ]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 15)
     setRecentPayments(mergedRecent)
@@ -272,7 +404,7 @@ export function FinancePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <StatCard
           label="Revenue"
           value={formatCurrency(totalRevenue)}
@@ -284,12 +416,6 @@ export function FinancePage() {
           value={formatCurrency(outstanding)}
           changeText={`${overduePayments.length} overdue`}
           changeType={overduePayments.length > 0 ? 'negative' : 'neutral'}
-        />
-        <StatCard
-          label="Members"
-          value={activeMemberships.toLocaleString('en-GB')}
-          changeText="currently active"
-          changeType="neutral"
         />
         <StatCard
           label="Subscriptions"

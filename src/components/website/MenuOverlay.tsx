@@ -15,10 +15,12 @@ const navLinks = [
   { href: '/private-event-services', label: 'Private Events', image: 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=800&q=80' },
   { href: '/one-london-road', label: '[ONE] London Road', image: 'https://images.unsplash.com/photo-1665575061295-bd3aa839ff8c?w=800&q=80' },
   { href: '/gallery', label: 'Gallery', image: 'https://images.unsplash.com/photo-1552960226-639240203497?w=800&q=80' },
+  { href: '/reviews', label: 'Reviews', image: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=800&q=80' },
   { href: '/contact-us', label: 'Contact', image: 'https://images.unsplash.com/photo-1748551204300-f227d5af350f?w=800&q=80' },
 ]
 
 const secondaryLinks = [
+  { href: '/share-your-experience', label: 'Share Your Experience' },
   { href: '/club-rules', label: 'Club Rules' },
   { href: '/privacy-policy', label: 'Privacy Policy' },
   { href: '/login', label: 'Member Login' },

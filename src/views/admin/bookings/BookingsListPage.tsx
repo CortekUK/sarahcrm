@@ -316,7 +316,16 @@ export function BookingsListPage() {
                         {b.amount_pence > 0 ? (
                           formatCurrency(b.amount_pence)
                         ) : (
-                          <span className="text-xs text-text-dim italic">Comp.</span>
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-full border border-bronze/35 bg-bronze/10 text-[10.5px] font-medium uppercase tracking-[0.14em] text-bronze-light italic"
+                            title={
+                              b.is_guest
+                                ? 'Host invite — no charge'
+                                : 'Member tier benefit'
+                            }
+                          >
+                            Complimentary
+                          </span>
                         )}
                       </TableCell>
                       <TableCell className="text-text-muted text-xs whitespace-nowrap">

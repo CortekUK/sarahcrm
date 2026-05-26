@@ -102,9 +102,12 @@ const LOGOS: LogoEntry[] = [
 
 export function HeroPartnersMarquee() {
   return (
+    // No always-night / bg-ink — the marquee follows the page theme so
+    // it sits on cream in day mode and ink in night mode. Logos use
+    // theme-aware tokens (text-ivory-soft) which already remap correctly
+    // in both palettes, so we drop the white overlay-style /55 alpha
+    // and just lean on the token + hover.
     <section className="bg-ink pt-10 pb-3 lg:pt-12 lg:pb-4">
-      {/* Editorial label: bronze hairline + italic serif phrase.
-          Single-line treatment, centred, minimal vertical real estate. */}
       <div className="max-w-[1600px] mx-auto px-6 lg:px-10 mb-7 flex items-center justify-center gap-5">
         <span className="block h-px w-12 bg-bronze/50" />
         <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.25rem)] text-ivory-soft tracking-wide">
@@ -118,7 +121,7 @@ export function HeroPartnersMarquee() {
           <div
             key={logo.key}
             aria-label={logo.alt}
-            className="flex items-center justify-center min-w-[180px] h-12 text-ivory-soft/55 hover:text-ivory transition-colors duration-500"
+            className="flex items-center justify-center min-w-[180px] h-12 text-ivory-soft hover:text-bronze transition-colors duration-500"
           >
             {logo.svg}
           </div>

@@ -70,7 +70,13 @@ export function NightHero({
   }, [])
 
   return (
-    <section className="relative h-screen min-h-[680px] w-full overflow-hidden bg-ink">
+    // `always-night` pins the night palette inside the hero — the
+    // section is designed as a "dark island" (dark image + ivory
+    // type + bronze overlays) and reads the same way regardless of
+    // whether the rest of the page is in day or night mode. Without
+    // this, day mode would cream-wash the image and turn the type
+    // dark on dark.
+    <section className="always-night relative h-screen min-h-[680px] w-full overflow-hidden bg-ink">
       {/* Background layer — image (or video if provided) */}
       <div className="absolute inset-0">
         {video ? (
@@ -140,8 +146,16 @@ export function NightHero({
             'radial-gradient(ellipse 70% 55% at center, rgba(14,16,20,0.55) 0%, rgba(14,16,20,0.3) 35%, transparent 70%)',
         }}
       />
-      {/* Bottom vignette grounds the page edge */}
-      <div className="absolute inset-x-0 bottom-0 h-[35%] bg-gradient-to-b from-transparent to-ink pointer-events-none z-[4]" />
+      {/* Bottom vignette grounds the page edge — fades into the actual
+          page background (cream in day mode, ink in night mode) via
+          `--page-bg` which is set on <html> and survives the hero's
+          `.always-night` token pin. */}
+      <div
+        className="absolute inset-x-0 bottom-0 h-[35%] pointer-events-none z-[4]"
+        style={{
+          background: 'linear-gradient(to bottom, transparent, var(--page-bg, #0E1014))',
+        }}
+      />
       {/* Top vignette so header doesn't fight the photo */}
       <div className="absolute inset-x-0 top-0 h-[20%] bg-gradient-to-b from-ink/80 to-transparent pointer-events-none z-[4]" />
 

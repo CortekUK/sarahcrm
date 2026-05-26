@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useTheme } from '@/providers/ThemeProvider'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -570,14 +572,56 @@ function RowActions({
   alwaysVisible?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const { theme } = useTheme()
+
+  // The table wrapper uses overflow-x-auto, which per CSS spec implicitly
+  // clips overflow-y too. Rendering the menu in a portal with position:
+  // fixed lets it escape that clipping context and sit above the next
+  // section. We re-apply theme-night-admin on the portal root so the
+  // dark token palette still resolves (the portal sits outside the
+  // admin shell wrapper that normally provides it).
+  function placeMenu() {
+    if (!btnRef.current) return
+    const r = btnRef.current.getBoundingClientRect()
+    const menuW = 180
+    const menuH = 180 // rough — used only to flip upward near the viewport bottom
+    const spaceBelow = window.innerHeight - r.bottom
+    const openUp = spaceBelow < menuH + 16
+    setCoords({
+      top: openUp ? r.top - menuH - 4 : r.bottom + 4,
+      left: Math.max(8, r.right - menuW),
+    })
+  }
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (open) {
+      setOpen(false)
+      return
+    }
+    placeMenu()
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const handler = () => placeMenu()
+    window.addEventListener('scroll', handler, true)
+    window.addEventListener('resize', handler)
+    return () => {
+      window.removeEventListener('scroll', handler, true)
+      window.removeEventListener('resize', handler)
+    }
+  }, [open])
+
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen((v) => !v)
-        }}
+        onClick={toggle}
         className={cn(
           'p-1.5 rounded hover:bg-surface-2 text-text-dim hover:text-text transition-colors',
           !alwaysVisible && 'opacity-0 group-hover:opacity-100',
@@ -587,10 +631,14 @@ function RowActions({
       >
         <MoreVertical size={14} strokeWidth={1.8} />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 min-w-[170px] z-20">
+      {open && coords && typeof window !== 'undefined' &&
+        createPortal(
+          <div className={theme === 'night' ? 'theme-night-admin' : ''}>
+            <div className="fixed inset-0 z-60" onClick={() => setOpen(false)} />
+            <div
+              className="fixed bg-surface border border-border rounded-md shadow-lg py-1 min-w-[170px] z-61"
+              style={{ top: coords.top, left: coords.left }}
+            >
             <ActionItem
               icon={<Eye size={12} />}
               label="View details"
@@ -634,8 +682,9 @@ function RowActions({
               }}
             />
           </div>
-        </>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

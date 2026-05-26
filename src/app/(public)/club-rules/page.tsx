@@ -87,7 +87,7 @@ export default async function ClubRulesPage() {
   return (
     <>
       {/* ── 01 · Hero ──────────────────────────────────────────────── */}
-      <section className="relative h-[78vh] min-h-[560px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[78vh] min-h-[560px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -97,7 +97,7 @@ export default async function ClubRulesPage() {
           overlay={0.6}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>

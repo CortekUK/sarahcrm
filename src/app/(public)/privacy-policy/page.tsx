@@ -430,7 +430,7 @@ const SECTIONS: Section[] = [
           If you have questions or comments about this notice, you may email us at <MailLink /> or
           by post to:
         </p>
-        <address className="not-italic mt-2 border border-bronze/30 bg-graphite/40 p-6 lg:p-7 font-[family-name:var(--font-editorial)] text-[15.5px] leading-[1.85] text-ivory">
+        <address className="not-italic mt-2 border border-bronze/30 bg-graphite/40 day:bg-white day:shadow-sm p-6 lg:p-7 font-[family-name:var(--font-editorial)] text-[15.5px] leading-[1.85] text-ivory">
           The Club by Sarah Restrick
           <br />
           1 Worsley Court High Street
@@ -473,7 +473,7 @@ export default async function PrivacyPolicyPage() {
   return (
     <>
       {/* ── 01 · Hero ──────────────────────────────────────────────── */}
-      <section className="relative h-[78vh] min-h-[560px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[78vh] min-h-[560px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -483,7 +483,7 @@ export default async function PrivacyPolicyPage() {
           overlay={0.62}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>
@@ -571,7 +571,7 @@ export default async function PrivacyPolicyPage() {
                 <a
                   key={i}
                   href={`#${s.link}`}
-                  className="group relative block border border-graphite-line/50 hover:border-bronze/60 bg-graphite/30 hover:bg-bronze/[0.04] p-6 lg:p-7 transition-all duration-500"
+                  className="group relative block border border-graphite-line/50 hover:border-bronze/60 bg-graphite/30 hover:bg-bronze/[0.04] day:bg-white day:shadow-sm day:hover:shadow-md day:hover:bg-white p-6 lg:p-7 transition-all duration-500"
                 >
                   <p className="font-[family-name:var(--font-display)] text-[clamp(1rem,1.3vw,1.1875rem)] leading-[1.35] text-ivory group-hover:text-bronze-light transition-colors duration-500">
                     {s.q}
@@ -696,7 +696,7 @@ export default async function PrivacyPolicyPage() {
 
                     {s.short && (
                       <Reveal type="up" delay={300}>
-                        <div className="mt-5 px-5 py-4 border-l-2 border-bronze/50 bg-bronze/[0.04]">
+                        <div className="mt-5 px-5 py-4 border-l-2 border-bronze/50 bg-bronze/[0.04] day:bg-bronze/10">
                           <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light mb-2">
                             In short
                           </p>

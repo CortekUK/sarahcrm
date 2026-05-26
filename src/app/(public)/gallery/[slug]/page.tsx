@@ -100,7 +100,7 @@ export default async function GalleryDetailPage({
   return (
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
-      <section className="relative min-h-[78vh] w-full overflow-hidden bg-ink">
+      <section className="relative min-h-[78vh] w-full always-night overflow-hidden bg-ink">
         {gallery.cover_image_url ? (
           <KenBurnsImage
             src={gallery.cover_image_url}
@@ -114,7 +114,7 @@ export default async function GalleryDetailPage({
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-graphite to-plum/30" />
         )}
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
 
         <div className="relative z-10 min-h-[78vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
           <Reveal type="up" delay={0}>
@@ -172,7 +172,7 @@ export default async function GalleryDetailPage({
          the fixed header offset so the section header sits below
          the NightHeader instead of behind it. */}
       {videos.length > 0 && photos.length > 0 && (
-        <nav className="border-y border-graphite-line/40 bg-graphite/30 backdrop-blur-sm scroll-smooth">
+        <nav className="always-night border-y border-graphite-line/40 bg-graphite-2 backdrop-blur-sm scroll-smooth">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-10 flex items-center justify-center gap-10 lg:gap-14 py-5">
             <a
               href="#photos"
@@ -265,7 +265,7 @@ function MoreCard({
   return (
     <Link
       href={`/gallery/${g.slug}`}
-      className="group block border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite/25 overflow-hidden"
+      className="always-night group block border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2 overflow-hidden"
     >
       <div className="relative aspect-[4/3] overflow-hidden bg-graphite">
         {g.cover_image_url && (

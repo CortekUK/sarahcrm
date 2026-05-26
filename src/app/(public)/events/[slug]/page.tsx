@@ -119,7 +119,7 @@ export default async function EventDetailPage({
          the top of the headline was getting clipped on shorter
          viewports because the flex container was anchoring content
          to the bottom and the overflow-hidden cut the top off. */}
-      <section className="relative min-h-[78vh] w-full overflow-hidden bg-ink">
+      <section className="relative min-h-[78vh] w-full always-night overflow-hidden bg-ink">
         {event.cover_image_url ? (
           <KenBurnsImage
             src={event.cover_image_url}
@@ -133,7 +133,7 @@ export default async function EventDetailPage({
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-graphite to-plum/30" />
         )}
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
 
         <div className="relative z-10 min-h-[78vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
           <Reveal type="up" delay={0}>

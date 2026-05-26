@@ -1,10 +1,15 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 import { renderBlocksToHTML } from '@/lib/templates/render-html'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
-import type { EditorBlock, TemplateTheme } from '@/lib/templates/editor-types'
+import type {
+  EditorBlock,
+  TemplateTheme,
+  TextBlockContent,
+  ButtonBlockContent,
+} from '@/lib/templates/editor-types'
 import { cn } from '@/lib/utils'
 import {
   GripVertical,
@@ -31,6 +36,7 @@ interface EditorCanvasProps {
   onMoveBlock: (from: number, to: number) => void
   onDuplicateBlock: (id: string) => void
   onDeleteBlock: (id: string) => void
+  onUpdateBlock: (id: string, updates: Partial<EditorBlock['content']>) => void
 }
 
 const SAMPLE_DATA = {
@@ -93,6 +99,7 @@ export function EditorCanvas({
   onMoveBlock,
   onDuplicateBlock,
   onDeleteBlock,
+  onUpdateBlock,
 }: EditorCanvasProps) {
   // Render each block individually so we can wrap with selection overlays.
   // Use renderBlocksToHTML for a single-element array to keep visuals identical
@@ -245,11 +252,26 @@ export function EditorCanvas({
                             </div>
                           )}
 
-                          {/* Block content */}
-                          <div
-                            // eslint-disable-next-line react/no-danger
-                            dangerouslySetInnerHTML={{ __html: renderedHtmls[i] }}
-                          />
+                          {/* Block content — text/button render
+                              as inline-editable surfaces so the admin
+                              can type directly in the canvas. Other
+                              block types still use the rendered HTML. */}
+                          {block.type === 'text' ? (
+                            <InlineTextBlock
+                              content={block.content as TextBlockContent}
+                              onChange={(html) => onUpdateBlock(block.id, { html })}
+                            />
+                          ) : block.type === 'button' ? (
+                            <InlineButtonBlock
+                              content={block.content as ButtonBlockContent}
+                              onChange={(text) => onUpdateBlock(block.id, { text })}
+                            />
+                          ) : (
+                            <div
+                              // eslint-disable-next-line react/no-danger
+                              dangerouslySetInnerHTML={{ __html: renderedHtmls[i] }}
+                            />
+                          )}
 
                           {/* Icon overlay on hover for empty-ish blocks */}
                           {!isSelected && !dragSnapshot.isDragging && (
@@ -270,6 +292,7 @@ export function EditorCanvas({
           </Droppable>
         </DragDropContext>
 
+        {/* (Inline editors are defined at the bottom of this file.) */}
         {/* Footer strip */}
         <div
           className="px-5 py-5 text-center text-xs border-t border-[var(--color-border)]"
@@ -295,6 +318,149 @@ export function EditorCanvas({
           </p>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Inline editors ──────────────────────────────────────────────────
+//
+// These render directly on the canvas as contentEditable surfaces so
+// the admin can type without bouncing to the left sidebar. The
+// underlying block content (block.content.html / .text) is the source
+// of truth — these components display it on mount, then flush their
+// edits back via onChange on blur. We deliberately don't bind every
+// keystroke (caret jitter + history churn); blur is the right beat.
+//
+// Merge tags like {{first_name}} render verbatim in edit mode so the
+// admin can see and modify them. The preview slideout still substitutes
+// sample data.
+
+function InlineTextBlock({
+  content,
+  onChange,
+}: {
+  content: TextBlockContent
+  onChange: (html: string) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const lastHtmlRef = useRef(content.html)
+
+  // Only update DOM innerHTML when the *external* content actually
+  // changed (e.g. AI rewrite, undo/redo). If we wrote innerHTML on
+  // every render the user's caret would reset mid-type.
+  if (ref.current && content.html !== lastHtmlRef.current && ref.current.innerHTML !== content.html) {
+    ref.current.innerHTML = content.html
+    lastHtmlRef.current = content.html
+  }
+
+  const fontSize =
+    content.fontSize === 'small'
+      ? 14
+      : content.fontSize === 'large'
+        ? 18
+        : content.fontSize === 'xlarge'
+          ? 24
+          : 16
+
+  const handleBlur = useCallback(() => {
+    if (!ref.current) return
+    const next = ref.current.innerHTML
+    if (next !== lastHtmlRef.current) {
+      lastHtmlRef.current = next
+      onChange(next)
+    }
+  }, [onChange])
+
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      onBlur={handleBlur}
+      // Stop block selection click from stealing focus while the user
+      // is dragging-to-select text.
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        textAlign: content.alignment,
+        paddingTop: content.paddingTop,
+        paddingBottom: content.paddingBottom,
+        fontSize,
+        lineHeight: 1.6,
+        color: '#2C2825',
+        backgroundColor: content.backgroundColor || undefined,
+        outline: 'none',
+        minHeight: 24,
+        cursor: 'text',
+      }}
+      dangerouslySetInnerHTML={{ __html: content.html }}
+    />
+  )
+}
+
+function InlineButtonBlock({
+  content,
+  onChange,
+}: {
+  content: ButtonBlockContent
+  onChange: (text: string) => void
+}) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const lastTextRef = useRef(content.text)
+
+  if (ref.current && content.text !== lastTextRef.current && ref.current.textContent !== content.text) {
+    ref.current.textContent = content.text
+    lastTextRef.current = content.text
+  }
+
+  const widthStyle: React.CSSProperties =
+    content.width === 'full'
+      ? { display: 'block', width: '100%', textAlign: 'center' }
+      : { display: 'inline-block' }
+
+  const handleBlur = useCallback(() => {
+    if (!ref.current) return
+    const next = ref.current.textContent ?? ''
+    if (next !== lastTextRef.current) {
+      lastTextRef.current = next
+      onChange(next)
+    }
+  }, [onChange])
+
+  return (
+    <div
+      style={{
+        textAlign: content.alignment,
+        paddingTop: content.paddingTop,
+        paddingBottom: content.paddingBottom,
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span
+        style={{
+          ...widthStyle,
+          backgroundColor: content.backgroundColor,
+          color: content.textColor,
+          padding: `${content.paddingY || 12}px ${content.paddingX || 24}px`,
+          borderRadius: content.borderRadius,
+          fontFamily: "'DM Sans', Arial, sans-serif",
+          fontWeight: 500,
+          fontSize: 14,
+          letterSpacing: '0.3px',
+          cursor: 'text',
+        }}
+      >
+        <span
+          ref={ref}
+          contentEditable
+          suppressContentEditableWarning
+          onBlur={handleBlur}
+          style={{ outline: 'none' }}
+        >
+          {content.text}
+        </span>
+      </span>
     </div>
   )
 }

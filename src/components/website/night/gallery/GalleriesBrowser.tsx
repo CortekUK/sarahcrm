@@ -176,7 +176,7 @@ function GalleryCard({ g }: { g: GalleryItem }) {
   return (
     <Link
       href={`/gallery/${g.slug}`}
-      className="group block border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite/25 overflow-hidden"
+      className="always-night group block border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2 overflow-hidden"
     >
       <div className="relative aspect-[4/3] overflow-hidden bg-graphite">
         {g.cover_image_url ? (

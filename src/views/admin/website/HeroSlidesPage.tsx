@@ -60,6 +60,18 @@ const PAGES: {
     path: '/contact-us',
   },
   {
+    value: 'reviews',
+    label: 'Reviews',
+    description: 'Public review gallery at /reviews',
+    path: '/reviews',
+  },
+  {
+    value: 'share-your-experience',
+    label: 'Share Your Experience',
+    description: 'Review submission form at /share-your-experience',
+    path: '/share-your-experience',
+  },
+  {
     value: 'membership-application',
     label: 'Membership Application',
     description: 'The 8-step apply flow',

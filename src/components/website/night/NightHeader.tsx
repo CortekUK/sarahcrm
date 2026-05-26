@@ -5,6 +5,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { useTheme } from '@/providers/ThemeProvider'
 import { cn } from '@/lib/utils'
 
 // Public site navigation, night palette.
@@ -27,8 +29,17 @@ const LINKS = [
 
 export function NightHeader() {
   const pathname = usePathname()
+  const { theme } = useTheme()
   const [scrolled, setScrolled] = useState(false)
+  const [overDarkHero, setOverDarkHero] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Day mode → bronze/gold mark on cream; Night mode → white mark on
+  // the dark hero / graphite header. Header swaps via JS rather than
+  // CSS-only because the file is different per theme.
+  // Exception: when we're sitting over a dark hero, the logo needs to
+  // be white regardless of the active theme — otherwise the bronze
+  // monogram disappears against the dark image in day mode.
+  const logoSrc = theme === 'day' && !overDarkHero ? '/logo-gold.png' : '/logo-white.png'
 
   useEffect(() => {
     function onScroll() {
@@ -38,6 +49,38 @@ export function NightHeader() {
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
+
+  // Detect whether a `.always-night` element (i.e. a dark hero) is
+  // currently sitting underneath the header. Without this we used to
+  // assume `scrolled === false` meant "over dark hero" and pin
+  // .always-night on the header — which broke pages without a dark
+  // hero in day mode (cream-on-cream invisible text). Now we look at
+  // the actual DOM: if any always-night element overlaps the top
+  // 72px of the viewport, we treat that as "over dark hero".
+  useEffect(() => {
+    function check() {
+      const candidates = document.querySelectorAll<HTMLElement>('main .always-night')
+      let isOver = false
+      for (const el of candidates) {
+        const rect = el.getBoundingClientRect()
+        if (rect.top <= 0 && rect.bottom > 0) {
+          isOver = true
+          break
+        }
+      }
+      setOverDarkHero(isOver)
+    }
+    // Allow the page to paint first so getBoundingClientRect is
+    // accurate (especially right after a route change).
+    const id = requestAnimationFrame(check)
+    window.addEventListener('scroll', check, { passive: true })
+    window.addEventListener('resize', check)
+    return () => {
+      cancelAnimationFrame(id)
+      window.removeEventListener('scroll', check)
+      window.removeEventListener('resize', check)
+    }
+  }, [pathname])
 
   // Close menu on route change
   useEffect(() => {
@@ -59,9 +102,22 @@ export function NightHeader() {
       <header
         className={cn(
           'fixed top-0 left-0 right-0 z-50 transition-[background,backdrop-filter,border-color] duration-500',
+          // The header has three distinct visual modes:
+          //   1. Scrolled past the hero — solid graphite/cream backdrop
+          //      with a hairline border, text uses theme tokens so it
+          //      flips correctly in both day and night.
+          //   2. Sitting over a dark hero — transparent backdrop, pin
+          //      `.always-night` so text stays light against the dark
+          //      image (this is what we need in day mode too).
+          //   3. Sitting over a light page (no dark hero at the top, eg.
+          //      success states, club rules, privacy policy) —
+          //      transparent backdrop but NO always-night, so text
+          //      resolves to dark via the day-mode token map.
           scrolled
             ? 'bg-graphite/85 backdrop-blur-md border-b border-graphite-line/60'
-            : 'bg-transparent border-b border-transparent',
+            : overDarkHero
+              ? 'always-night bg-transparent border-b border-transparent'
+              : 'bg-transparent border-b border-transparent',
         )}
       >
         <div className="max-w-[1600px] mx-auto px-6 lg:px-10 h-[72px] flex items-center justify-between">
@@ -73,7 +129,7 @@ export function NightHeader() {
             aria-label="The Club by Sarah Restrick — Home"
           >
             <Image
-              src="/logo-white.png"
+              src={logoSrc}
               alt=""
               width={40}
               height={40}
@@ -126,11 +182,12 @@ export function NightHeader() {
             })}
           </nav>
 
-          {/* Right side — secondary Member Login pill + primary bronze
-              Apply pill (desktop) + hamburger (mobile). Login uses a
-              quieter graphite outline so the bronze Apply pill keeps
-              hierarchy as the primary CTA. */}
+          {/* Right side — theme toggle + secondary Member Login pill +
+              primary bronze Apply pill (desktop) + hamburger (mobile).
+              The toggle sits as a quiet icon button left of the pair
+              so it doesn't compete with the two CTAs for attention. */}
           <div className="flex items-center gap-3">
+            <ThemeToggle variant="icon" className="hidden lg:inline-flex" />
             <Link
               href="/login"
               className="hidden lg:inline-flex items-center px-5 py-2.5 border border-graphite-line/70 hover:border-bronze/60 rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory/85 hover:text-bronze-light hover:bg-bronze/[0.06] transition-all duration-300"
@@ -196,6 +253,15 @@ export function NightHeader() {
           >
             Member Login
           </Link>
+          <div
+            className={cn(
+              'mt-4 transition-all duration-500',
+              menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
+            )}
+            style={{ transitionDelay: menuOpen ? `${LINKS.length * 70 + 320}ms` : '0ms' }}
+          >
+            <ThemeToggle variant="icon" />
+          </div>
         </div>
       </div>
     </>

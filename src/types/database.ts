@@ -12,33 +12,78 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
+      audience_members: {
+        Row: {
+          added_at: string
+          audience_id: string
+          member_id: string | null
+          subscriber_id: string | null
+        }
+        Insert: {
+          added_at?: string
+          audience_id: string
+          member_id?: string | null
+          subscriber_id?: string | null
+        }
+        Update: {
+          added_at?: string
+          audience_id?: string
+          member_id?: string | null
+          subscriber_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audience_members_audience_id_fkey"
+            columns: ["audience_id"]
+            isOneToOne: false
+            referencedRelation: "audiences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audience_members_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audience_members_subscriber_id_fkey"
+            columns: ["subscriber_id"]
+            isOneToOne: false
+            referencedRelation: "mailing_list"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audiences: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           accommodation_booked: boolean
@@ -317,8 +362,149 @@ export type Database = {
         }
         Relationships: []
       }
+      email_campaigns: {
+        Row: {
+          audience_id: string | null
+          audience_label: string | null
+          body_html: string
+          created_at: string
+          created_by: string | null
+          error_message: string | null
+          failed_count: number
+          id: string
+          name: string
+          recipient_count: number
+          scheduled_at: string | null
+          sent_at: string | null
+          sent_count: number
+          status: string
+          subject: string
+          template_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          audience_id?: string | null
+          audience_label?: string | null
+          body_html: string
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          failed_count?: number
+          id?: string
+          name: string
+          recipient_count?: number
+          scheduled_at?: string | null
+          sent_at?: string | null
+          sent_count?: number
+          status?: string
+          subject: string
+          template_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          audience_id?: string | null
+          audience_label?: string | null
+          body_html?: string
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          failed_count?: number
+          id?: string
+          name?: string
+          recipient_count?: number
+          scheduled_at?: string | null
+          sent_at?: string | null
+          sent_count?: number
+          status?: string
+          subject?: string
+          template_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_campaigns_audience_id_fkey"
+            columns: ["audience_id"]
+            isOneToOne: false
+            referencedRelation: "audiences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_campaigns_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "email_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_templates: {
+        Row: {
+          attachments: Json | null
+          body_html: string
+          body_json: Json | null
+          category: string
+          created_at: string
+          created_by_id: string | null
+          fixed_from_email: string | null
+          fixed_from_name: string | null
+          from_name_type: string
+          id: string
+          is_draft: boolean
+          name: string
+          preheader: string | null
+          subject: string
+          theme: Json | null
+          updated_at: string
+        }
+        Insert: {
+          attachments?: Json | null
+          body_html: string
+          body_json?: Json | null
+          category?: string
+          created_at?: string
+          created_by_id?: string | null
+          fixed_from_email?: string | null
+          fixed_from_name?: string | null
+          from_name_type?: string
+          id?: string
+          is_draft?: boolean
+          name: string
+          preheader?: string | null
+          subject: string
+          theme?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          attachments?: Json | null
+          body_html?: string
+          body_json?: Json | null
+          category?: string
+          created_at?: string
+          created_by_id?: string | null
+          fixed_from_email?: string | null
+          fixed_from_name?: string | null
+          from_name_type?: string
+          id?: string
+          is_draft?: boolean
+          name?: string
+          preheader?: string | null
+          subject?: string
+          theme?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_templates_created_by_id_fkey"
+            columns: ["created_by_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       enquiries: {
         Row: {
+          admin_notes: string | null
           company: string | null
           created_at: string
           email: string
@@ -329,10 +515,14 @@ export type Database = {
           message: string
           phone: string | null
           position: string | null
+          replied_at: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
           status: string
           updated_at: string
         }
         Insert: {
+          admin_notes?: string | null
           company?: string | null
           created_at?: string
           email: string
@@ -343,10 +533,14 @@ export type Database = {
           message: string
           phone?: string | null
           position?: string | null
+          replied_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
+          admin_notes?: string | null
           company?: string | null
           created_at?: string
           email?: string
@@ -357,6 +551,9 @@ export type Database = {
           message?: string
           phone?: string | null
           position?: string | null
+          replied_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           status?: string
           updated_at?: string
         }
@@ -615,6 +812,78 @@ export type Database = {
         }
         Relationships: []
       }
+      instagram_posts: {
+        Row: {
+          caption: string | null
+          created_at: string
+          display_order: number
+          id: string
+          image_url: string | null
+          is_active: boolean
+          post_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          post_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          post_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      instagram_settings: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          display_name: string | null
+          follower_count: number | null
+          handle: string | null
+          id: string
+          is_active: boolean
+          profile_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          follower_count?: number | null
+          handle?: string | null
+          id?: string
+          is_active?: boolean
+          profile_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          follower_count?: number | null
+          handle?: string | null
+          id?: string
+          is_active?: boolean
+          profile_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       introductions: {
         Row: {
           accepted_at: string | null
@@ -726,21 +995,33 @@ export type Database = {
           first_name: string
           id: string
           last_name: string
+          notes: string | null
+          source: string
           subscribed_at: string
+          unsubscribe_token: string
+          unsubscribed_at: string | null
         }
         Insert: {
           email: string
           first_name: string
           id?: string
           last_name: string
+          notes?: string | null
+          source?: string
           subscribed_at?: string
+          unsubscribe_token?: string
+          unsubscribed_at?: string | null
         }
         Update: {
           email?: string
           first_name?: string
           id?: string
           last_name?: string
+          notes?: string | null
+          source?: string
           subscribed_at?: string
+          unsubscribe_token?: string
+          unsubscribed_at?: string | null
         }
         Relationships: []
       }
@@ -906,6 +1187,9 @@ export type Database = {
           pronouns: string | null
           referral_name: string | null
           referral_source: string | null
+          refund_amount_pence: number | null
+          refund_id: string | null
+          refunded_at: string | null
           reviewed_at: string | null
           reviewed_by: string | null
           status: string
@@ -950,6 +1234,9 @@ export type Database = {
           pronouns?: string | null
           referral_name?: string | null
           referral_source?: string | null
+          refund_amount_pence?: number | null
+          refund_id?: string | null
+          refunded_at?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
@@ -994,6 +1281,9 @@ export type Database = {
           pronouns?: string | null
           referral_name?: string | null
           referral_source?: string | null
+          refund_amount_pence?: number | null
+          refund_id?: string | null
+          refunded_at?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
@@ -1262,6 +1552,71 @@ export type Database = {
         }
         Relationships: []
       }
+      reviews: {
+        Row: {
+          admin_notes: string | null
+          approved_at: string | null
+          body: string
+          company: string | null
+          created_at: string
+          email: string
+          event_id: string | null
+          first_name: string
+          id: string
+          is_active: boolean
+          last_name: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          approved_at?: string | null
+          body: string
+          company?: string | null
+          created_at?: string
+          email: string
+          event_id?: string | null
+          first_name: string
+          id?: string
+          is_active?: boolean
+          last_name: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          approved_at?: string | null
+          body?: string
+          company?: string | null
+          created_at?: string
+          email?: string
+          event_id?: string | null
+          first_name?: string
+          id?: string
+          is_active?: boolean
+          last_name?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sponsorships: {
         Row: {
           amount_pence: number
@@ -1343,6 +1698,89 @@ export type Database = {
         }
         Relationships: []
       }
+      template_ai_chats: {
+        Row: {
+          created_at: string
+          id: string
+          template_id: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          template_id?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          template_id?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_ai_chats_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "email_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "template_ai_chats_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      template_ai_messages: {
+        Row: {
+          blocks_snapshot: Json | null
+          chat_id: string
+          content: string
+          created_at: string
+          id: string
+          preheader_snapshot: string | null
+          role: string
+          subject_snapshot: string | null
+        }
+        Insert: {
+          blocks_snapshot?: Json | null
+          chat_id: string
+          content: string
+          created_at?: string
+          id?: string
+          preheader_snapshot?: string | null
+          role: string
+          subject_snapshot?: string | null
+        }
+        Update: {
+          blocks_snapshot?: Json | null
+          chat_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          preheader_snapshot?: string | null
+          role?: string
+          subject_snapshot?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_ai_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "template_ai_chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       testimonials: {
         Row: {
           company_name: string | null
@@ -1406,123 +1844,6 @@ export type Database = {
           page_slug?: string
           title?: string
           youtube_url?: string
-        }
-        Relationships: []
-      }
-      email_templates: {
-        Row: {
-          id: string
-          name: string
-          subject: string
-          preheader: string | null
-          body_html: string
-          body_json: Json | null
-          theme: Json | null
-          category: "automation" | "campaign" | "transactional"
-          from_name_type: "sender" | "fixed"
-          fixed_from_name: string | null
-          fixed_from_email: string | null
-          attachments: Json
-          is_draft: boolean
-          created_by_id: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          name: string
-          subject: string
-          preheader?: string | null
-          body_html: string
-          body_json?: Json | null
-          theme?: Json | null
-          category?: "automation" | "campaign" | "transactional"
-          from_name_type?: "sender" | "fixed"
-          fixed_from_name?: string | null
-          fixed_from_email?: string | null
-          attachments?: Json
-          is_draft?: boolean
-          created_by_id?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          name?: string
-          subject?: string
-          preheader?: string | null
-          body_html?: string
-          body_json?: Json | null
-          theme?: Json | null
-          category?: "automation" | "campaign" | "transactional"
-          from_name_type?: "sender" | "fixed"
-          fixed_from_name?: string | null
-          fixed_from_email?: string | null
-          attachments?: Json
-          is_draft?: boolean
-          created_by_id?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      template_ai_chats: {
-        Row: {
-          id: string
-          user_id: string
-          title: string | null
-          template_id: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          title?: string | null
-          template_id?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          title?: string | null
-          template_id?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      template_ai_messages: {
-        Row: {
-          id: string
-          chat_id: string
-          role: "user" | "assistant"
-          content: string
-          blocks_snapshot: Json | null
-          subject_snapshot: string | null
-          preheader_snapshot: string | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          chat_id: string
-          role: "user" | "assistant"
-          content: string
-          blocks_snapshot?: Json | null
-          subject_snapshot?: string | null
-          preheader_snapshot?: string | null
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          chat_id?: string
-          role?: "user" | "assistant"
-          content?: string
-          blocks_snapshot?: Json | null
-          subject_snapshot?: string | null
-          preheader_snapshot?: string | null
-          created_at?: string
         }
         Relationships: []
       }
@@ -1676,9 +1997,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       booking_status: ["confirmed", "pending", "cancelled", "refunded"],

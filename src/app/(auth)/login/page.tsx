@@ -12,7 +12,7 @@ export default function Page() {
         </div>
       }
     >
-      <LoginPage />
+      <LoginPage role="member" />
     </Suspense>
   )
 }

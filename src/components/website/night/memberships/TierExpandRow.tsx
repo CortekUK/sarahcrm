@@ -89,7 +89,7 @@ export function TierExpandRow({ tiers }: { tiers: readonly TierData[] }) {
       <div
         onMouseMove={onRowMouseMove}
         onMouseLeave={close}
-        className="hidden lg:block relative h-[640px] w-full"
+        className="always-night hidden lg:block relative h-[640px] w-full"
       >
         {tiers.map((t, i) => {
           const isExpanded = expanded === i
@@ -324,7 +324,7 @@ function ExpandedFace({
 
 function MobileTier({ tier }: { tier: TierData }) {
   return (
-    <article className="relative overflow-hidden border border-graphite-line/40">
+    <article className="always-night relative overflow-hidden border border-graphite-line/40">
       <div className="relative aspect-[16/10]">
         <Image src={tier.image} alt="" fill sizes="100vw" className="object-cover" />
         <div className="absolute inset-0 bg-gradient-to-b from-ink/20 via-ink/55 to-ink/95" />

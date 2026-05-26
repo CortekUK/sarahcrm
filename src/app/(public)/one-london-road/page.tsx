@@ -64,7 +64,7 @@ export default async function OneLondonRoadPage() {
   return (
     <>
       {/* ── 00 · Hero ───────────────────────────────────────────────── */}
-      <section className="relative h-[85vh] min-h-[640px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[85vh] min-h-[640px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -74,7 +74,7 @@ export default async function OneLondonRoadPage() {
           overlay={0.5}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[50%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
           <EditorialMeta label={editorialLabel} stamp={editorialStamp} />
           {hero.headline && (

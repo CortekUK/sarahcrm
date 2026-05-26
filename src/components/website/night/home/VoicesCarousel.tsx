@@ -38,7 +38,7 @@ export function VoicesCarousel({ testimonials }: { testimonials: CarouselTestimo
 
   return (
     <div
-      className="max-w-4xl mx-auto"
+      className="always-night max-w-4xl mx-auto"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >

@@ -9,6 +9,7 @@ import {
   EventsBrowser,
   type EventListItem,
 } from '@/components/website/night/events/EventsBrowser'
+import { InstagramChapter } from '@/components/website/night/home/InstagramChapter'
 import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight } from 'lucide-react'
 
@@ -61,7 +62,7 @@ export default async function EventsPage() {
   return (
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
-      <section className="relative h-[78vh] min-h-[540px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[78vh] min-h-[540px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -71,7 +72,7 @@ export default async function EventsPage() {
           overlay={0.55}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>
@@ -94,6 +95,10 @@ export default async function EventsPage() {
           )}
         </div>
       </section>
+
+      {/* ── Instagram banner — sits below the hero so visitors
+           see the live brand voice before browsing the calendar. */}
+      <InstagramChapter />
 
       {/* ── 02 · Browser (filters + lists) ────────────────────── */}
       <Chapter density="tight" bg="ink">
@@ -165,6 +170,7 @@ export default async function EventsPage() {
           </div>
         </div>
       </section>
+
     </>
   )
 }

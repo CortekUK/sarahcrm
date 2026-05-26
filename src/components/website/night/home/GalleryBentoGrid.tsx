@@ -78,7 +78,7 @@ export function GalleryBentoGrid({ photos }: { photos: BentoPhoto[] }) {
       ref={containerRef}
       onMouseMove={onMouseMove}
       onMouseLeave={() => setSpot(null)}
-      className="relative grid grid-cols-12 auto-rows-[clamp(180px,18vw,260px)] gap-3 md:gap-4"
+      className="always-night relative grid grid-cols-12 auto-rows-[clamp(180px,18vw,260px)] gap-3 md:gap-4"
     >
       {/* Global spotlight cursor — desktop only via mousemove */}
       {spot && (

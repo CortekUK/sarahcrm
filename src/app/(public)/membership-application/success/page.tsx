@@ -63,9 +63,9 @@ function SuccessInner() {
 
   return (
     <section className="relative min-h-[80vh] bg-ink flex items-center justify-center px-6 py-24">
-      <div className="max-w-xl w-full text-center border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16">
-        <div className="w-16 h-16 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-7">
-          <Check size={28} strokeWidth={1.5} className="text-bronze-light" />
+      <div className="max-w-xl w-full text-center border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16 day:bg-white day:shadow-lg day:border-bronze/30">
+        <div className="w-16 h-16 mx-auto rounded-full bg-bronze/15 border border-bronze/40 day:bg-bronze/20 day:border-bronze/55 flex items-center justify-center mb-7">
+          <Check size={28} strokeWidth={1.5} className="text-bronze-light day:text-bronze-dark" />
         </div>
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
           Payment received

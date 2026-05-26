@@ -141,42 +141,47 @@ interface PortalBadgeProps {
   className?: string
 }
 
+// Night palette is the default; `day:` variants swap to muted-warm
+// equivalents that read on cream surfaces. The night tones (e.g.
+// emerald-900/25 + emerald-300) read as a soft glow on graphite but
+// turn into a faint smudge on cream — day mode needs a lighter bg with
+// darker text to keep the same legibility budget.
 const badgeStyles: Record<PortalBadgeVariant, { bg: string; text: string; border: string; dot: string }> = {
   active: {
-    bg: 'bg-emerald-900/25',
-    text: 'text-emerald-300',
-    border: 'border-emerald-700/45',
-    dot: 'bg-emerald-400',
+    bg: 'bg-emerald-900/25 day:bg-emerald-50',
+    text: 'text-emerald-300 day:text-emerald-800',
+    border: 'border-emerald-700/45 day:border-emerald-200',
+    dot: 'bg-emerald-400 day:bg-emerald-600',
   },
   upcoming: {
-    bg: 'bg-bronze/15',
-    text: 'text-bronze-light',
-    border: 'border-bronze/45',
-    dot: 'bg-bronze',
+    bg: 'bg-bronze/15 day:bg-bronze/12',
+    text: 'text-bronze-light day:text-bronze-dark',
+    border: 'border-bronze/45 day:border-bronze/40',
+    dot: 'bg-bronze day:bg-bronze-dark',
   },
   draft: {
-    bg: 'bg-graphite/60',
-    text: 'text-ivory-soft',
-    border: 'border-graphite-line/60',
-    dot: 'bg-slate-haze',
+    bg: 'bg-graphite/60 day:bg-stone-100',
+    text: 'text-ivory-soft day:text-stone-700',
+    border: 'border-graphite-line/60 day:border-stone-300',
+    dot: 'bg-slate-haze day:bg-stone-500',
   },
   urgent: {
-    bg: 'bg-rose-900/25',
-    text: 'text-rose-300',
-    border: 'border-rose-700/45',
-    dot: 'bg-rose-400',
+    bg: 'bg-rose-900/25 day:bg-rose-50',
+    text: 'text-rose-300 day:text-rose-800',
+    border: 'border-rose-700/45 day:border-rose-200',
+    dot: 'bg-rose-400 day:bg-rose-600',
   },
   info: {
-    bg: 'bg-sky-900/25',
-    text: 'text-sky-300',
-    border: 'border-sky-700/45',
-    dot: 'bg-sky-400',
+    bg: 'bg-sky-900/25 day:bg-sky-50',
+    text: 'text-sky-300 day:text-sky-800',
+    border: 'border-sky-700/45 day:border-sky-200',
+    dot: 'bg-sky-400 day:bg-sky-600',
   },
   neutral: {
-    bg: 'bg-graphite/50',
-    text: 'text-ivory-soft',
-    border: 'border-graphite-line/50',
-    dot: 'bg-ivory-soft',
+    bg: 'bg-graphite/50 day:bg-stone-100',
+    text: 'text-ivory-soft day:text-stone-700',
+    border: 'border-graphite-line/50 day:border-stone-300',
+    dot: 'bg-ivory-soft day:bg-stone-500',
   },
 }
 
@@ -228,7 +233,7 @@ export function PortalEmptyState({
       )}
     >
       {icon && (
-        <div className="w-12 h-12 mx-auto mb-5 rounded-full border border-bronze/30 bg-bronze/10 flex items-center justify-center text-bronze-light">
+        <div className="w-12 h-12 mx-auto mb-5 rounded-full border border-bronze/30 bg-bronze/10 day:border-bronze/55 day:bg-bronze/18 flex items-center justify-center text-bronze-light day:text-bronze-dark">
           {icon}
         </div>
       )}
@@ -272,7 +277,7 @@ export function PortalStatTile({ label, value, caption, icon }: PortalStatTilePr
     <PortalCard className="p-6 lg:p-7">
       <div className="flex items-start gap-5">
         {icon && (
-          <div className="w-11 h-11 rounded-full border border-bronze/30 bg-bronze/10 flex items-center justify-center text-bronze-light shrink-0">
+          <div className="w-11 h-11 rounded-full border border-bronze/30 bg-bronze/10 day:border-bronze/55 day:bg-bronze/18 flex items-center justify-center text-bronze-light day:text-bronze-dark shrink-0">
             {icon}
           </div>
         )}

@@ -10,7 +10,6 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { Button } from '@/components/ui/Button'
 import { AlertTriangle, HelpCircle, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -121,27 +120,33 @@ function ConfirmDialog({
   const { options } = pending
   const tone = options.tone ?? 'neutral'
 
-  // Icon + colour per tone — gold for warnings, accent-warm for danger,
-  // text-muted helper-blue for neutral asks. Keeps the dialog branded
-  // rather than browser-grey.
+  // Tone palette — bronze for warnings, rose for danger, graphite for
+  // neutral. Each tone also drives the confirm button's accent colour
+  // so the call-to-action matches the icon.
   const toneStyles = {
     danger: {
-      iconBg: 'bg-[rgba(196,105,74,0.12)]',
-      iconColor: 'text-accent-warm',
+      iconBg: 'border-rose-700/55 bg-rose-900/25',
+      iconColor: 'text-rose-300',
+      cornerColor: 'bg-rose-500/55',
+      confirmClass:
+        'border-rose-700 bg-rose-900/40 text-rose-200 hover:bg-rose-800/60 hover:text-rose-100',
       Icon: Trash2,
-      btnVariant: 'danger' as const,
     },
     warning: {
-      iconBg: 'bg-gold-muted',
-      iconColor: 'text-gold-dark',
+      iconBg: 'border-bronze/55 bg-bronze/15',
+      iconColor: 'text-bronze-light',
+      cornerColor: 'bg-bronze/65',
+      confirmClass:
+        'border-bronze bg-bronze/20 text-bronze-light hover:bg-bronze hover:text-ink',
       Icon: AlertTriangle,
-      btnVariant: 'primary' as const,
     },
     neutral: {
-      iconBg: 'bg-surface-3',
-      iconColor: 'text-text-muted',
+      iconBg: 'border-graphite-line/65 bg-graphite-2/55',
+      iconColor: 'text-ivory-soft',
+      cornerColor: 'bg-bronze/55',
+      confirmClass:
+        'border-bronze bg-bronze/20 text-bronze-light hover:bg-bronze hover:text-ink',
       Icon: HelpCircle,
-      btnVariant: 'primary' as const,
     },
   }[tone]
 
@@ -154,46 +159,76 @@ function ConfirmDialog({
     >
       {/* Backdrop — click to cancel */}
       <div
-        className="absolute inset-0 bg-[rgba(28,25,23,0.55)] backdrop-blur-[2px] animate-in fade-in duration-150"
+        className="absolute inset-0 bg-ink/75 backdrop-blur-sm animate-in fade-in duration-150"
         onClick={() => onSettle(false)}
       />
-      {/* Dialog card */}
+      {/* Dialog card — graphite panel with bronze corner brackets,
+          matching PortalModal so dialogs across the product feel like
+          a matched set. */}
       <div
         className={cn(
-          'relative w-full max-w-md bg-surface border border-border rounded-[var(--radius-lg)] shadow-[var(--shadow-xl)]',
-          'p-6 animate-in fade-in-0 zoom-in-95 duration-200',
+          'relative w-full max-w-md bg-graphite border border-bronze/35 shadow-[0_30px_60px_-12px_rgba(0,0,0,0.7)]',
+          'p-7 animate-in fade-in-0 zoom-in-95 duration-200',
         )}
       >
+        <span
+          aria-hidden
+          className={cn('absolute top-3 left-3 w-5 h-px', toneStyles.cornerColor)}
+        />
+        <span
+          aria-hidden
+          className={cn('absolute top-3 left-3 w-px h-5', toneStyles.cornerColor)}
+        />
+        <span
+          aria-hidden
+          className={cn('absolute bottom-3 right-3 w-5 h-px', toneStyles.cornerColor)}
+        />
+        <span
+          aria-hidden
+          className={cn('absolute bottom-3 right-3 w-px h-5', toneStyles.cornerColor)}
+        />
+
         <div className="flex items-start gap-4">
           <div
             className={cn(
-              'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center',
+              'flex-shrink-0 w-10 h-10 rounded-full border flex items-center justify-center',
               toneStyles.iconBg,
             )}
           >
-            <toneStyles.Icon size={18} strokeWidth={1.8} className={toneStyles.iconColor} />
+            <toneStyles.Icon size={17} strokeWidth={1.6} className={toneStyles.iconColor} />
           </div>
           <div className="flex-1 min-w-0">
             <h2
               id="confirm-title"
-              className="font-[family-name:var(--font-heading)] text-lg font-semibold text-text leading-snug"
+              className="font-[family-name:var(--font-display)] text-[clamp(1.125rem,1.5vw,1.3125rem)] text-ivory leading-tight"
             >
               {options.title}
             </h2>
             {options.description && (
-              <div className="text-sm text-text-muted mt-2 leading-relaxed">
+              <div className="font-[family-name:var(--font-editorial)] italic text-[13.5px] text-ivory-soft mt-2.5 leading-[1.65]">
                 {options.description}
               </div>
             )}
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 mt-6">
-          <Button variant="ghost" onClick={() => onSettle(false)}>
+        <div className="flex items-center justify-end gap-3 mt-7">
+          <button
+            type="button"
+            onClick={() => onSettle(false)}
+            className="px-5 py-2.5 rounded-full border border-graphite-line/70 bg-transparent text-ivory-soft hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.06] font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] transition-all duration-300"
+          >
             {options.cancelLabel ?? 'Cancel'}
-          </Button>
-          <Button variant={toneStyles.btnVariant} onClick={() => onSettle(true)}>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSettle(true)}
+            className={cn(
+              'px-5 py-2.5 rounded-full border font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] transition-all duration-300',
+              toneStyles.confirmClass,
+            )}
+          >
             {options.confirmLabel ?? (tone === 'danger' ? 'Delete' : 'Continue')}
-          </Button>
+          </button>
         </div>
       </div>
     </div>

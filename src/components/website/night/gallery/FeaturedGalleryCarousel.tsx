@@ -246,7 +246,7 @@ function BigTile({
     <Link
       href={`/gallery/${g.slug}`}
       className={cn(
-        'group relative block w-full overflow-hidden border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2',
+        'always-night group relative block w-full overflow-hidden border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2',
         className,
       )}
     >
@@ -302,7 +302,7 @@ function SmallTile({
     <Link
       href={`/gallery/${g.slug}`}
       className={cn(
-        'group relative block w-full h-full overflow-hidden border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2',
+        'always-night group relative block w-full h-full overflow-hidden border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2',
         className,
       )}
       style={style}

@@ -58,8 +58,11 @@ export function LocationsChapter() {
             delay={700 + idx * 180}
             className="group relative flex flex-col items-center"
           >
-            {/* Image card with diamond overlay */}
-            <div className="relative w-full aspect-[4/5] overflow-hidden bg-graphite-2">
+            {/* Image card with diamond overlay — pinned to the night
+                palette so the ink-tinted scrim stays a dark wash that
+                lets the photo show through, instead of cream-washing
+                it out in day mode. */}
+            <div className="always-night relative w-full aspect-[4/5] overflow-hidden bg-graphite-2">
               <Image
                 src={loc.image}
                 alt={loc.alt}

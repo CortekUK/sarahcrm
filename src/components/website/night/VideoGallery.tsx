@@ -110,7 +110,7 @@ export function VideoGallery({ videos }: { videos: VideoEntry[] }) {
             onClick={() => setPlaying(active.ytId)}
             onMouseEnter={onPosterEnter}
             onMouseLeave={onPosterLeave}
-            className="group relative block w-full aspect-video overflow-hidden border border-bronze/30 hover:border-bronze/60 transition-all duration-500 shadow-[0_0_60px_-20px_rgba(192,152,112,0.45)]"
+            className="always-night group relative block w-full aspect-video overflow-hidden border border-bronze/30 hover:border-bronze/60 transition-all duration-500 shadow-[0_0_60px_-20px_rgba(192,152,112,0.45)]"
             aria-label={`Play ${active.title}`}
           >
             {/* Static poster — base layer, always rendered. */}
@@ -248,7 +248,7 @@ export function VideoGallery({ videos }: { videos: VideoEntry[] }) {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[100] bg-ink/95 backdrop-blur-md flex items-center justify-center px-4 md:px-10 animate-receipt-unfold"
+          className="always-night fixed inset-0 z-[100] bg-ink/95 backdrop-blur-md flex items-center justify-center px-4 md:px-10 animate-receipt-unfold"
           onClick={() => setPlaying(null)}
         >
           <button

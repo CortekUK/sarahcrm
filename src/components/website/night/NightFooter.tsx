@@ -1,5 +1,8 @@
+'use client'
+
 import Link from 'next/link'
 import Image from 'next/image'
+import { useTheme } from '@/providers/ThemeProvider'
 
 // Night-palette footer. Editorial-leaning rather than admin-y:
 //  - Oversized wordmark on the left ("The Club" + tagline beneath)
@@ -15,6 +18,7 @@ const COLUMNS: Array<{ label: string; links: Array<{ href: string; text: string 
       { href: '/memberships', text: 'Memberships' },
       { href: '/events', text: 'Events' },
       { href: '/gallery', text: 'Gallery' },
+      { href: '/reviews', text: 'Reviews' },
     ],
   },
   {
@@ -29,6 +33,7 @@ const COLUMNS: Array<{ label: string; links: Array<{ href: string; text: string 
     label: 'Connect',
     links: [
       { href: '/contact-us', text: 'Contact' },
+      { href: '/share-your-experience', text: 'Share Your Experience' },
       { href: '/membership-application', text: 'Apply for Membership' },
       { href: 'mailto:hello@theclubbysarahrestrick.com', text: 'hello@theclubbysarahrestrick.com' },
     ],
@@ -36,6 +41,8 @@ const COLUMNS: Array<{ label: string; links: Array<{ href: string; text: string 
 ]
 
 export function NightFooter() {
+  const { theme } = useTheme()
+  const logoSrc = theme === 'day' ? '/logo-gold.png' : '/logo-white.png'
   return (
     <footer className="relative border-t border-graphite-line/80 bg-ink">
       {/* Editorial top section */}
@@ -45,7 +52,7 @@ export function NightFooter() {
           <div className="lg:col-span-5">
             <Link href="/" className="inline-flex items-start gap-5 leading-none group" aria-label="The Club — Home">
               <Image
-                src="/logo-white.png"
+                src={logoSrc}
                 alt=""
                 width={80}
                 height={80}

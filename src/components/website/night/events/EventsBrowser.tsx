@@ -178,7 +178,7 @@ function UpcomingCard({ ev }: { ev: EventListItem }) {
   return (
     <Link
       href={`/events/${ev.slug}`}
-      className="group block border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite/25 overflow-hidden"
+      className="group block border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 bg-graphite-2 overflow-hidden"
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-graphite">
         {ev.cover_image_url ? (
@@ -284,7 +284,7 @@ function PastCard({ ev }: { ev: EventListItem }) {
   return (
     <Link
       href={`/events/${ev.slug}`}
-      className="group block border border-graphite-line/40 hover:border-bronze/45 transition-colors duration-500 bg-graphite/20 overflow-hidden"
+      className="group block border border-graphite-line/40 hover:border-bronze/45 transition-colors duration-500 bg-graphite-2 overflow-hidden"
     >
       <div className="relative aspect-[4/3] overflow-hidden bg-graphite">
         {ev.cover_image_url ? (

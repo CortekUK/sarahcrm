@@ -53,7 +53,7 @@ export function JoinBadge() {
     <Link
       href="/membership-application"
       aria-label="Become a member"
-      className={`group fixed right-0 top-1/2 -translate-y-1/2 z-30 hidden lg:flex flex-col w-[68px] hover:w-[74px] shadow-[var(--shadow-lg)] transition-all duration-700 ease-out ${
+      className={`always-night group fixed right-0 top-1/2 -translate-y-1/2 z-30 hidden lg:flex flex-col w-[68px] hover:w-[74px] shadow-[var(--shadow-lg)] transition-all duration-700 ease-out ${
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
       }`}
     >

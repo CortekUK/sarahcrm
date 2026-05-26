@@ -6,6 +6,7 @@ import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { TracingBeam } from '@/components/website/night/effects/TracingBeam'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
+import { InstagramChapter } from '@/components/website/night/home/InstagramChapter'
 import { VideoGallery, type VideoEntry } from '@/components/website/night/VideoGallery'
 import { StoryCarousel } from '@/components/website/night/StoryCarousel'
 import { getPageHero } from '@/lib/cms/heroes'
@@ -65,7 +66,7 @@ export default async function AboutPage() {
          Eyebrow + headline + lede are CMS-driven (hero_slides table,
          page_slug='about'). The hardcoded fallback above keeps the
          page looking right if the DB row is removed or fails to load. */}
-      <section className="relative h-[78vh] min-h-[560px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[78vh] min-h-[560px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -75,7 +76,7 @@ export default async function AboutPage() {
           overlay={0.62}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>
@@ -262,6 +263,11 @@ export default async function AboutPage() {
           </div>
         </TracingBeam>
       </section>
+
+      {/* ── Instagram banner — sits between the story and the
+           video gallery so the live brand presence is the next
+           beat after the founder narrative. */}
+      <InstagramChapter />
 
       {/* ── 03 · Video Gallery ──────────────────────────────────────
          Only renders if Sarah has rows in video_gallery for the

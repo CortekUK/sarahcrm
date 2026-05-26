@@ -176,7 +176,75 @@ export function ApplicationsListPage() {
       return true
     }
 
-    // Plain status update path
+    // Rejection is the other side-effecty path — when the applicant
+    // paid via the public pay-first flow we need to cancel their
+    // Stripe subscription, refund the initial payment, and email them.
+    // The server route handles all of that; if no payment is attached
+    // it's a no-op refund and still works as a simple status flip.
+    if (next === 'rejected') {
+      if (notes !== undefined && notes !== application.notes) {
+        await supabase
+          .from('membership_applications')
+          .update({ notes })
+          .eq('id', application.id)
+      }
+      const res = await progress.track(
+        fetch('/api/admin/applications/reject', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ application_id: application.id }),
+        }),
+      )
+      const json = await res.json()
+      if (!res.ok) {
+        toast({
+          title: 'Rejection failed',
+          description: json.error || 'Unknown error',
+          variant: 'destructive',
+        })
+        return false
+      }
+      const refundCents: number = json.refund_amount_pence ?? 0
+      const patch = {
+        status: 'rejected' as const,
+        reviewed_at: new Date().toISOString(),
+        notes: notes ?? application.notes,
+        ...(refundCents > 0
+          ? {
+              refunded_at: new Date().toISOString(),
+              refund_id: json.refund_id ?? null,
+              refund_amount_pence: refundCents,
+            }
+          : {}),
+      }
+      setApps((prev) =>
+        prev.map((a) => (a.id === application.id ? { ...a, ...patch } : a)),
+      )
+      setSelected((prev) => (prev?.id === application.id ? { ...prev, ...patch } : prev))
+      const refundLabel =
+        refundCents > 0
+          ? ` Refund of £${(refundCents / 100).toFixed(2)} issued.`
+          : ''
+      const emailLabel = json.email_sent
+        ? ' Rejection email sent.'
+        : json.refund_attempted || refundCents > 0
+          ? ' Email queued — configure RESEND_API_KEY to send.'
+          : ''
+      toast({
+        title: 'Application rejected',
+        description: `${application.first_name} ${application.last_name}.${refundLabel}${emailLabel}`,
+      })
+      if (json.refund_error) {
+        toast({
+          title: 'Refund needs attention',
+          description: json.refund_error,
+          variant: 'destructive',
+        })
+      }
+      return true
+    }
+
+    // Plain status update path (shortlisted, pending, back to pending)
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -197,12 +265,7 @@ export function ApplicationsListPage() {
     setApps((prev) => prev.map((a) => (a.id === application.id ? { ...a, ...patch } : a)))
     setSelected((prev) => (prev?.id === application.id ? { ...prev, ...patch } : prev))
     toast({
-      title:
-        next === 'rejected'
-          ? 'Application rejected'
-          : next === 'shortlisted'
-            ? 'Marked as shortlisted'
-            : 'Status updated',
+      title: next === 'shortlisted' ? 'Marked as shortlisted' : 'Status updated',
       description: `${application.first_name} ${application.last_name}`,
     })
     return true
@@ -410,7 +473,9 @@ function ApplicantRow({
               )}
             </div>
           </div>
-          {/* Right column — date + status. Wraps under name on narrow. */}
+          {/* Right column — date + status (+ refunded badge when the
+              rejection issued a Stripe refund). Wraps under name on
+              narrow. */}
           <div className="flex flex-col items-end gap-1.5 flex-shrink-0 sm:flex-row sm:items-center sm:gap-3">
             <span className="text-[11px] text-text-dim whitespace-nowrap hidden sm:inline">
               {formatDate(a.created_at)}
@@ -418,6 +483,10 @@ function ApplicantRow({
             <Badge variant={statusBadge[status]} dot>
               {status}
             </Badge>
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {Boolean((a as any).refunded_at) && (
+              <Badge variant="draft">refunded</Badge>
+            )}
           </div>
         </div>
 
@@ -549,17 +618,48 @@ function ApplicationDetailModal({
       if (!ok) return
     }
     if (next === 'rejected') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const appAny = a as any
+      const paidPence: number = appAny.amount_paid_pence ?? 0
+      const hasSubscription: boolean = Boolean(appAny.stripe_subscription_id)
+      const alreadyRefunded: boolean = Boolean(appAny.refunded_at)
+      const willRefund = hasSubscription && paidPence > 0 && !alreadyRefunded
       const ok = await confirm({
         title: `Reject ${fullName}?`,
         description: (
           <span>
-            The application status will be set to <strong className="text-text">rejected</strong>.
-            No email is sent automatically — if you want to write back personally, use the “Email
-            applicant” link below. You can still re-open the application later by changing the
-            status.
+            The application status will be set to{' '}
+            <strong className="text-text">rejected</strong>.
+            {willRefund ? (
+              <ul className="mt-3 space-y-1.5 text-text-muted list-disc list-inside">
+                <li>
+                  Their Stripe subscription will be{' '}
+                  <span className="font-medium text-text">cancelled immediately</span>.
+                </li>
+                <li>
+                  Their initial payment of{' '}
+                  <span className="font-medium text-text">£{(paidPence / 100).toFixed(2)}</span>{' '}
+                  will be <span className="font-medium text-text">refunded</span> via Stripe.
+                </li>
+                <li>
+                  A branded rejection email is sent (or queued if SMTP isn&apos;t configured yet).
+                </li>
+              </ul>
+            ) : alreadyRefunded ? (
+              <span>
+                {' '}
+                Their payment has already been refunded — this just flips the status.
+              </span>
+            ) : (
+              <span>
+                {' '}
+                No payment is attached, so no refund or email is triggered. You can write
+                back personally via the “Email applicant” link below.
+              </span>
+            )}
           </span>
         ),
-        confirmLabel: 'Reject application',
+        confirmLabel: willRefund ? 'Reject & refund' : 'Reject application',
         tone: 'danger',
       })
       if (!ok) return
@@ -653,9 +753,21 @@ function ApplicationDetailModal({
                   )}
                 </div>
               </div>
-              <Badge variant={statusBadge[status]} dot>
-                {status}
-              </Badge>
+              <div className="flex flex-col items-end gap-2">
+                <Badge variant={statusBadge[status]} dot>
+                  {status}
+                </Badge>
+                {/* Refund ledger — only when the rejection issued a
+                    Stripe refund. Stays visible alongside the
+                    rejected status so the record is self-contained. */}
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                {Boolean((a as any).refunded_at) && (
+                  <Badge variant="draft">
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    Refunded £{((((a as any).refund_amount_pence ?? (a as any).amount_paid_pence ?? 0) as number) / 100).toFixed(2)}
+                  </Badge>
+                )}
+              </div>
             </div>
             <p className="mt-4 text-[11px] text-text-dim">
               Submitted {formatDateTime(a.created_at)}
@@ -663,6 +775,14 @@ function ApplicationDetailModal({
                 <>
                   {' · '}
                   Last reviewed {formatDateTime(a.reviewed_at)}
+                </>
+              )}
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {Boolean((a as any).refunded_at) && (
+                <>
+                  {' · '}
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  Refund issued {formatDateTime((a as any).refunded_at)}
                 </>
               )}
             </p>
@@ -872,39 +992,45 @@ function ApplicationDetailModal({
             </Button>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
+            {/* Rejected applications are a closed file — admin can't
+                approve, shortlist, or email-applicant from here. The
+                application stays visible (with Refunded ledger info)
+                for the record. Delete remains available on the left. */}
             {status !== 'rejected' && (
-              <Button
-                variant="ghost"
-                onClick={() => handleAction('rejected')}
-                loading={pending === 'rejected'}
-                className="text-accent-warm"
-              >
-                <XCircle size={14} />
-                Reject
-              </Button>
-            )}
-            {status !== 'shortlisted' && status !== 'approved' && (
-              <Button
-                variant="secondary"
-                onClick={() => handleAction('shortlisted')}
-                loading={pending === 'shortlisted'}
-              >
-                <Tag size={14} />
-                Shortlist
-              </Button>
-            )}
-            <Button onClick={() => handleAction('approved')} loading={pending === 'approved'}>
-              <CheckCircle2 size={14} />
-              {status === 'approved' ? 'Re-provision member' : 'Approve & create member'}
-            </Button>
-            {a.email && (
-              <a
-                href={`mailto:${a.email}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-gold transition-colors"
-              >
-                Email applicant
-                <ExternalLink size={11} />
-              </a>
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleAction('rejected')}
+                  loading={pending === 'rejected'}
+                  className="text-accent-warm"
+                >
+                  <XCircle size={14} />
+                  Reject
+                </Button>
+                {status !== 'shortlisted' && status !== 'approved' && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleAction('shortlisted')}
+                    loading={pending === 'shortlisted'}
+                  >
+                    <Tag size={14} />
+                    Shortlist
+                  </Button>
+                )}
+                <Button onClick={() => handleAction('approved')} loading={pending === 'approved'}>
+                  <CheckCircle2 size={14} />
+                  {status === 'approved' ? 'Re-provision member' : 'Approve & create member'}
+                </Button>
+                {a.email && (
+                  <a
+                    href={`mailto:${a.email}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-gold transition-colors"
+                  >
+                    Email applicant
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </>
             )}
           </div>
         </div>

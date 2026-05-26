@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { useTheme } from '@/providers/ThemeProvider'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -523,14 +525,49 @@ function RowActions({
   alwaysVisible?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const { theme } = useTheme()
+
+  function placeMenu() {
+    if (!btnRef.current) return
+    const r = btnRef.current.getBoundingClientRect()
+    const menuW = 150
+    const menuH = 90
+    const openUp = window.innerHeight - r.bottom < menuH + 16
+    setCoords({
+      top: openUp ? r.top - menuH - 4 : r.bottom + 4,
+      left: Math.max(8, r.right - menuW),
+    })
+  }
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (open) {
+      setOpen(false)
+      return
+    }
+    placeMenu()
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const handler = () => placeMenu()
+    window.addEventListener('scroll', handler, true)
+    window.addEventListener('resize', handler)
+    return () => {
+      window.removeEventListener('scroll', handler, true)
+      window.removeEventListener('resize', handler)
+    }
+  }, [open])
+
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen((v) => !v)
-        }}
+        onClick={toggle}
         className={cn(
           'p-1.5 rounded hover:bg-surface-2 text-text-dim hover:text-text transition-colors',
           !alwaysVisible && 'opacity-0 group-hover:opacity-100',
@@ -540,39 +577,43 @@ function RowActions({
       >
         <MoreVertical size={14} strokeWidth={1.8} />
       </button>
-      {open && (
-        <>
-          {/* Click-out catcher */}
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 min-w-[150px] z-20">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setOpen(false)
-                onEdit()
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-text"
+      {open && coords && typeof window !== 'undefined' &&
+        createPortal(
+          <div className={theme === 'night' ? 'theme-night-admin' : ''}>
+            <div className="fixed inset-0 z-60" onClick={() => setOpen(false)} />
+            <div
+              className="fixed bg-surface border border-border rounded-md shadow-lg py-1 min-w-[150px] z-61"
+              style={{ top: coords.top, left: coords.left }}
             >
-              <Pencil size={12} />
-              Edit
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setOpen(false)
-                onDelete()
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-accent-warm"
-            >
-              <Trash2 size={12} />
-              Delete
-            </button>
-          </div>
-        </>
-      )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOpen(false)
+                  onEdit()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-text"
+              >
+                <Pencil size={12} />
+                Edit
+              </button>
+              <div className="my-1 h-px bg-border" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOpen(false)
+                  onDelete()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-accent-warm"
+              >
+                <Trash2 size={12} />
+                Delete
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

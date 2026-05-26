@@ -19,6 +19,8 @@ const footerColumns = [
     links: [
       { href: '/about', label: 'Our Founder' },
       { href: '/contact-us', label: 'Contact Us' },
+      { href: '/reviews', label: 'Reviews' },
+      { href: '/share-your-experience', label: 'Share Your Experience' },
       { href: '/club-rules', label: 'Club Rules' },
     ],
   },

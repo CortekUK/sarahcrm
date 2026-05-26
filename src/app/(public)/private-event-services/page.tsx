@@ -67,7 +67,7 @@ export default async function PrivateEventServicesPage() {
   return (
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
-      <section className="relative min-h-[68vh] w-full overflow-hidden bg-ink">
+      <section className="relative min-h-[68vh] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -77,7 +77,7 @@ export default async function PrivateEventServicesPage() {
           overlay={0.55}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 min-h-[68vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>
@@ -178,7 +178,7 @@ export default async function PrivateEventServicesPage() {
                   <a
                     key={c.id}
                     {...props}
-                    className="group block bg-ink/60 border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 overflow-hidden"
+                    className="always-night group block bg-graphite-2 border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500 overflow-hidden"
                   >
                     <div className="relative aspect-[4/3] overflow-hidden bg-graphite">
                       {c.image_url ? (
@@ -248,8 +248,10 @@ export default async function PrivateEventServicesPage() {
          Three editorial moments combined into one plum + dusk
          aurora section so the page closes on a single premium
          beat instead of three smaller ones. Same bg as the
-         homepage ApplyClose newsletter section. */}
-      <section className="relative overflow-hidden bg-plum py-24 md:py-32">
+         homepage ApplyClose newsletter section. Pinned to the
+         night palette so the plum + ivory + bronze treatment
+         reads identically in day mode. */}
+      <section className="always-night relative overflow-hidden bg-plum py-24 md:py-32">
         <Aurora variant="dusk" z={0} />
         <div className="relative z-10 max-w-3xl mx-auto px-6 lg:px-10 text-center">
           {/* Primary moment — the enquiry CTA */}

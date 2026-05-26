@@ -262,6 +262,7 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
             onMoveBlock={editor.moveBlock}
             onDuplicateBlock={editor.duplicateBlock}
             onDeleteBlock={editor.deleteBlock}
+            onUpdateBlock={editor.updateBlock}
           />
         </main>
       </div>

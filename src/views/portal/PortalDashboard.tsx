@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { formatDate } from '@/lib/utils'
@@ -11,8 +12,11 @@ import {
   Crown,
   CreditCard,
   Handshake,
+  Inbox,
+  Sparkles,
   TrendingUp,
   Users,
+  UserPlus,
 } from 'lucide-react'
 import {
   PortalBadge,
@@ -66,10 +70,58 @@ interface RecentIntro {
   }
 }
 
+interface CuratedEvent {
+  id: string
+  slug: string
+  title: string
+  start_date: string
+  venue_name: string | null
+  venue_city: string | null
+  cover_image_url: string | null
+  event_type: Database['public']['Enums']['event_type']
+}
+
+interface RecentMember {
+  id: string
+  membership_tier: MemberTier
+  company_name: string | null
+  created_at: string
+  profile: {
+    first_name: string | null
+    last_name: string | null
+    company_name: string | null
+    avatar_url: string | null
+    job_title: string | null
+  } | null
+}
+
+interface ConciergeRequest {
+  id: string
+  request_type: string
+  status: string
+  event_name: string | null
+  dates: string | null
+  location: string | null
+  created_at: string
+}
+
+interface NextPayment {
+  amount_pence: number
+  currency: string
+  due_date: string | null
+  payment_type: string
+}
+
 const tierLabels: Record<MemberTier, string> = {
   tier_1: 'Tier I — Individual',
   tier_2: 'Tier II — Business',
   tier_3: 'Tier III — Business Premium',
+}
+
+const tierShortLabel: Record<MemberTier, string> = {
+  tier_1: 'Tier I',
+  tier_2: 'Tier II',
+  tier_3: 'Tier III',
 }
 
 const tierDescriptions: Record<MemberTier, string> = {
@@ -87,12 +139,59 @@ const introVariant: Record<IntroStatus, PortalBadgeVariant> = {
   declined: 'urgent',
 }
 
+// Status strings we consider "still open" for concierge requests.
+// Anything not in this set (fulfilled / cancelled / declined / closed)
+// is treated as closed and hidden from the open list.
+const CLOSED_CONCIERGE_STATUSES = new Set([
+  'fulfilled',
+  'completed',
+  'cancelled',
+  'canceled',
+  'declined',
+  'closed',
+])
+
+function conciergeVariant(status: string): PortalBadgeVariant {
+  const s = status.toLowerCase()
+  if (s === 'open' || s === 'new' || s === 'submitted') return 'upcoming'
+  if (s === 'in_progress' || s === 'quoted' || s === 'reviewing') return 'info'
+  return 'draft'
+}
+
+function prettyConciergeStatus(status: string) {
+  return status
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function formatMoney(pence: number, currency: string) {
+  try {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: currency || 'GBP',
+      maximumFractionDigits: pence % 100 === 0 ? 0 : 2,
+    }).format(pence / 100)
+  } catch {
+    return `£${(pence / 100).toFixed(2)}`
+  }
+}
+
+const eventTypeLabel: Record<Database['public']['Enums']['event_type'], string> = {
+  member_event: 'Members Evening',
+  curated_luxury: 'Curated Luxury',
+  retreat: 'Retreat',
+}
+
 export function PortalDashboard() {
   const { profile } = useAuth()
   const [member, setMember] = useState<MemberRecord | null>(null)
   const [upcomingBookings, setUpcomingBookings] = useState<UpcomingBooking[]>([])
   const [recentIntros, setRecentIntros] = useState<RecentIntro[]>([])
   const [totalMembers, setTotalMembers] = useState(0)
+  const [curatedEvents, setCuratedEvents] = useState<CuratedEvent[]>([])
+  const [recentMembers, setRecentMembers] = useState<RecentMember[]>([])
+  const [openConcierge, setOpenConcierge] = useState<ConciergeRequest[]>([])
+  const [nextPayment, setNextPayment] = useState<NextPayment | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -116,7 +215,22 @@ export function PortalDashboard() {
     const memberId = memberData.id
 
     const now = new Date().toISOString()
-    const [bookingsRes, introsARes, introsBRes, countRes] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10)
+
+    // Pull everything in parallel — the dashboard makes ~8 read-only
+    // queries on mount, all small and indexed. Doing them serially
+    // would add several hundred ms of waterfall for no benefit.
+    const [
+      bookingsRes,
+      introsARes,
+      introsBRes,
+      countRes,
+      upcomingEventsRes,
+      bookedEventIdsRes,
+      recentMembersRes,
+      conciergeRes,
+      nextPaymentRes,
+    ] = await Promise.all([
       supabase
         .from('bookings')
         .select('id, status, events!inner(title, start_date, venue_name, venue_city)')
@@ -146,6 +260,56 @@ export function PortalDashboard() {
         .select('id', { count: 'exact', head: true })
         .eq('membership_status', 'active')
         .is('deleted_at', null),
+      // Curated-for-you candidate pool — published/live events from
+      // today onward. We over-fetch (8) so we still have 3 left after
+      // subtracting events the member already booked, even if they've
+      // booked several of the next few.
+      supabase
+        .from('events')
+        .select('id, slug, title, start_date, venue_name, venue_city, cover_image_url, event_type')
+        .in('status', ['published', 'live'])
+        .gte('start_date', now)
+        .order('start_date', { ascending: true })
+        .limit(8),
+      // Every event_id this member already has a booking for (any
+      // status). Cheap — primary-key column only.
+      supabase
+        .from('bookings')
+        .select('event_id')
+        .eq('member_id', memberId),
+      // Recently joined members. We exclude self and only include
+      // members who opted to be showcased in the network (privacy).
+      supabase
+        .from('members')
+        .select(
+          'id, membership_tier, company_name, created_at, profiles!inner(first_name, last_name, company_name, avatar_url, job_title)',
+        )
+        .eq('membership_status', 'active')
+        .is('deleted_at', null)
+        .eq('showcase_enabled', true)
+        .neq('profile_id', profileId)
+        .order('created_at', { ascending: false })
+        .limit(4),
+      supabase
+        .from('concierge_requests')
+        .select('id, request_type, status, event_name, dates, location, created_at')
+        .eq('member_id', memberId)
+        .order('created_at', { ascending: false })
+        .limit(10),
+      // Next billing: the soonest unpaid scheduled charge. We don't
+      // assume Stripe vs GoCardless — both write rows here.
+      supabase
+        .from('payments')
+        .select('amount_pence, currency, due_date, payment_type, status')
+        .eq('member_id', memberId)
+        // payment_status enum has 'pending' / 'overdue' / 'paid' /
+        // 'refunded' / 'failed' — no 'scheduled' or 'processing'.
+        // Upcoming = anything not yet paid out (pending OR overdue).
+        .in('status', ['pending', 'overdue'])
+        .gte('due_date', today)
+        .order('due_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
     ])
 
     if (bookingsRes.data) setUpcomingBookings(bookingsRes.data as unknown as UpcomingBooking[])
@@ -180,6 +344,50 @@ export function PortalDashboard() {
     allIntros.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     setRecentIntros(allIntros.slice(0, 5))
     setTotalMembers(countRes.count ?? 0)
+
+    // Subtract already-booked events from the curated pool before
+    // taking the top 3. Doing this client-side avoids a more complex
+    // `NOT IN` subquery — the pool is small (8 rows) so the filter is
+    // trivial.
+    const bookedSet = new Set(
+      (bookedEventIdsRes.data ?? []).map((b) => b.event_id as string),
+    )
+    const curated = ((upcomingEventsRes.data ?? []) as CuratedEvent[])
+      .filter((e) => !bookedSet.has(e.id))
+      .slice(0, 3)
+    setCuratedEvents(curated)
+
+    setRecentMembers(
+      ((recentMembersRes.data ?? []) as unknown as Array<{
+        id: string
+        membership_tier: MemberTier
+        company_name: string | null
+        created_at: string
+        profiles: RecentMember['profile']
+      }>).map((row) => ({
+        id: row.id,
+        membership_tier: row.membership_tier,
+        company_name: row.company_name,
+        created_at: row.created_at,
+        profile: row.profiles,
+      })),
+    )
+
+    setOpenConcierge(
+      ((conciergeRes.data ?? []) as ConciergeRequest[]).filter(
+        (r) => !CLOSED_CONCIERGE_STATUSES.has(r.status.toLowerCase()),
+      ).slice(0, 4),
+    )
+
+    if (nextPaymentRes.data) {
+      setNextPayment({
+        amount_pence: nextPaymentRes.data.amount_pence,
+        currency: nextPaymentRes.data.currency,
+        due_date: nextPaymentRes.data.due_date,
+        payment_type: nextPaymentRes.data.payment_type,
+      })
+    }
+
     setLoading(false)
   }
 
@@ -263,6 +471,41 @@ export function PortalDashboard() {
           icon={<TrendingUp size={17} strokeWidth={1.5} />}
         />
       </div>
+
+      {/* ── Next billing snapshot ──────────────────────────────────────
+          Only renders if the member has an active subscription AND there's
+          an upcoming scheduled payment row. Hidden otherwise (members
+          paying ad-hoc / no subscription / no due payments). */}
+      {nextPayment && member?.stripe_subscription_id && (
+        <PortalCard className="mb-8 p-6 lg:p-7 border-graphite-line/55 bg-graphite-2/40">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+            <div className="w-11 h-11 rounded-full border border-graphite-line/60 bg-graphite/40 flex items-center justify-center text-bronze-light shrink-0">
+              <CreditCard size={18} strokeWidth={1.5} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-1.5">
+                Next charge
+              </p>
+              <p className="font-[family-name:var(--font-display)] text-[19px] text-ivory leading-tight">
+                {formatMoney(nextPayment.amount_pence, nextPayment.currency)}
+                {nextPayment.due_date && (
+                  <span className="ml-2 text-ivory-soft/75 text-[14px]">
+                    on {formatDate(nextPayment.due_date)}
+                  </span>
+                )}
+              </p>
+              <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/70 capitalize">
+                {nextPayment.payment_type.replace(/_/g, ' ')}
+              </p>
+            </div>
+            <Link href="/portal/billing" className="shrink-0">
+              <PortalButton variant="secondary" size="sm" icon={<ArrowUpRight size={13} strokeWidth={1.5} />}>
+                View billing
+              </PortalButton>
+            </Link>
+          </div>
+        </PortalCard>
+      )}
 
       {/* Upcoming Events + Recent Introductions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 mb-8">
@@ -388,8 +631,129 @@ export function PortalDashboard() {
         </PortalCard>
       </div>
 
+      {/* ── Curated for you ────────────────────────────────────────────
+          Upcoming events the member hasn't booked yet, soonest first.
+          Hidden entirely if the candidate pool is empty (i.e. they're
+          booked into everything, or there's nothing on the calendar). */}
+      {curatedEvents.length > 0 && (
+        <div className="mb-10">
+          <div className="flex items-end justify-between gap-4 mb-6">
+            <PortalSectionTitle
+              eyebrow="For you"
+              className="mb-0"
+            >
+              <span className="inline-flex items-center gap-2.5">
+                <Sparkles size={14} strokeWidth={1.5} className="text-bronze-light" />
+                Curated for you.
+              </span>
+            </PortalSectionTitle>
+            <Link
+              href="/portal/events"
+              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+            >
+              All events <ArrowUpRight size={11} strokeWidth={1.5} />
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {curatedEvents.map((evt) => (
+              <Link key={evt.id} href={`/portal/events/${evt.id}`} className="group">
+                <PortalCard className="overflow-hidden p-0 h-full flex flex-col transition-colors group-hover:border-bronze/45">
+                  <div className="relative aspect-[4/3] w-full bg-graphite/40 overflow-hidden">
+                    {evt.cover_image_url ? (
+                      <Image
+                        src={evt.cover_image_url}
+                        alt={evt.title}
+                        fill
+                        sizes="(min-width:1024px) 400px, 100vw"
+                        className="object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center text-bronze-light/40">
+                        <CalendarDays size={40} strokeWidth={1.2} />
+                      </div>
+                    )}
+                    <div className="absolute top-3 left-3">
+                      <span className="inline-flex items-center px-2.5 py-1 bg-ink/75 backdrop-blur-sm border border-bronze/35 font-[family-name:var(--font-meta)] text-[9px] font-medium uppercase tracking-[0.22em] text-bronze-light">
+                        {eventTypeLabel[evt.event_type]}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-5 flex-1 flex flex-col">
+                    <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light mb-2">
+                      {new Date(evt.start_date).toLocaleDateString('en-GB', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                      })}
+                    </p>
+                    <p className="font-[family-name:var(--font-display)] text-[17px] text-ivory leading-snug group-hover:text-bronze-light transition-colors">
+                      {evt.title}
+                    </p>
+                    {(evt.venue_name || evt.venue_city) && (
+                      <p className="mt-2 font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/75 leading-snug">
+                        {[evt.venue_name, evt.venue_city].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    <div className="mt-auto pt-4 inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light opacity-0 group-hover:opacity-100 transition-opacity">
+                      View evening <ArrowUpRight size={11} strokeWidth={1.5} />
+                    </div>
+                  </div>
+                </PortalCard>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Open concierge requests ────────────────────────────────────
+          Only renders if the member has at least one open request.
+          Avoids cluttering the dashboard for members who never use it. */}
+      {openConcierge.length > 0 && (
+        <PortalCard className="mb-10 p-6 lg:p-7">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <PortalSectionTitle eyebrow="With the team" className="mb-0">
+              <span className="inline-flex items-center gap-2.5">
+                <Inbox size={14} strokeWidth={1.5} className="text-bronze-light" />
+                Open requests.
+              </span>
+            </PortalSectionTitle>
+            <Link
+              href="/portal/profile"
+              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+            >
+              Make a request <ArrowUpRight size={11} strokeWidth={1.5} />
+            </Link>
+          </div>
+          <ul className="divide-y divide-graphite-line/40">
+            {openConcierge.map((req) => {
+              const subtitleBits = [req.event_name, req.location, req.dates].filter(Boolean)
+              return (
+                <li key={req.id} className="flex items-center gap-4 py-4 first:pt-0 last:pb-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight capitalize">
+                      {req.request_type.replace(/_/g, ' ')}
+                    </p>
+                    {subtitleBits.length > 0 && (
+                      <p className="mt-1 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] text-slate-haze truncate">
+                        {subtitleBits.join(' · ')}
+                      </p>
+                    )}
+                    <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[12px] text-ivory-soft/55">
+                      Submitted {formatDate(req.created_at)}
+                    </p>
+                  </div>
+                  <PortalBadge variant={conciergeVariant(req.status)} dot>
+                    {prettyConciergeStatus(req.status)}
+                  </PortalBadge>
+                </li>
+              )
+            })}
+          </ul>
+        </PortalCard>
+      )}
+
       {/* Membership + Network */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 mb-10">
         <PortalCard className="p-6 lg:p-7">
           <PortalSectionTitle eyebrow="Your Membership">
             <span className="inline-flex items-center gap-2.5">
@@ -456,6 +820,67 @@ export function PortalDashboard() {
           </div>
         </PortalCard>
       </div>
+
+      {/* ── Recently joined ────────────────────────────────────────────
+          Public-by-consent: we only show members who set
+          `showcase_enabled = true` on their profile. Self is filtered
+          out at query time. Hidden if none qualify. */}
+      {recentMembers.length > 0 && (
+        <div>
+          <div className="flex items-end justify-between gap-4 mb-6">
+            <PortalSectionTitle eyebrow="New to the table" className="mb-0">
+              <span className="inline-flex items-center gap-2.5">
+                <UserPlus size={14} strokeWidth={1.5} className="text-bronze-light" />
+                Recently joined.
+              </span>
+            </PortalSectionTitle>
+            <Link
+              href="/portal/network"
+              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+            >
+              Full network <ArrowUpRight size={11} strokeWidth={1.5} />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-5">
+            {recentMembers.map((m) => {
+              const fullName = `${m.profile?.first_name ?? ''} ${m.profile?.last_name ?? ''}`.trim()
+              const initials = `${m.profile?.first_name?.[0] ?? ''}${m.profile?.last_name?.[0] ?? ''}`.toUpperCase() || '?'
+              return (
+                <PortalCard key={m.id} className="p-5 text-center flex flex-col items-center">
+                  <div className="w-14 h-14 rounded-full border border-bronze/35 bg-graphite/40 overflow-hidden flex items-center justify-center mb-3">
+                    {m.profile?.avatar_url ? (
+                      <Image
+                        src={m.profile.avatar_url}
+                        alt={fullName}
+                        width={56}
+                        height={56}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="font-[family-name:var(--font-display)] text-[15px] text-bronze-light">
+                        {initials}
+                      </span>
+                    )}
+                  </div>
+                  <p className="font-[family-name:var(--font-display)] text-[14px] text-ivory leading-tight truncate w-full">
+                    {fullName || 'Member'}
+                  </p>
+                  {(m.company_name || m.profile?.company_name) && (
+                    <p className="mt-1 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.22em] text-slate-haze truncate w-full">
+                      {m.company_name || m.profile?.company_name}
+                    </p>
+                  )}
+                  <div className="mt-3 pt-3 border-t border-graphite-line/40 w-full">
+                    <p className="font-[family-name:var(--font-meta)] text-[9px] uppercase tracking-[0.28em] text-bronze-light/85">
+                      {tierShortLabel[m.membership_tier]}
+                    </p>
+                  </div>
+                </PortalCard>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

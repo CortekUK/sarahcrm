@@ -12,8 +12,9 @@ import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMed
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import { ArrowUpRight, Check, Mail, MapPin, Phone } from 'lucide-react'
+import { ArrowUpRight, Check, Mail, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fireBronzeConfetti } from '@/lib/effects/confetti'
 
 // Lightweight hero shape — populated from the CMS in a useEffect so the
 // page can stay a client component (the contact form needs interactivity).
@@ -142,12 +143,15 @@ export default function ContactPage() {
       return
     }
     setSubmitted(true)
+    // Bronze + gold burst to match the site palette. Fire-and-forget;
+    // we don't block the success panel on the dynamic import.
+    void fireBronzeConfetti()
   }
 
   return (
     <>
       {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[60vh] min-h-[440px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -157,7 +161,7 @@ export default function ContactPage() {
           overlay={0.55}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[45%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>
@@ -333,7 +337,7 @@ export default function ContactPage() {
       </Chapter>
 
       {/* ── Locations strip ─────────────────────────────────────────── */}
-      <section className="relative bg-graphite border-t border-graphite-line/40 py-24 lg:py-32 overflow-hidden">
+      <section className="always-night relative bg-graphite border-t border-graphite-line/40 py-24 lg:py-32 overflow-hidden">
         <Aurora variant="soft" />
         <div className="relative z-10 max-w-6xl mx-auto px-6 lg:px-10">
           <Reveal type="up" delay={0}>
@@ -383,7 +387,7 @@ export default function ContactPage() {
 function SuccessPanel() {
   return (
     <Reveal type="up" delay={0}>
-      <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-14 text-center">
+      <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-14 text-center day:bg-white day:shadow-lg">
         <div className="w-14 h-14 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-6">
           <Check size={24} strokeWidth={1.5} className="text-bronze-light" />
         </div>
@@ -427,7 +431,7 @@ function SubjectTiles({
                 'group relative flex items-center gap-4 px-5 py-3.5 border text-left transition-all duration-300',
                 on
                   ? 'border-bronze bg-bronze/10 shadow-[0_0_22px_-10px_rgba(192,152,112,0.6)]'
-                  : 'border-graphite-line/70 bg-graphite/30 hover:border-bronze/55 hover:bg-bronze/5',
+                  : 'border-graphite-line/70 bg-graphite/30 hover:border-bronze/55 hover:bg-bronze/5 day:bg-white day:border-graphite-line/55 day:shadow-sm day:hover:border-bronze/55 day:hover:bg-bronze/5',
               )}
             >
               <span

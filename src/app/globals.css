@@ -7,6 +7,16 @@
 
 @import "tailwindcss";
 
+/* Custom Tailwind v4 variants for theme-aware styling. Use as a
+   class prefix in any component:
+     `day:bg-white night:bg-graphite/30`
+     `day:text-graphite-dark night:text-ivory`
+   Lets each editorial section ship a bespoke cream palette without
+   tag-soup conditional className strings. Both target the active
+   theme class on <html>, set by the boot script. */
+@custom-variant day (&:where(html.theme-day *));
+@custom-variant night (&:where(html.theme-night *));
+
 /* ============================================================
    THEME TOKENS — Tailwind v4 CSS-first config
    ============================================================ */
@@ -464,6 +474,281 @@
 }
 
 /* ============================================================
+   .theme-day — premium WARM CREAM + BRONZE light palette.
+   ============================================================
+   Mirrors the .theme-night architecture but inverts every
+   night-palette token to a light equivalent, so the same
+   `bg-ink`, `text-ivory`, `border-graphite-line` utilities
+   resolve to a daytime ivory canvas with deep graphite text
+   and bronze accents. The shadcn aliases and the legacy
+   --color-bg / --color-text family are also remapped so the
+   admin + portal surfaces flip cleanly when this class is on
+   <html> instead of .theme-night.
+   ============================================================ */
+/* Page background colour — settable at <html> level only, so it
+   survives even inside an `.always-night` subtree. Use this for
+   gradients/scrims that need to fade into whatever the surrounding
+   page background actually is (e.g. the hero's bottom vignette). */
+html.theme-night { --page-bg: #0E1014; }
+html.theme-day { --page-bg: #FAFAF7; }
+
+.theme-day {
+  /* ── Night palette tokens, remapped to cream-side equivalents ── */
+  /* Surfaces (was darkest → lightest, now lightest → slightly warmer) */
+  --color-ink: #FAFAF7;          /* base "ink" → letterpress cream */
+  --color-graphite: #F3F0EA;     /* "graphite" → soft warm cream */
+  --color-graphite-2: #FFFFFF;   /* elevated card → pure white */
+  --color-graphite-3: #EEEBE4;   /* hover state → cream-2 */
+  --color-graphite-line: #E5E0D8;/* hairline → cream-bordered */
+
+  /* Text — was ivory family, now deep graphite */
+  --color-ivory: #2C2825;        /* primary text */
+  --color-ivory-soft: #5C5651;   /* secondary text — slightly darker than #6B6560 so it stays legible against cream */
+  --color-slate-haze: #8A8480;   /* meta / caption */
+  --color-slate-dim: #B0AAA3;    /* watermark / dimmer label */
+
+  /* Bronze — nudge slightly darker so it holds AA contrast on cream
+     without losing the burnished feel. */
+  --color-bronze: #96793F;
+  --color-bronze-light: #B8975A;
+  --color-bronze-dark: #6E5A2E;
+  --color-bronze-muted: rgba(184, 151, 90, 0.10);
+  --color-bronze-line: rgba(184, 151, 90, 0.32);
+
+  /* Editorial moments — plum & bone swap */
+  --color-plum: #F0E4DC;         /* a dusty rose for editorial blocks */
+  --color-plum-light: #E0D2C9;
+  --color-bone: #2C2825;         /* "inversion" target → deep ink */
+
+  /* Glows — soften so they read on a bright canvas instead of
+     overpowering it */
+  --color-aurora-1: rgba(168, 123, 79, 0.10);
+  --color-aurora-2: rgba(184, 151, 90, 0.07);
+  --color-aurora-3: rgba(192, 152, 112, 0.05);
+
+  /* ── Legacy admin tokens — restore to cream defaults so the
+     admin/portal surfaces light up without needing the
+     .theme-night-admin opt-in. (When .theme-day is active, the
+     admin layout simply doesn't apply .theme-night-admin.) ── */
+  --color-bg: #FAFAF7;
+  --color-bg-alt: #F3F0EA;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #F7F5F0;
+  --color-surface-3: #EEEBE4;
+  --color-text: #2C2825;
+  --color-text-muted: #5C5651;
+  --color-text-dim: #8A8480;
+  --color-gold: #B8975A;
+  --color-gold-light: #D4B978;
+  --color-gold-dark: #96793F;
+  --color-gold-muted: rgba(184, 151, 90, 0.10);
+  --color-border: #E5E0D8;
+  --color-border-hover: #D4CEC4;
+  --color-border-gold: rgba(184, 151, 90, 0.30);
+  --color-accent: #5B7B6A;
+  --color-accent-warm: #C4694A;
+  --color-accent-blue: #5A7B96;
+
+  /* ── Shadcn aliases — point at the cream surfaces so primitives
+     like Card/Popover/Select inherit the warm light palette. ── */
+  --background: #FAFAF7;
+  --foreground: #2C2825;
+  --card: #FFFFFF;
+  --card-foreground: #2C2825;
+  --popover: #FFFFFF;
+  --popover-foreground: #2C2825;
+  --primary: #B8975A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F3F0EA;
+  --secondary-foreground: #2C2825;
+  --muted: #F7F5F0;
+  --muted-foreground: #5C5651;
+  --accent: #F3F0EA;
+  --accent-foreground: #2C2825;
+  --destructive: #C4694A;
+  --destructive-foreground: #FFFFFF;
+  --input: #E5E0D8;
+  --ring: rgba(184, 151, 90, 0.40);
+
+  --color-background: #FAFAF7;
+  --color-foreground: #2C2825;
+  --color-primary: #B8975A;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F3F0EA;
+  --color-secondary-foreground: #2C2825;
+  --color-muted: #F7F5F0;
+  --color-muted-foreground: #5C5651;
+  --color-destructive: #C4694A;
+  --color-destructive-foreground: #FFFFFF;
+  --color-input: #E5E0D8;
+  --color-ring: rgba(184, 151, 90, 0.40);
+
+  /* ── Shadows — warm-tinted, never pure black. Pure black on a
+     cream surface looks like a printer artefact. ── */
+  --shadow-sm: 0 1px 2px rgba(44, 40, 37, 0.06);
+  --shadow-md: 0 4px 12px rgba(44, 40, 37, 0.08);
+  --shadow-lg: 0 12px 28px rgba(44, 40, 37, 0.10);
+  --shadow-xl: 0 24px 48px rgba(44, 40, 37, 0.13);
+  --shadow-card: 0 1px 3px rgba(44, 40, 37, 0.06);
+  --shadow-card-hover: 0 12px 32px rgba(44, 40, 37, 0.10);
+
+  /* Body defaults so unthemed content reads correctly */
+  background-color: #FAFAF7;
+  color: #2C2825;
+  font-family: var(--font-sans);
+}
+
+/* Headings stay serif. Use the ivory token (which day mode maps to
+   deep ink) so descendant `.always-night` subtrees can flip headings
+   back to actual ivory by overriding the token — otherwise a
+   hardcoded color here wins over the token-based text-ivory utility
+   via element specificity. */
+.theme-day h1,
+.theme-day h2,
+.theme-day h3,
+.theme-day h4,
+.theme-day h5,
+.theme-day h6 {
+  font-family: var(--font-display);
+  color: var(--color-ivory);
+}
+
+.theme-day a {
+  color: inherit;
+}
+
+/* Cream selection */
+.theme-day ::selection {
+  background: var(--color-bronze);
+  color: #FFFFFF;
+}
+
+/* Light scrollbar — cream track + bronze thumb */
+.theme-day ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.theme-day ::-webkit-scrollbar-track {
+  background: #F3F0EA;
+}
+.theme-day ::-webkit-scrollbar-thumb {
+  background: #D4CEC4;
+  border-radius: 6px;
+}
+.theme-day ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-bronze);
+}
+
+/* Autofill on the day theme — same background-clip trick, but
+   paint the glyphs in ink so they read on the cream rectangle. */
+.theme-day input:-webkit-autofill,
+.theme-day input:-webkit-autofill:hover,
+.theme-day input:-webkit-autofill:focus,
+.theme-day input:-webkit-autofill:active,
+.theme-day textarea:-webkit-autofill,
+.theme-day textarea:-webkit-autofill:hover,
+.theme-day textarea:-webkit-autofill:focus,
+.theme-day select:-webkit-autofill,
+.theme-day select:-webkit-autofill:hover,
+.theme-day select:-webkit-autofill:focus {
+  -webkit-text-fill-color: #2C2825 !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  caret-color: #2C2825 !important;
+  transition: background-color 99999s ease-in-out 0s,
+    color 99999s ease-in-out 0s;
+}
+
+/* Hero bottom-vignette helper.
+   ============================================================
+   Replaces the standard `bg-gradient-to-b from-transparent to-ink`
+   pattern used by every page hero.
+   - NIGHT mode: full fade transparent → ink, blends seamlessly
+     into the dark page below.
+   - DAY mode: a much softer toe — fully transparent for the top
+     ~70% of the gradient div, then fades to cream at ~50% opacity
+     at the very bottom edge. Just enough lift to settle the image
+     into the cream page without washing the bottom half away. */
+.hero-fade-bottom {
+  background: linear-gradient(to bottom, transparent, var(--page-bg, #0E1014));
+}
+html.theme-day .hero-fade-bottom {
+  background: linear-gradient(
+    to bottom,
+    rgba(250, 250, 247, 0) 0%,
+    rgba(250, 250, 247, 0.15) 35%,
+    rgba(250, 250, 247, 0.55) 70%,
+    rgba(250, 250, 247, 0.95) 100%
+  );
+}
+
+/* ============================================================
+   .always-night — "dark island" opt-in.
+   ============================================================
+   Pins the night palette tokens regardless of the active theme,
+   so any subtree wrapped in this class stays dark even when the
+   rest of the page flips to day mode. Use on hero sections whose
+   design depends on a dark photographic backdrop with light type
+   + bronze overlays (e.g. NightHero, full-bleed page heroes,
+   location image cards). The surrounding page still themes
+   normally — only the wrapped subtree opts out. */
+.always-night {
+  --color-ink: #0E1014;
+  --color-graphite: #14171D;
+  --color-graphite-2: #1A1D23;
+  --color-graphite-3: #232730;
+  --color-graphite-line: #2C313B;
+
+  --color-ivory: #F0EBE0;
+  --color-ivory-soft: #D6D0C2;
+  --color-slate-haze: #8A8680;
+  --color-slate-dim: #5C5953;
+
+  --color-bronze: #A87B4F;
+  --color-bronze-light: #C09870;
+  --color-bronze-dark: #815D38;
+  --color-bronze-muted: rgba(168, 123, 79, 0.12);
+  --color-bronze-line: rgba(168, 123, 79, 0.28);
+
+  --color-plum: #3A1B1F;
+  --color-plum-light: #5C2A30;
+  --color-bone: #E8E2D5;
+
+  /* Also re-pin the legacy admin/portal-shared tokens in case any
+     descendant uses them (e.g. NavLinks, badges). */
+  --color-bg: var(--color-ink);
+  --color-bg-alt: var(--color-graphite);
+  --color-surface: var(--color-graphite-2);
+  --color-text: var(--color-ivory);
+  --color-text-muted: var(--color-ivory-soft);
+  --color-text-dim: var(--color-slate-haze);
+  --color-gold: var(--color-bronze);
+  --color-gold-light: var(--color-bronze-light);
+  --color-gold-dark: var(--color-bronze-dark);
+  --color-border: var(--color-graphite-line);
+
+  color: var(--color-ivory);
+}
+
+/* Smooth swap between modes — but ONLY during the actual toggle.
+   The ThemeProvider adds .is-theming to <html> for ~280ms whenever
+   the theme changes; this rule fades colour/background/border on
+   every element for that brief window, then disappears so it doesn't
+   override the bespoke transitions that drive component animations
+   (Reveal fades, hero hovers, modal opens, etc.). */
+html.is-theming,
+html.is-theming *,
+html.is-theming *::before,
+html.is-theming *::after {
+  transition:
+    background-color 260ms ease,
+    border-color 260ms ease,
+    color 260ms ease,
+    fill 260ms ease,
+    stroke 260ms ease !important;
+}
+
+/* ============================================================
    EDITORIAL TYPOGRAPHY UTILITIES
    ============================================================
    Reach for these inside the public-site components instead of
@@ -895,20 +1180,23 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Membership form step indicator — slow bronze pulse on the segment
    leaving the active step. Opacity oscillation paired with the
-   element's inline box-shadow gives the line a quiet "blinking glow"
-   that signals forward motion without screaming. */
+   element's inline drop-shadow gives the line a quiet "blinking glow"
+   that signals forward motion without screaming.
+   Wider opacity range (0.65 → 1) reads clearly in day mode where the
+   pulse competes with a brighter surround; in night mode it still
+   feels quiet because bronze on ink is naturally lower-contrast. */
 @keyframes membership-pulse {
   0%, 100% {
-    opacity: 0.45;
-    filter: brightness(0.9);
+    opacity: 0.65;
+    filter: brightness(1);
   }
   50% {
     opacity: 1;
-    filter: brightness(1.3);
+    filter: brightness(1.35);
   }
 }
 .animate-membership-pulse {
-  animation: membership-pulse 1.8s ease-in-out infinite;
+  animation: membership-pulse 1.4s ease-in-out infinite;
 }
 
 /* Receipt panel unfold — used when the selected payment card on the

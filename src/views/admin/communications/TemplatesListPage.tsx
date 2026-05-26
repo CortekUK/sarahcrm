@@ -1,8 +1,22 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Plus, Sparkles, Search, Loader2, Mail, MoreVertical, Trash2, Copy, Edit, Send } from 'lucide-react'
+import {
+  Plus,
+  Sparkles,
+  Search,
+  Loader2,
+  Mail,
+  MoreVertical,
+  Trash2,
+  Copy,
+  Edit,
+  Send,
+  CheckCircle2,
+  Archive,
+} from 'lucide-react'
 import { SendTemplateModal } from '@/components/templates/SendTemplateModal'
 import { previewMergeTags } from '@/lib/templates/preview-data'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
@@ -18,12 +32,18 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { Input } from '@/components/ui/Input'
-import { useTemplates, useDeleteTemplate, useDuplicateTemplate } from '@/lib/hooks/useTemplates'
+import {
+  useTemplates,
+  useDeleteTemplate,
+  useDuplicateTemplate,
+  useUpdateTemplate,
+} from '@/lib/hooks/useTemplates'
 import { useTemplateStats } from '@/lib/hooks/useTemplateStats'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDate } from '@/lib/utils'
+import { useTheme } from '@/providers/ThemeProvider'
 import type { Template } from '@/lib/templates/types'
 
 export function TemplatesListPage() {
@@ -44,6 +64,7 @@ export function TemplatesListPage() {
   const { data: stats } = useTemplateStats()
   const deleteTemplate = useDeleteTemplate()
   const duplicateTemplate = useDuplicateTemplate()
+  const updateTemplate = useUpdateTemplate()
 
   const counts = useMemo(
     () => ({
@@ -71,6 +92,28 @@ export function TemplatesListPage() {
     } catch (err) {
       toast({
         title: 'Failed to duplicate',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handlePublishToggle = async (template: Template) => {
+    const nextDraft = !template.is_draft
+    try {
+      await updateTemplate.mutateAsync({
+        id: template.id,
+        patch: { is_draft: nextDraft } as Partial<Template>,
+      })
+      toast({
+        title: nextDraft ? 'Moved to drafts' : 'Template published',
+        description: nextDraft
+          ? `"${template.name}" is now hidden from campaign send pickers.`
+          : `"${template.name}" is now sendable.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Failed',
         description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       })
@@ -241,9 +284,11 @@ export function TemplatesListPage() {
                     <TableCell className="text-text-muted">{formatDate(tpl.updated_at)}</TableCell>
                     <TableCell>
                       <RowMenu
+                        isDraft={tpl.is_draft}
                         onEdit={() => handleEdit(tpl)}
                         onSend={() => setSendTarget(tpl)}
                         onDuplicate={() => handleDuplicate(tpl)}
+                        onPublishToggle={() => handlePublishToggle(tpl)}
                         onDelete={() => handleDelete(tpl)}
                       />
                     </TableCell>
@@ -276,74 +321,138 @@ function StatTile({ label, value }: { label: string; value: number }) {
 }
 
 function RowMenu({
+  isDraft,
   onEdit,
   onSend,
   onDuplicate,
+  onPublishToggle,
   onDelete,
 }: {
+  isDraft: boolean
   onEdit: () => void
   onSend: () => void
   onDuplicate: () => void
+  onPublishToggle: () => void
   onDelete: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const { theme } = useTheme()
+
+  // The table wrapper uses overflow-x-auto which clips overflow-y too
+  // (CSS spec quirk). Rendering the menu in a portal with fixed
+  // positioning escapes that clipping context — but also escapes the
+  // admin shell's theme-night-admin scope. We re-apply that class on
+  // the portal root so surface tokens (bg-surface, border-border)
+  // resolve to the dark palette in night mode.
+  function placeMenu() {
+    if (!btnRef.current) return
+    const r = btnRef.current.getBoundingClientRect()
+    const menuW = 200
+    const menuH = 230
+    const openUp = window.innerHeight - r.bottom < menuH + 16
+    setCoords({
+      top: openUp ? r.top - menuH - 4 : r.bottom + 4,
+      left: Math.max(8, r.right - menuW),
+    })
+  }
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (open) {
+      setOpen(false)
+      return
+    }
+    placeMenu()
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const handler = () => placeMenu()
+    window.addEventListener('scroll', handler, true)
+    window.addEventListener('resize', handler)
+    return () => {
+      window.removeEventListener('scroll', handler, true)
+      window.removeEventListener('resize', handler)
+    }
+  }, [open])
+
   return (
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={toggle}
         className="p-1.5 rounded hover:bg-surface-2 text-text-muted"
         aria-label="More"
       >
         <MoreVertical size={14} />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 min-w-[160px] z-20">
-            <button
-              onClick={() => {
-                setOpen(false)
-                onSend()
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-gold font-medium"
+      {open && coords && typeof window !== 'undefined' &&
+        createPortal(
+          <div className={theme === 'night' ? 'theme-night-admin' : ''}>
+            <div className="fixed inset-0 z-60" onClick={() => setOpen(false)} />
+            <div
+              className="fixed bg-surface border border-border rounded-md shadow-lg py-1 min-w-[200px] z-61"
+              style={{ top: coords.top, left: coords.left }}
             >
-              <Send size={12} />
-              Send to members…
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              onClick={() => {
-                setOpen(false)
-                onEdit()
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2"
-            >
-              <Edit size={12} />
-              Edit
-            </button>
-            <button
-              onClick={() => {
-                setOpen(false)
-                onDuplicate()
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2"
-            >
-              <Copy size={12} />
-              Duplicate
-            </button>
-            <button
-              onClick={() => {
-                setOpen(false)
-                onDelete()
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-accent-warm"
-            >
-              <Trash2 size={12} />
-              Delete
-            </button>
-          </div>
-        </>
-      )}
+              <button
+                onClick={() => {
+                  setOpen(false)
+                  onSend()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-gold font-medium"
+              >
+                <Send size={12} />
+                Send to members…
+              </button>
+              <div className="my-1 h-px bg-border" />
+              <button
+                onClick={() => {
+                  setOpen(false)
+                  onPublishToggle()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-accent"
+              >
+                {isDraft ? <CheckCircle2 size={12} /> : <Archive size={12} />}
+                {isDraft ? 'Publish (mark ready)' : 'Move to drafts'}
+              </button>
+              <div className="my-1 h-px bg-border" />
+              <button
+                onClick={() => {
+                  setOpen(false)
+                  onEdit()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2"
+              >
+                <Edit size={12} />
+                Edit
+              </button>
+              <button
+                onClick={() => {
+                  setOpen(false)
+                  onDuplicate()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2"
+              >
+                <Copy size={12} />
+                Duplicate
+              </button>
+              <button
+                onClick={() => {
+                  setOpen(false)
+                  onDelete()
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-accent-warm"
+              >
+                <Trash2 size={12} />
+                Delete
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

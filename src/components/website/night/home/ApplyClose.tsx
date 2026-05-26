@@ -8,6 +8,7 @@ import { Spotlight } from '../effects/Spotlight'
 import { Reveal } from '../effects/Reveal'
 import { ArrowUpRight, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fireBronzeConfetti } from '@/lib/effects/confetti'
 
 // Final homepage chapter — pairs the membership-application CTA with a
 // quiet newsletter signup. Two columns under a single plum-aurora
@@ -33,25 +34,30 @@ export function ApplyClose() {
       return
     }
     setSubmitting(true)
-    const { error: err } = await supabase.from('mailing_list').insert({
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      email: email.trim(),
-    })
+    // Upsert by email — if someone signs up twice we refresh their
+    // first/last name + clear any previous unsubscribed_at, rather
+    // than blocking with a unique-violation error.
+    const { error: err } = await supabase.from('mailing_list').upsert(
+      {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        email: email.trim().toLowerCase(),
+        unsubscribed_at: null,
+        source: 'website',
+      },
+      { onConflict: 'email' },
+    )
     setSubmitting(false)
     if (err) {
-      const msg =
-        err.code === '23505'
-          ? "You're already on the list."
-          : 'Something went wrong. Please try again.'
-      setError(msg)
+      setError('Something went wrong. Please try again.')
       return
     }
     setSubmitted(true)
+    void fireBronzeConfetti()
   }
 
   return (
-    <section className="relative overflow-hidden bg-plum py-24 md:py-32">
+    <section className="always-night relative overflow-hidden bg-plum py-24 md:py-32">
       <Aurora variant="dusk" z={0} />
       <Spotlight size={900} color="rgba(192, 152, 112, 0.20)" />
 
@@ -102,12 +108,19 @@ export function ApplyClose() {
 
             <Reveal type="up" delay={900} className="mt-10">
               {submitted ? (
-                <div className="flex items-center gap-4">
-                  <span className="flex items-center justify-center w-10 h-10 rounded-full border border-bronze bg-bronze/10">
-                    <Check size={16} className="text-bronze-light" strokeWidth={1.8} />
-                  </span>
-                  <p className="font-[family-name:var(--font-editorial)] italic text-[17px] text-ivory">
-                    Thank you. You&apos;ll hear from us.
+                <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-10 lg:p-12 text-center">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-6">
+                    <Check size={22} strokeWidth={1.5} className="text-bronze-light" />
+                  </div>
+                  <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-4">
+                    Subscribed
+                  </p>
+                  <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.6rem,2.6vw,2.2rem)] leading-[1.1] text-ivory mb-4">
+                    Thank you for subscribing.
+                  </h3>
+                  <p className="font-[family-name:var(--font-editorial)] italic text-[15px] text-ivory-soft leading-[1.7]">
+                    A note will land in your inbox the next time the team has something
+                    worth sharing.
                   </p>
                 </div>
               ) : (

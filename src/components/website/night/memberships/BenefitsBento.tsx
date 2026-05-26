@@ -104,7 +104,15 @@ function BenefitTile({
       className={cn(
         // glow-border (globals.css) wraps every tile in a bronze
         // conic-gradient ring that spins on hover.
-        'glow-border group relative rounded-2xl overflow-hidden bg-graphite/45 backdrop-blur-sm',
+        'glow-border group relative rounded-2xl overflow-hidden backdrop-blur-sm',
+        // Wide tiles have a dark photo background — pin to night so
+        // the image + dark gradient + ivory text stay legible. Narrow
+        // tiles get a clean white card in day mode with a graphite
+        // hairline border, and the original graphite/45 wash in night
+        // mode.
+        wide
+          ? 'always-night bg-graphite/45'
+          : 'bg-graphite/45 day:bg-white day:border day:border-graphite-line/55 day:shadow-sm',
         'min-h-[260px] lg:min-h-[300px] flex flex-col p-7 lg:p-9',
         span,
       )}

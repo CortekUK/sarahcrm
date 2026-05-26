@@ -87,7 +87,7 @@ export function PhotoBento({ photos }: { photos: BentoPhoto[] }) {
          columns depending on viewport. Each tile keeps its natural
          aspect ratio (portrait or square — never landscape), giving
          a real photo-wall feel rather than a uniform grid. */}
-      <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-3 md:gap-4 [column-fill:_balance]">
+      <div className="always-night columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-3 md:gap-4 [column-fill:_balance]">
         {photos.map((p, i) => {
           const seed = (hashSeed(p.id) + i) % ASPECT_PATTERNS.length
           return (
@@ -107,7 +107,7 @@ export function PhotoBento({ photos }: { photos: BentoPhoto[] }) {
           role="dialog"
           aria-modal="true"
           onClick={close}
-          className="fixed inset-0 z-[100] bg-ink/95 backdrop-blur-md flex items-center justify-center px-4 md:px-12 animate-receipt-unfold"
+          className="always-night fixed inset-0 z-[100] bg-ink/95 backdrop-blur-md flex items-center justify-center px-4 md:px-12 animate-receipt-unfold"
         >
           {/* Close */}
           <button

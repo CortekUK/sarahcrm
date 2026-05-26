@@ -23,6 +23,7 @@ import {
   X as XIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from '@/lib/hooks/use-toast'
 
 // ─────────────────────────────────────────────────────────────────────
 // /membership-application — premium 8-step editorial application.
@@ -405,12 +406,42 @@ export default function MembershipApplicationPage() {
     control,
     watch,
     setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { interests: [] },
     mode: 'onChange',
   })
+
+  // After the contact-details step passes its field-validation, we
+  // additionally ping /api/check-member-email to block someone from
+  // re-applying on an email that already has an account. The check is
+  // server-side (service-role lookup against profiles + members) so
+  // anon clients don't need read access to those tables. If the
+  // applicant already exists we surface a toast pointing them to
+  // /login rather than letting them sink time into the rest of the
+  // 8-step wizard.
+  const [checkingEmail, setCheckingEmail] = useState(false)
+  async function emailAlreadyHasAccount(email: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/check-member-email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        exists?: boolean
+        isMember?: boolean
+      }
+      return Boolean(json.exists)
+    } catch {
+      // Network hiccup — let the applicant proceed rather than block
+      // them on an inconclusive check. If the email truly is a member
+      // the downstream checkout/approve flow still recognises them.
+      return false
+    }
+  }
 
   function scrollToFormTop() {
     if (typeof window === 'undefined' || !formScrollRef.current) return
@@ -422,6 +453,29 @@ export default function MembershipApplicationPage() {
     const fields = FIELDS_BY_STEP[step]
     const valid = fields.length === 0 ? true : await trigger(fields)
     if (!valid) return
+
+    // Step 0 (Contact Details) is the first step that has an email
+    // field. Check if the email is already on file before advancing
+    // — saves the applicant from filling in 7 more steps only to be
+    // told at checkout that they already have an account.
+    if (step === 0) {
+      const email = (getValues('email') ?? '').trim()
+      if (email) {
+        setCheckingEmail(true)
+        const taken = await emailAlreadyHasAccount(email)
+        setCheckingEmail(false)
+        if (taken) {
+          toast({
+            title: 'Already a member',
+            description:
+              'An account already exists for this email. Please sign in instead of applying again.',
+            variant: 'default',
+          })
+          return
+        }
+      }
+    }
+
     setStep((s) => Math.min(STEPS.length - 1, s + 1))
     scrollToFormTop()
   }
@@ -458,7 +512,7 @@ export default function MembershipApplicationPage() {
   return (
     <>
       {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden bg-ink">
+      <section className="relative h-[60vh] min-h-[440px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -468,7 +522,7 @@ export default function MembershipApplicationPage() {
           overlay={0.55}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[45%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>
@@ -642,8 +696,12 @@ export default function MembershipApplicationPage() {
                   </div>
 
                   {step < STEPS.length - 1 ? (
-                    <PremiumPillButton type="button" onClick={next}>
-                      Continue
+                    <PremiumPillButton
+                      type="button"
+                      onClick={next}
+                      disabled={checkingEmail}
+                    >
+                      {checkingEmail ? 'Checking…' : 'Continue'}
                     </PremiumPillButton>
                   ) : (
                     <PremiumPillButton type="submit" disabled={isSubmitting}>
@@ -693,29 +751,43 @@ function StepIndicator({ step }: { step: number }) {
                     centre to edge) on mobile, w-11 (44px → 22px) on
                     md+. */}
                 {!isLast && (
+                  // Bumped from h-px to h-[2px] — at 1px the pulse blink
+                  // was almost invisible on a cream surface, even with a
+                  // glow filter. 2px reads as a deliberate hairline and
+                  // gives the pulse enough surface to actually flash.
                   <div
                     aria-hidden
-                    className="absolute h-px top-[17px] md:top-[21px] pointer-events-none left-[calc(50%+18px)] right-[calc(-50%+18px)] md:left-[calc(50%+22px)] md:right-[calc(-50%+22px)]"
+                    className="absolute h-[2px] top-[17px] md:top-[21px] pointer-events-none left-[calc(50%+18px)] right-[calc(-50%+18px)] md:left-[calc(50%+22px)] md:right-[calc(-50%+22px)]"
                   >
-                    <div
-                      className={cn(
-                        'absolute inset-0 transition-colors duration-700',
-                        segDone ? 'bg-bronze' : 'bg-graphite-line/60',
-                      )}
-                    />
+                    {/* Underlying rail — only painted when the segment is
+                        NOT the active one. The active segment renders the
+                        pulse on a transparent rail so the blink can shine
+                        without competing with a static fill. */}
+                    {!segActive && (
+                      <div
+                        className={cn(
+                          'absolute inset-0 transition-colors duration-700',
+                          segDone
+                            ? 'bg-bronze'
+                            : 'bg-graphite-line/60 day:bg-bronze/30',
+                        )}
+                      />
+                    )}
                     {segActive && (
                       // Bronze pulse: gradient fades to transparent at
                       // both ends so the drop-shadow glow can't bleed
                       // back into the diamonds. drop-shadow (not
                       // box-shadow) respects the alpha channel — the
-                      // transparent edges cast no glow.
+                      // transparent edges cast no glow. Stronger glow in
+                      // day mode where there's no dark surround to give
+                      // the bronze contrast on its own.
                       <span
                         className="absolute inset-0 animate-membership-pulse"
                         style={{
                           background:
-                            'linear-gradient(to right, rgba(192,152,112,0) 0%, rgba(192,152,112,1) 22%, rgba(192,152,112,1) 78%, rgba(192,152,112,0) 100%)',
+                            'linear-gradient(to right, rgba(192,152,112,0) 0%, rgba(168,123,79,1) 18%, rgba(168,123,79,1) 82%, rgba(192,152,112,0) 100%)',
                           filter:
-                            'drop-shadow(0 0 3px rgba(192,152,112,0.7)) drop-shadow(0 0 8px rgba(192,152,112,0.35))',
+                            'drop-shadow(0 0 4px rgba(168,123,79,0.85)) drop-shadow(0 0 12px rgba(168,123,79,0.5))',
                         }}
                       />
                     )}
@@ -723,14 +795,19 @@ function StepIndicator({ step }: { step: number }) {
                 )}
 
                 {/* Diamond — bg-ink so it visually "breaks" the line at
-                    its position, z-10 to sit above the connector. */}
+                    its position, z-10 to sit above the connector. In day
+                    mode the chapter background is also cream, so we
+                    explicitly paint the diamond bg-white with a hairline
+                    shadow so it still reads as a "step pip" sitting on
+                    the bronze connector instead of dissolving into the
+                    page. */}
                 <div
                   className={cn(
-                    'relative z-10 w-9 h-9 md:w-11 md:h-11 rotate-45 flex items-center justify-center border transition-all duration-500 bg-ink',
+                    'relative z-10 w-9 h-9 md:w-11 md:h-11 rotate-45 flex items-center justify-center border transition-all duration-500 bg-ink day:bg-white day:shadow-sm',
                     state === 'active' &&
-                      'border-bronze bg-bronze/15 shadow-[0_0_24px_-6px_rgba(192,152,112,0.75)]',
+                      'border-bronze bg-bronze/15 shadow-[0_0_24px_-6px_rgba(192,152,112,0.75)] day:bg-bronze/15',
                     state === 'done' && 'border-bronze/55',
-                    state === 'upcoming' && 'border-graphite-line/70',
+                    state === 'upcoming' && 'border-graphite-line/70 day:border-bronze/35',
                   )}
                 >
                   <span
@@ -739,7 +816,7 @@ function StepIndicator({ step }: { step: number }) {
                       'absolute inset-[3px] border transition-colors duration-500',
                       state === 'active' && 'border-bronze/40',
                       state === 'done' && 'border-bronze/25',
-                      state === 'upcoming' && 'border-graphite-line/40',
+                      state === 'upcoming' && 'border-graphite-line/40 day:border-bronze/20',
                     )}
                   />
                   <span
@@ -834,7 +911,7 @@ function LocationStep({
 }) {
   return (
     <Reveal type="up" delay={0}>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="always-night grid grid-cols-1 md:grid-cols-3 gap-5">
         {LOCATIONS.map((l) => {
           const active = value === l.value
           return (
@@ -941,7 +1018,7 @@ function InterestsStep({ value, onChange }: { value: string[]; onChange: (v: str
                 'group relative flex items-center gap-4 px-5 py-4 border text-left transition-all duration-300',
                 on
                   ? 'border-bronze bg-bronze/10 shadow-[0_0_22px_-10px_rgba(192,152,112,0.6)]'
-                  : 'border-graphite-line/70 bg-graphite/30 hover:border-bronze/55 hover:bg-bronze/5',
+                  : 'border-graphite-line/70 bg-graphite/30 hover:border-bronze/55 hover:bg-bronze/5 day:bg-white day:border-graphite-line/55 day:shadow-sm day:hover:border-bronze/55 day:hover:bg-bronze/5',
               )}
             >
               {/* Square check mark — much more editorial than a pill */}
@@ -1256,7 +1333,7 @@ function TierStep({
 }) {
   return (
     <Reveal type="up" delay={0}>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="always-night grid grid-cols-1 md:grid-cols-3 gap-5">
         {tiers.map((t) => {
           const active = value === t.value
           return (
@@ -1386,7 +1463,7 @@ function PaymentStep({
                 'group relative overflow-hidden border p-8 lg:p-10 text-left transition-all duration-500',
                 active
                   ? 'border-bronze bg-bronze/10 shadow-[0_0_36px_-12px_rgba(192,152,112,0.55)]'
-                  : 'border-graphite-line/50 hover:border-bronze/55 bg-graphite/40',
+                  : 'border-graphite-line/50 hover:border-bronze/55 bg-graphite/40 day:bg-white day:shadow-sm day:hover:shadow-md',
               )}
             >
               <CornerBrackets active={active} />
@@ -1487,7 +1564,7 @@ function PaymentStep({
 function SuccessPanel() {
   return (
     <Reveal type="up" delay={0}>
-      <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16 text-center">
+      <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16 text-center day:bg-white day:shadow-lg">
         <div className="w-16 h-16 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-7">
           <Check size={28} strokeWidth={1.5} className="text-bronze-light" />
         </div>

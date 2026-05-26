@@ -46,7 +46,7 @@ export default async function GalleryPage() {
   return (
     <>
       {/* ── 01 · Hero ─────────────────────────────────────────── */}
-      <section className="relative min-h-[78vh] w-full overflow-hidden bg-ink">
+      <section className="relative min-h-[78vh] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
           imageUrl={hero.image_url}
@@ -56,7 +56,7 @@ export default async function GalleryPage() {
           overlay={0.6}
           priority
         />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent to-ink pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 min-h-[78vh] max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pt-32 pb-24">
           {hero.eyebrow && (
             <Reveal type="up" delay={0}>

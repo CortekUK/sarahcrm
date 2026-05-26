@@ -27,7 +27,10 @@ export async function VoicesChapter() {
   if (testimonials.length === 0) return null
 
   return (
-    <Chapter density="tight" bg="graphite">
+    // always-night — the carousel uses ivory text + bronze hairlines that
+    // only read on a dark surface. Without this the section flips to a
+    // cream background in day mode and the quote text becomes invisible.
+    <Chapter density="tight" bg="graphite" className="always-night">
       <div className="text-center max-w-2xl mx-auto mb-10">
         <EditorialMeta label="In Their Own Words" align="center" />
         <h2 className="display-md mt-8 text-ivory">Members&apos; Voices.</h2>
