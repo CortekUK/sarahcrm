@@ -93,6 +93,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Globe,
         children: [
           { to: '/dashboard/website/memberships', label: 'Membership Plans' },
+          { to: '/dashboard/website/membership-benefits', label: 'Membership Benefits' },
           { to: '/dashboard/website/galleries', label: 'Galleries' },
           { to: '/dashboard/website/hero-slides', label: 'Hero Slides' },
           { to: '/dashboard/website/testimonials', label: 'Testimonials' },

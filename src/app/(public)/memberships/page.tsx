@@ -3,7 +3,7 @@ import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { TierExpandRow, type TierData } from '@/components/website/night/memberships/TierExpandRow'
-import { BenefitsBento } from '@/components/website/night/memberships/BenefitsBento'
+import { BenefitsBento, type BenefitItem } from '@/components/website/night/memberships/BenefitsBento'
 import { createClient } from '@/lib/supabase/server'
 import { getPageHero } from '@/lib/cms/heroes'
 import { Check, Minus } from 'lucide-react'
@@ -201,12 +201,22 @@ const COMPARISON: { label: string; cells: [boolean, boolean, boolean] }[] = [
 
 export default async function MembershipsPage() {
   const supabase = await createClient()
-  const [{ data: planRows }, hero] = await Promise.all([
+  const [{ data: planRows }, { data: benefitRows }, hero] = await Promise.all([
     supabase
       .from('membership_plans')
       .select('slug, name, lede, contract_terms, annual_price_pence, features, image_url')
       .eq('is_active', true)
       .order('display_order', { ascending: true }),
+    // CMS-managed benefit cards. RLS restricts the public read to
+    // is_visible = true, so any card the admin has hidden in
+    // /dashboard/website/membership-benefits drops out automatically.
+    // We sort by position so the asymmetric SPANS in BenefitsBento line
+    // up with their intended slots.
+    supabase
+      .from('membership_benefits')
+      .select('position, numeral, title, body, image_url')
+      .eq('is_visible', true)
+      .order('position', { ascending: true }),
     getPageHero('memberships', {
       page_slug: 'memberships',
       media_type: 'image',
@@ -232,6 +242,19 @@ export default async function MembershipsPage() {
           href: `/membership-application?tier=${p.slug}`,
         }))
       : FALLBACK_TIERS
+
+  // Map DB → BenefitItem shape. If the table is empty (migration
+  // hasn't been applied yet, RLS misconfigured, etc.) fall back to
+  // the hardcoded BENEFITS so the page never renders blank.
+  const benefits: BenefitItem[] =
+    benefitRows && benefitRows.length > 0
+      ? benefitRows.map((b) => ({
+          n: b.numeral,
+          title: b.title,
+          body: b.body,
+          image: b.image_url ?? '/theclub-section.png',
+        }))
+      : BENEFITS
 
   return (
     <>
@@ -297,7 +320,7 @@ export default async function MembershipsPage() {
         </div>
 
         <Reveal type="up" delay={0}>
-          <BenefitsBento items={BENEFITS} />
+          <BenefitsBento items={benefits} />
         </Reveal>
       </Chapter>
 
