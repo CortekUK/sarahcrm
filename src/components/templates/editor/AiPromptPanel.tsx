@@ -47,6 +47,7 @@ interface AiPromptPanelProps {
 // typical use cases — events, introductions, member onboarding — so the
 // user has a single-click way in.
 const SUGGESTIONS = [
+  'What upcoming events do we have? Show me which ones I could include in an email.',
   'Booking confirmation for a member who just reserved a spot at an event.',
   'Member welcome email — warm and personal — with next steps and a calendar link.',
   'Event reminder, 7 days out, with venue and dress code.',

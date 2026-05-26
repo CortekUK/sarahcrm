@@ -68,6 +68,61 @@ function getAdmin() {
   )
 }
 
+interface UpcomingEvent {
+  id: string
+  title: string
+  start_date: string
+  end_date: string | null
+  venue_name: string | null
+  venue_city: string | null
+  event_type: string | null
+  description: string | null
+}
+
+async function fetchUpcomingEvents(
+  admin: ReturnType<typeof getAdmin>,
+): Promise<UpcomingEvent[]> {
+  const nowIso = new Date().toISOString()
+  const { data, error } = await admin
+    .from('events')
+    .select('id, title, start_date, end_date, venue_name, venue_city, event_type, description, status')
+    .in('status', ['published', 'live'])
+    .gte('start_date', nowIso)
+    .order('start_date', { ascending: true })
+    .limit(10)
+  if (error) {
+    console.warn('[ai-generate] failed to fetch upcoming events:', error.message)
+    return []
+  }
+  return (data ?? []) as UpcomingEvent[]
+}
+
+function formatEventForPrompt(e: UpcomingEvent, idx: number): string {
+  const dateLabel = (() => {
+    try {
+      const d = new Date(e.start_date)
+      const datePart = new Intl.DateTimeFormat('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }).format(d)
+      const timePart = new Intl.DateTimeFormat('en-GB', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(d)
+      return `${datePart} at ${timePart}`
+    } catch {
+      return e.start_date
+    }
+  })()
+  const venue = [e.venue_name, e.venue_city].filter(Boolean).join(', ') || 'Venue TBC'
+  const blurb = e.description ? ` — ${e.description.replace(/\s+/g, ' ').trim().slice(0, 200)}` : ''
+  const type = e.event_type ? ` [${e.event_type}]` : ''
+  return `${idx + 1}. "${e.title}"${type}\n   ${dateLabel}\n   ${venue}${blurb}`
+}
+
 function deriveChatTitle(text: string): string {
   const cleaned = text.replace(/\s+/g, ' ').trim()
   if (!cleaned) return 'New chat'
@@ -237,7 +292,18 @@ Use \`{{#if var}}…{{/if}}\` for conditional blocks — keep rare and obvious.
 - Don't write a manual signature ("Warm regards, Sarah") in a text block — use sarah_signature.
 - Don't put multiple buttons in one email.
 - Don't fabricate event dates, venues, or member details — use merge tags or generic phrasing.
-- Don't include CSS, <script>, <iframe>, <style>, or layout HTML.`
+- Don't include CSS, <script>, <iframe>, <style>, or layout HTML.
+
+# Upcoming events — you have live access
+
+Each turn, the user message includes an "Upcoming events in the database" section listing the next published events (title, date, venue, type). Treat this as ground truth.
+
+How to use it:
+
+- **When the user asks about upcoming events** ("what events are coming up?", "what events can I include?", "any events to mention?", "show me upcoming events") → **answer** mode. Number the events in your reply, bold the title, and put the formatted date + venue underneath. Then ask which ones they want in the email. The canvas stays untouched.
+- **When the user picks events to include** ("include the first two", "use the dinner one", "add events 1 and 3", "all of them") → **create** or **enhance** mode. Bake the REAL event title, formatted date, and venue directly into the copy as plain text. Do NOT use {{event_name}} / {{event_date}} merge tags when listing specific events — those only resolve to ONE event at send time, and would render blank or wrong for a multi-event roundup. Use the actual values.
+- **For a single-event email tied to a send pipeline** (booking confirmation, reminder for ONE specific event chosen at send time) → you may still use {{event_name}} / {{event_date}} merge tags. Only switch to hardcoded values when the user is naming specific events from the list.
+- **If the upcoming events list is empty** → say so honestly. Don't invent events. Suggest the user creates one first, or fall back to a generic template using merge tags.`
 
 function getApiKey(): string | null {
   return process.env.OPENAI_API_KEY ?? null
@@ -329,9 +395,23 @@ export async function POST(req: NextRequest) {
     const imageAttachments = attachments.filter((a) => a.kind === 'image')
     const textAttachments = attachments.filter((a) => a.kind === 'text')
 
+    const upcomingEvents = await fetchUpcomingEvents(admin)
+
     const userMessage = (() => {
       const parts: string[] = []
       if (body.category) parts.push(`Template category: ${body.category}.`)
+
+      if (upcomingEvents.length > 0) {
+        parts.push(
+          [
+            'Upcoming events in the database (next 10, soonest first):',
+            ...upcomingEvents.map((e, i) => formatEventForPrompt(e, i)),
+          ].join('\n'),
+        )
+      } else {
+        parts.push('Upcoming events in the database: NONE. If the user asks about events, say there are no upcoming events scheduled yet.')
+      }
+
       if (Array.isArray(body.existingBlocks) && body.existingBlocks.length > 0) {
         parts.push(`Current canvas has ${body.existingBlocks.length} blocks. Subject: "${body.existingSubject ?? ''}".`)
       } else {

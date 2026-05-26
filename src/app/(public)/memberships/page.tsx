@@ -35,7 +35,7 @@ export const revalidate = 60
 //   06 Apply close (shared)
 // ─────────────────────────────────────────────────────────────────────
 
-const HERO_IMAGE = '/gallery/bigland.png' // PLACEHOLDER
+const HERO_IMAGE = '/gallery/land2.png'
 
 const BENEFITS = [
   {
