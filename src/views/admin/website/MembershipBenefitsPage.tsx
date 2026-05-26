@@ -26,6 +26,25 @@ import { Pencil, Sparkles, Lock } from 'lucide-react'
 // editorial asymmetry. This is enforced at the RLS layer too
 // (INSERT/DELETE policies are intentionally absent).
 
+// Paths whose ISR cache we flush after every edit. /memberships has
+// `revalidate = 60`, so without this an admin toggling a card off
+// would still see it on the public page for up to a minute. Fire-and-
+// forget — we don't surface failures to the editor (a follow-up edit
+// will re-flush anyway).
+const REVALIDATE_PATHS = ['/memberships']
+
+async function flushPublicCache() {
+  try {
+    await fetch('/api/admin/revalidate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: REVALIDATE_PATHS }),
+    })
+  } catch {
+    // Non-fatal — the cache will eventually self-refresh.
+  }
+}
+
 interface Benefit {
   id: string
   position: number
@@ -127,6 +146,7 @@ export function MembershipBenefitsPage() {
     setEditing(null)
     setSaving(false)
     fetchItems()
+    void flushPublicCache()
   }
 
   async function handleToggleVisibility(item: Benefit, next: boolean) {
@@ -156,6 +176,7 @@ export function MembershipBenefitsPage() {
       title: next ? 'Card shown' : 'Card hidden',
       description: `Card ${item.numeral} · ${item.title}`,
     })
+    void flushPublicCache()
   }
 
   const visibleCount = items.filter((i) => i.is_visible).length
