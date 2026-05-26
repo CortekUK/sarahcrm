@@ -163,7 +163,13 @@ export function ImageUpload({
       >
         {hasImage ? (
           <>
+            {/* `key={value}` forces React to remount the <Image> when
+                the URL changes (e.g. user clicks Replace and uploads a
+                new file). Without it the element keeps the old src in
+                its DOM node until the next form-level re-render and
+                the preview lags one step behind the form state. */}
             <Image
+              key={value!}
               src={value!}
               alt="Upload preview"
               fill

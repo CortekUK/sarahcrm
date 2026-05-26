@@ -69,7 +69,10 @@ const SPANS = [
   'col-span-12 md:col-span-4',
 ]
 
-// Indices that get an image background (the wider tiles).
+// Indices that get the wider editorial treatment (larger title + body).
+// Used to be the "show image / no image" switch, but the image now
+// renders on every tile since admins upload one per card in the CMS.
+// `wide` here only controls type scale.
 const WIDE_TILES = new Set([1, 2, 3, 7])
 
 export function BenefitsBento({ items }: { items: readonly BenefitItem[] }) {
@@ -105,37 +108,41 @@ function BenefitTile({
         // glow-border (globals.css) wraps every tile in a bronze
         // conic-gradient ring that spins on hover.
         'glow-border group relative rounded-2xl overflow-hidden backdrop-blur-sm',
-        // Wide tiles have a dark photo background — pin to night so
-        // the image + dark gradient + ivory text stay legible. Narrow
-        // tiles get a clean white card in day mode with a graphite
-        // hairline border, and the original graphite/45 wash in night
-        // mode.
-        wide
-          ? 'always-night bg-graphite/45'
-          : 'bg-graphite/45 day:bg-white day:border day:border-graphite-line/55 day:shadow-sm',
+        // Every tile now carries a photographic backdrop (admins
+        // upload one per card in the CMS), so we pin to night across
+        // the board — the image + dark gradient + ivory text need
+        // night palette to stay legible in either theme.
+        'always-night bg-graphite/45',
         'min-h-[260px] lg:min-h-[300px] flex flex-col p-7 lg:p-9',
         span,
       )}
     >
-      {/* Background image — wide tiles only. Image is now rendered
-         at full opacity (the previous opacity-50 plus heavy gradient
-         was killing it completely). Instead, the gradient runs
-         BOTTOM-UP — fully dark behind the title/body text where
-         readability matters, and transparent at the top so the
-         photograph shows through clearly. Slow inside-scale on
-         hover gives the still frame a touch of life. */}
-      {wide && (
+      {/* Background image — every tile.
+         The gradient runs BOTTOM-UP: fully dark behind the title/body
+         text where readability matters, transparent at the top so the
+         photograph shows through clearly. Slow inside-scale on hover
+         gives the still frame a touch of life. Narrow tiles get a
+         slightly heavier wash since the image has less room to breathe
+         before the type starts. */}
+      {item.image && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <Image
             src={item.image}
             alt=""
             fill
-            sizes="(min-width: 768px) 50vw, 100vw"
+            sizes={wide ? '(min-width: 768px) 50vw, 100vw' : '(min-width: 768px) 33vw, 100vw'}
             className="object-cover group-hover:scale-[1.06] transition-transform duration-[900ms] ease-out"
           />
           {/* Bottom-up dark fade: image visible at the top, text
              readable over the dark band at the bottom. */}
-          <div className="absolute inset-0 bg-gradient-to-t from-graphite via-graphite/70 to-graphite/15" />
+          <div
+            className={cn(
+              'absolute inset-0',
+              wide
+                ? 'bg-gradient-to-t from-graphite via-graphite/70 to-graphite/15'
+                : 'bg-gradient-to-t from-graphite via-graphite/80 to-graphite/30',
+            )}
+          />
           <div className="film-grain-night pointer-events-none" />
         </div>
       )}
