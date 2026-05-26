@@ -246,7 +246,7 @@ export default async function MembershipsPage() {
   // Map DB → BenefitItem shape. If the table is empty (migration
   // hasn't been applied yet, RLS misconfigured, etc.) fall back to
   // the hardcoded BENEFITS so the page never renders blank.
-  const benefits: BenefitItem[] =
+  const benefits: readonly BenefitItem[] =
     benefitRows && benefitRows.length > 0
       ? benefitRows.map((b) => ({
           n: b.numeral,

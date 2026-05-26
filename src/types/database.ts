@@ -1298,6 +1298,42 @@ export type Database = {
         }
         Relationships: []
       }
+      membership_benefits: {
+        Row: {
+          body: string
+          created_at: string | null
+          id: string
+          image_url: string | null
+          is_visible: boolean
+          numeral: string
+          position: number
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          id?: string
+          image_url?: string | null
+          is_visible?: boolean
+          numeral: string
+          position: number
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          id?: string
+          image_url?: string | null
+          is_visible?: boolean
+          numeral?: string
+          position?: number
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       membership_plans: {
         Row: {
           annual_price_pence: number
