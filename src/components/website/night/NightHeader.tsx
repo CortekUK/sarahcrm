@@ -19,6 +19,9 @@ import { cn } from '@/lib/utils'
 //     and the wordmark animating from the corner. No magnetic buttons,
 //     no custom cursor — restraint is the brief.
 
+// The full set lives in the fullscreen menu overlay. Only a few
+// essentials show inline on desktop so the bar stays calm and luxe
+// (Annabel's-style restraint) rather than a congested row of links.
 const LINKS = [
   { href: '/about', label: 'The Club' },
   { href: '/memberships', label: 'Memberships' },
@@ -27,6 +30,11 @@ const LINKS = [
   { href: '/reviews', label: 'Testimonials' },
   { href: '/private-event-services', label: 'Private Events' },
 ]
+
+// Inline desktop links — a deliberate subset. Everything else is one
+// click away behind the Menu button.
+const PRIMARY_HREFS = ['/memberships', '/events', '/reviews']
+const PRIMARY = LINKS.filter((l) => PRIMARY_HREFS.includes(l.href))
 
 export function NightHeader() {
   const pathname = usePathname()
@@ -155,9 +163,9 @@ export function NightHeader() {
             </span>
           </Link>
 
-          {/* Desktop nav */}
+          {/* Desktop nav — essentials only; the rest live in the Menu. */}
           <nav className="hidden lg:flex items-center gap-9">
-            {LINKS.map((l) => {
+            {PRIMARY.map((l) => {
               const active = pathname === l.href || (l.href !== '/' && pathname.startsWith(l.href))
               return (
                 <Link
@@ -183,30 +191,35 @@ export function NightHeader() {
             })}
           </nav>
 
-          {/* Right side — theme toggle + secondary Member Login pill +
-              primary bronze Apply pill (desktop) + hamburger (mobile).
-              The toggle sits as a quiet icon button left of the pair
-              so it doesn't compete with the two CTAs for attention. */}
-          <div className="flex items-center gap-3">
+          {/* Right side — one clear CTA (Apply) is the only pill. Member
+              login is a quiet text link, and a Menu button (desktop too)
+              opens the fullscreen overlay holding the full link set. The
+              toggle is a quiet icon so nothing competes with Apply. */}
+          <div className="flex items-center gap-5 lg:gap-6">
             <ThemeToggle variant="icon" className="hidden lg:inline-flex" />
             <Link
               href="/login"
-              className="hidden lg:inline-flex items-center px-5 py-2.5 border border-graphite-line/70 hover:border-bronze/60 rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory/85 hover:text-bronze-light hover:bg-bronze/[0.06] transition-all duration-300"
+              className="hidden lg:inline-flex items-center font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em] text-ivory/70 hover:text-bronze-light transition-colors duration-300"
             >
-              Member Login
+              Member login
             </Link>
             <Link
               href="/membership-application"
-              className="hidden lg:inline-flex items-center gap-2 px-5 py-2.5 border border-bronze/60 hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light hover:text-ivory hover:bg-bronze/20 transition-all duration-300"
+              className="hidden sm:inline-flex items-center gap-2 px-5 py-2.5 border border-bronze/60 hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light hover:text-ivory hover:bg-bronze/20 transition-all duration-300"
             >
               Apply
             </Link>
+            {/* Menu — visible on every breakpoint. On desktop it carries a
+                "Menu"/"Close" word beside the mark; on mobile just the mark. */}
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="lg:hidden p-2 -mr-2 text-ivory hover:text-bronze-light transition-colors"
+              className="inline-flex items-center gap-2 p-2 -mr-2 text-ivory/85 hover:text-bronze-light transition-colors"
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             >
+              <span className="hidden lg:inline font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em]">
+                {menuOpen ? 'Close' : 'Menu'}
+              </span>
               {menuOpen ? <X size={20} strokeWidth={1.5} /> : <Menu size={20} strokeWidth={1.5} />}
             </button>
           </div>
