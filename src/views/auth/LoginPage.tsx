@@ -38,7 +38,10 @@ const COPY: Record<Role, {
   heading: string
   subheading: string
   dev: { label: string; email: string; password: string }
-  altLink: { href: string; label: string }
+  // null on the member surface — members must not be shown a path to the
+  // staff admin door (Sarah's request). Admin surface keeps a link back to
+  // the member sign-in.
+  altLink: { href: string; label: string } | null
   footnote: React.ReactNode
 }> = {
   member: {
@@ -50,7 +53,7 @@ const COPY: Record<Role, {
       email: 'devmember@sarahrestrick.com',
       password: 'DevTest2026!',
     },
-    altLink: { href: '/admin/login', label: 'Administrator sign in →' },
+    altLink: null,
     footnote: (
       <>
         Membership is by invitation only.
@@ -313,17 +316,20 @@ export function LoginPage({ role }: LoginPageProps) {
           </div>
         </div>
 
-        {/* Alt-role link — discreet, sits below the card. Lets staff jump to
-            the admin door from the member page (and vice versa) without
-            having to know the URL. */}
-        <div className="mt-5 text-center">
-          <Link
-            href={copy.altLink.href}
-            className="text-[11px] font-medium uppercase tracking-[0.22em] text-text-dim hover:text-gold transition-colors"
-          >
-            {copy.altLink.label}
-          </Link>
-        </div>
+        {/* Alt-role link — discreet, sits below the card. Only the admin
+            surface shows it (a way back to the member sign-in). The member
+            surface hides it entirely so the staff admin door is never
+            advertised to members. */}
+        {copy.altLink && (
+          <div className="mt-5 text-center">
+            <Link
+              href={copy.altLink.href}
+              className="text-[11px] font-medium uppercase tracking-[0.22em] text-text-dim hover:text-gold transition-colors"
+            >
+              {copy.altLink.label}
+            </Link>
+          </div>
+        )}
 
         <p className="text-center text-xs text-text-dim mt-6">
           The Club by Sarah Restrick &copy; {new Date().getFullYear()}

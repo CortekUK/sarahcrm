@@ -10,6 +10,7 @@
 // Admin only.
 
 import { NextRequest } from 'next/server'
+import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { computeNextRenewal } from '@/lib/billing/renewal'
@@ -133,6 +134,105 @@ export async function POST(req: NextRequest) {
     const tier = body.tier ?? resolveTier(app.preferred_tier)
     const membership_type = isBusiness(app.preferred_tier) ? 'business' : 'individual'
 
+    // ── Charge the saved card (pending-charge flow) ──────────────────
+    // The applicant saved a card at application time (a SetupIntent) but
+    // was NOT charged. Approval is the moment we charge: create the
+    // subscription against that saved card. `payment_behavior:
+    // 'error_if_incomplete'` makes the first invoice charge synchronously
+    // and throw if the card declines, so we can refuse to approve and
+    // surface the failure to the admin instead of creating a member whose
+    // payment never landed.
+    //
+    // These vars feed the member-creation + payment-record steps below.
+    // For a legacy application that already paid (old pay-first flow) the
+    // values are read straight off the row and this block is skipped.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const appAny = app as any
+    let stripeCustomerId: string | null = appAny.stripe_customer_id ?? null
+    let stripeSubscriptionId: string | null = appAny.stripe_subscription_id ?? null
+    let amountPaidPence: number | null = appAny.amount_paid_pence ?? null
+    let paidAt: string | null = appAny.paid_at ?? null
+    const savedPaymentMethodId: string | null = appAny.stripe_payment_method_id ?? null
+    const quotedAmountPence: number | null = appAny.quoted_amount_pence ?? null
+
+    if (savedPaymentMethodId && stripeCustomerId && !stripeSubscriptionId) {
+      if (!quotedAmountPence || quotedAmountPence <= 0) {
+        return Response.json(
+          { error: 'Application has a saved card but no quoted amount — cannot charge.' },
+          { status: 400 },
+        )
+      }
+      const cadence: 'annual' | 'monthly' =
+        appAny.payment_preference === 'monthly' ? 'monthly' : 'annual'
+      const interval = cadence === 'annual' ? 'year' : 'month'
+
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+        apiVersion: '2026-02-25.clover',
+      })
+
+      // Recurring price line — name it after the plan so the Stripe
+      // invoice + customer portal read sensibly.
+      let tierLabel = 'The Club Membership'
+      const { data: planRow } = await admin
+        .from('membership_plans')
+        .select('name')
+        .eq('slug', appAny.preferred_tier)
+        .maybeSingle()
+      if (planRow?.name) tierLabel = `${planRow.name} Membership`
+
+      try {
+        const price = await stripe.prices.create({
+          currency: 'gbp',
+          unit_amount: quotedAmountPence,
+          recurring: { interval },
+          product_data: { name: tierLabel },
+        })
+        const sub = await stripe.subscriptions.create({
+          customer: stripeCustomerId,
+          items: [{ price: price.id }],
+          default_payment_method: savedPaymentMethodId,
+          payment_behavior: 'error_if_incomplete',
+          off_session: true,
+          expand: ['latest_invoice.payment_intent'],
+          metadata: { application_id: app.id, tier, cadence },
+        })
+
+        stripeSubscriptionId = sub.id
+        paidAt = new Date().toISOString()
+        const inv = sub.latest_invoice
+        amountPaidPence =
+          (inv && typeof inv === 'object' && typeof inv.amount_paid === 'number'
+            ? inv.amount_paid
+            : quotedAmountPence) || quotedAmountPence
+
+        // Persist immediately so a later failure in member-creation
+        // doesn't lose the fact that we charged.
+        await admin
+          .from('membership_applications')
+          .update({
+            stripe_subscription_id: stripeSubscriptionId,
+            paid_at: paidAt,
+            amount_paid_pence: amountPaidPence,
+            charge_error: null,
+          })
+          .eq('id', app.id)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Card charge failed'
+        console.error('[approve] charge failed:', msg)
+        await admin
+          .from('membership_applications')
+          .update({ charge_error: msg })
+          .eq('id', app.id)
+        return Response.json(
+          {
+            error: `Card declined / charge failed: ${msg}. The applicant has NOT been approved.`,
+            charge_failed: true,
+          },
+          { status: 402 },
+        )
+      }
+    }
+
     // 2. Check if a profile already exists for this email — if so we link
     //    the member row to it instead of creating a fresh auth user. Avoids
     //    "Approve" failing for an applicant who already signed up.
@@ -236,16 +336,12 @@ export async function POST(req: NextRequest) {
 
     let memberId: string
 
-    // Stripe IDs the public-pay flow recorded on the application row
-    // when the user completed checkout. Forward these into the members
-    // record so the Subscription card on /dashboard/members/[id] and
-    // the renewal/billing logic actually see the live Stripe state.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const appAny = app as any
-    const stripeCustomerId: string | null = appAny.stripe_customer_id ?? null
-    const stripeSubscriptionId: string | null = appAny.stripe_subscription_id ?? null
-    const amountPaidPence: number | null = appAny.amount_paid_pence ?? null
-    const paidAt: string | null = appAny.paid_at ?? null
+    // Stripe IDs are now set above — either charged just now (pending-
+    // charge flow) or read off the row (legacy pay-first applications).
+    // Forward them into the members record so the Subscription card on
+    // /dashboard/members/[id] and the renewal/billing logic see the live
+    // Stripe state.
+    //
     // Compute the next renewal date from the applicant's cadence so the
     // Subscription card has a real date to show immediately. The
     // recurring invoice.paid webhook will refresh this from Stripe's

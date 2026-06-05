@@ -18,7 +18,7 @@ const COLUMNS: Array<{ label: string; links: Array<{ href: string; text: string 
       { href: '/memberships', text: 'Memberships' },
       { href: '/events', text: 'Events' },
       { href: '/gallery', text: 'Gallery' },
-      { href: '/reviews', text: 'Reviews' },
+      { href: '/reviews', text: 'Testimonials' },
     ],
   },
   {

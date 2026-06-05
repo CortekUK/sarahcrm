@@ -4,10 +4,8 @@ import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMed
 import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import {
-  VoicesCarousel,
-  type CarouselTestimonial,
-} from '@/components/website/night/home/VoicesCarousel'
+import { type CarouselTestimonial } from '@/components/website/night/home/VoicesCarousel'
+import { VoicesList } from '@/components/website/night/home/VoicesList'
 import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, Quote } from 'lucide-react'
 
@@ -162,7 +160,7 @@ export default async function ReviewsPage() {
               <h2 className="display-md mt-8 text-ivory">Members&apos; Voices.</h2>
             </div>
 
-            <VoicesCarousel testimonials={voices} />
+            <VoicesList testimonials={voices} />
           </Chapter>
 
           {/* CTA in its own chapter that adapts to the active theme —

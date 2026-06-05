@@ -24,6 +24,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/hooks/use-toast'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import type { StripeElementsOptions } from '@stripe/stripe-js'
+import { getStripe } from '@/lib/stripe/client'
 
 // ─────────────────────────────────────────────────────────────────────
 // /membership-application — premium 8-step editorial application.
@@ -304,6 +307,15 @@ export default function MembershipApplicationPage() {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const formScrollRef = useRef<HTMLDivElement>(null)
+  // Pending-charge card capture. When the applicant reaches the final
+  // step and clicks "Continue to payment", we POST the whole form to
+  // /api/membership-application/setup, which saves the application as
+  // pending and returns a SetupIntent client secret. We then mount Stripe
+  // Elements (card capture, no charge) using that secret. The card is only
+  // charged later, if an admin approves.
+  const [clientSecret, setClientSecret] = useState<string | null>(null)
+  const [applicationId, setApplicationId] = useState<string | null>(null)
+  const [settingUp, setSettingUp] = useState(false)
   // Plans + pricing pulled from the DB on mount; falls back to the
   // hardcoded set if the table is empty or the fetch errors. Loading
   // happens in the background — the form is usable immediately with
@@ -401,18 +413,30 @@ export default function MembershipApplicationPage() {
 
   const {
     register,
-    handleSubmit,
     trigger,
     control,
     watch,
     setValue,
     getValues,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { interests: [] },
     mode: 'onChange',
   })
+
+  // If the applicant changes cadence after a SetupIntent was created, the
+  // quoted amount we'll charge on approval is now stale — drop the card
+  // panel so they re-confirm via "Continue to payment", which re-runs
+  // /setup with the new amount.
+  const cadenceWatch = watch('payment_preference')
+  const prevCadence = useRef(cadenceWatch)
+  useEffect(() => {
+    if (prevCadence.current !== cadenceWatch && clientSecret) {
+      setClientSecret(null)
+    }
+    prevCadence.current = cadenceWatch
+  }, [cadenceWatch, clientSecret])
 
   // After the contact-details step passes its field-validation, we
   // additionally ping /api/check-member-email to block someone from
@@ -484,28 +508,38 @@ export default function MembershipApplicationPage() {
     scrollToFormTop()
   }
 
-  async function onSubmit(data: FormData) {
+  // Reaching the card panel: validate the cadence choice, then create the
+  // pending application + SetupIntent server-side and stash the client
+  // secret so Elements can mount. No charge happens here — the card is
+  // only saved. We pass the existing applicationId (if any) so changing
+  // cadence updates the same row instead of creating duplicates.
+  async function createSetup() {
     setError(null)
-    // The /api/membership-application/checkout endpoint saves the
-    // application (via service role, bypassing RLS) and creates a
-    // Stripe checkout session for the chosen tier + cadence. We then
-    // redirect the browser to Stripe; on completion the user lands on
-    // /membership-application/success.
+    const valid = await trigger(FIELDS_BY_STEP[STEPS.length - 1])
+    if (!valid) return
+    setSettingUp(true)
     try {
-      const res = await fetch('/api/membership-application/checkout', {
+      const res = await fetch('/api/membership-application/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...getValues(), application_id: applicationId }),
       })
-      const json = (await res.json()) as { url?: string; error?: string }
-      if (!res.ok || !json.url) {
-        setError(json.error || 'Something went wrong opening checkout. Please try again.')
+      const json = (await res.json()) as {
+        clientSecret?: string
+        applicationId?: string
+        error?: string
+      }
+      if (!res.ok || !json.clientSecret || !json.applicationId) {
+        setError(json.error || 'Could not start payment setup. Please try again.')
         return
       }
-      window.location.href = json.url
+      setApplicationId(json.applicationId)
+      setClientSecret(json.clientSecret)
     } catch (err) {
       console.error(err)
       setError('Something went wrong. Please try again, or email us directly.')
+    } finally {
+      setSettingUp(false)
     }
   }
 
@@ -600,7 +634,10 @@ export default function MembershipApplicationPage() {
                 </Reveal>
               </div>
 
-              <form onSubmit={handleSubmit(onSubmit)} noValidate>
+              {/* The card panel drives final submission via Stripe
+                  (confirmSetup), so the form never self-submits — guard
+                  against an accidental Enter-key submit. */}
+              <form onSubmit={(e) => e.preventDefault()} noValidate>
                 {/* Per-step content. `key` resets reveal animations on
                     step change so each step's fields fade in cleanly. */}
                 <div key={`body-${step}`}>
@@ -672,6 +709,16 @@ export default function MembershipApplicationPage() {
                       )}
                     />
                   )}
+                  {/* Card capture — appears once "Continue to payment" has
+                      created the SetupIntent. Saves the card without
+                      charging; charge happens only on approval. */}
+                  {step === 7 && clientSecret && applicationId && (
+                    <CardStep
+                      clientSecret={clientSecret}
+                      applicationId={applicationId}
+                      onError={setError}
+                    />
+                  )}
                 </div>
 
                 {error && (
@@ -703,11 +750,18 @@ export default function MembershipApplicationPage() {
                     >
                       {checkingEmail ? 'Checking…' : 'Continue'}
                     </PremiumPillButton>
-                  ) : (
-                    <PremiumPillButton type="submit" disabled={isSubmitting}>
-                      {isSubmitting ? 'Opening checkout…' : 'Apply and Pay'}
+                  ) : !clientSecret ? (
+                    // Final step, before the card panel: create the
+                    // SetupIntent. Once it exists, CardStep renders its own
+                    // "Submit application" button, so this slot goes quiet.
+                    <PremiumPillButton
+                      type="button"
+                      onClick={createSetup}
+                      disabled={settingUp || !cadenceWatch}
+                    >
+                      {settingUp ? 'Preparing…' : 'Continue to payment'}
                     </PremiumPillButton>
-                  )}
+                  ) : null}
                 </div>
               </form>
             </>
@@ -1535,7 +1589,7 @@ function PaymentStep({
 
                   <div className="pt-5 border-t border-bronze/30 flex items-baseline justify-between gap-4">
                     <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light">
-                      Due {p.value === 'annual' ? 'today' : 'today, then monthly'}
+                      {p.value === 'annual' ? 'On approval' : 'On approval, then monthly'}
                     </p>
                     <p className="font-[family-name:var(--font-display)] text-[28px] text-ivory leading-none tabular-nums">
                       {pence(total)}
@@ -1543,7 +1597,8 @@ function PaymentStep({
                   </div>
 
                   <p className="font-[family-name:var(--font-editorial)] italic text-[11.5px] text-slate-haze text-center pt-1">
-                    You&apos;ll be taken to Stripe to complete payment securely.
+                    You&apos;ll add your card next — nothing is charged until your application is
+                    approved.
                   </p>
                 </div>
               )}
@@ -1583,6 +1638,103 @@ function SuccessPanel() {
         </Link>
       </div>
     </Reveal>
+  )
+}
+
+// ─── Card capture (pending-charge) ───────────────────────────────────
+// Mounts Stripe Elements with the SetupIntent client secret and lets the
+// applicant enter their card. confirmSetup SAVES the card without
+// charging — on success Stripe redirects to /membership-application/
+// success, where /api/membership-application/confirm records the card and
+// emails the "application received" note. The card is only charged later,
+// if an admin approves.
+
+function CardStep({
+  clientSecret,
+  applicationId,
+  onError,
+}: {
+  clientSecret: string
+  applicationId: string
+  onError: (msg: string | null) => void
+}) {
+  // Elements is themed to the dark editorial canvas so the card field
+  // doesn't read like a bolted-on Stripe widget.
+  const options: StripeElementsOptions = {
+    clientSecret,
+    appearance: {
+      theme: 'night',
+      variables: {
+        colorPrimary: '#C09870',
+        colorBackground: '#14171D',
+        colorText: '#F0EBE0',
+        colorTextSecondary: '#D6D0C2',
+        colorDanger: '#C0606A',
+        borderRadius: '2px',
+        spacingUnit: '4px',
+      },
+    },
+  }
+  return (
+    <Reveal type="up" delay={0}>
+      <div className="mt-14 max-w-xl mx-auto">
+        <div className="flex justify-center mb-8">
+          <span className="block h-px w-16 bg-bronze/50" />
+        </div>
+        <Elements stripe={getStripe()} options={options}>
+          <CardInner applicationId={applicationId} onError={onError} />
+        </Elements>
+      </div>
+    </Reveal>
+  )
+}
+
+function CardInner({
+  applicationId,
+  onError,
+}: {
+  applicationId: string
+  onError: (msg: string | null) => void
+}) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleConfirm() {
+    if (!stripe || !elements) return
+    onError(null)
+    setSubmitting(true)
+    // confirmSetup saves the card; it does not charge. On success Stripe
+    // redirects to return_url; on error we stay and surface the message.
+    const { error: confirmErr } = await stripe.confirmSetup({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/membership-application/success?application_id=${applicationId}`,
+      },
+    })
+    if (confirmErr) {
+      onError(confirmErr.message ?? 'Your card could not be saved. Please try again.')
+      setSubmitting(false)
+    }
+    // On success the browser navigates away — no further state needed.
+  }
+
+  return (
+    <div>
+      <PaymentElement options={{ layout: 'tabs' }} />
+
+      {/* The "small print" Sarah asked for — no charge until approval. */}
+      <p className="mt-6 font-[family-name:var(--font-meta)] text-[11px] leading-[1.7] text-ivory-soft/80 text-center">
+        Your card won&apos;t be charged until your application is approved. If you&apos;re not
+        accepted, nothing is taken and your card details are removed.
+      </p>
+
+      <div className="flex justify-center mt-9">
+        <PremiumPillButton type="button" onClick={handleConfirm} disabled={submitting || !stripe}>
+          {submitting ? 'Submitting…' : 'Submit application'}
+        </PremiumPillButton>
+      </div>
+    </div>
   )
 }
 

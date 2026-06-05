@@ -236,8 +236,11 @@ async function sendRejectionEmailViaResend(args: {
   reason?: string | null
 }): Promise<{ sent: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY
-  const fromEmail = process.env.RESEND_FROM_EMAIL
-  if (!apiKey || !fromEmail) return { sent: false, error: 'RESEND_API_KEY not configured' }
+  // .env.local defines FROM_EMAIL; accept RESEND_FROM_EMAIL too so the
+  // email actually sends (previously this only read RESEND_FROM_EMAIL,
+  // which is unset — so rejection emails silently no-op'd).
+  const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL
+  if (!apiKey || !fromEmail) return { sent: false, error: 'Resend not configured' }
 
   const fromName = process.env.RESEND_FROM_NAME || 'The Club'
   const { subject, html } = buildRejectionEmail({
@@ -358,6 +361,25 @@ export async function POST(req: NextRequest) {
         }
       } catch (e) {
         refundError = e instanceof Error ? e.message : 'Refund failed'
+      }
+    }
+
+    // 2b. Pending-charge cleanup: if the applicant saved a card but was
+    //     never charged (no subscription), detach the saved payment method
+    //     so we don't retain card details for a rejected applicant. The
+    //     refund path above only runs for already-charged applications, so
+    //     this is the no-charge counterpart.
+    const savedPaymentMethodId: string | null = appAny.stripe_payment_method_id ?? null
+    if (savedPaymentMethodId && !subscriptionId) {
+      try {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+          apiVersion: '2026-02-25.clover',
+        })
+        await stripe.paymentMethods.detach(savedPaymentMethodId)
+      } catch (e) {
+        // Already detached / not found is fine — this is best-effort
+        // cleanup and must not block the rejection.
+        console.warn('[reject] could not detach saved card:', e)
       }
     }
 

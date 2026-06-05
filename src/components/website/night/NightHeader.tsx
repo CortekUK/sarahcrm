@@ -24,6 +24,7 @@ const LINKS = [
   { href: '/memberships', label: 'Memberships' },
   { href: '/events', label: 'Events' },
   { href: '/gallery', label: 'Gallery' },
+  { href: '/reviews', label: 'Testimonials' },
   { href: '/private-event-services', label: 'Private Events' },
 ]
 
