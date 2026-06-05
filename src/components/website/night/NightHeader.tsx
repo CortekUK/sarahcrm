@@ -229,7 +229,7 @@ export function NightHeader() {
       {/* Mobile fullscreen overlay */}
       <div
         className={cn(
-          'fixed inset-0 z-40 lg:hidden bg-ink transition-all duration-500',
+          'fixed inset-0 z-40 bg-ink transition-all duration-500',
           menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         )}
       >
