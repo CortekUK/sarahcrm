@@ -163,8 +163,10 @@ export function NightHeader() {
             </span>
           </Link>
 
-          {/* Desktop nav — essentials only; the rest live in the Menu. */}
-          <nav className="hidden lg:flex items-center gap-9">
+          {/* Desktop nav — essentials only; the rest live in the Menu.
+              Hidden entirely while the menu overlay is open so it doesn't
+              compete with the fullscreen list. */}
+          <nav className={cn('items-center gap-9', menuOpen ? 'hidden' : 'hidden lg:flex')}>
             {PRIMARY.map((l) => {
               const active = pathname === l.href || (l.href !== '/' && pathname.startsWith(l.href))
               return (
@@ -199,13 +201,19 @@ export function NightHeader() {
             <ThemeToggle variant="icon" className="hidden lg:inline-flex" />
             <Link
               href="/login"
-              className="hidden lg:inline-flex items-center font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em] text-ivory/70 hover:text-bronze-light transition-colors duration-300"
+              className={cn(
+                'items-center font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em] text-ivory/70 hover:text-bronze-light transition-colors duration-300',
+                menuOpen ? 'hidden' : 'hidden lg:inline-flex',
+              )}
             >
               Member login
             </Link>
             <Link
               href="/membership-application"
-              className="hidden sm:inline-flex items-center gap-2 px-5 py-2.5 border border-bronze/60 hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light hover:text-ivory hover:bg-bronze/20 transition-all duration-300"
+              className={cn(
+                'items-center gap-2 px-5 py-2.5 border border-bronze/60 hover:border-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-bronze-light hover:text-ivory hover:bg-bronze/20 transition-all duration-300',
+                menuOpen ? 'hidden' : 'hidden sm:inline-flex',
+              )}
             >
               Apply
             </Link>
@@ -226,55 +234,64 @@ export function NightHeader() {
         </div>
       </header>
 
-      {/* Mobile fullscreen overlay */}
+      {/* Fullscreen menu overlay — all links, every breakpoint.
+          Scroll container with vertically-centred content that pads past
+          the 72px header so the first link is never clipped; on short
+          viewports it scrolls instead of overflowing. */}
       <div
         className={cn(
-          'fixed inset-0 z-40 bg-ink transition-all duration-500',
+          'fixed inset-0 z-40 bg-ink overflow-y-auto transition-opacity duration-500',
           menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         )}
       >
-        <div className="h-full flex flex-col items-center justify-center gap-7 px-6">
+        <div className="min-h-full flex flex-col px-6 py-24">
+          {/* m-auto centres the block when there's room and collapses to a
+              clean scroll (no top clipping) on short viewports. */}
+          <div className="m-auto flex flex-col items-center gap-3 sm:gap-4">
           {LINKS.map((l, i) => (
             <Link
               key={l.href}
               href={l.href}
               className={cn(
-                'font-[family-name:var(--font-display)] text-3xl text-ivory/90 hover:text-bronze-light transition-all duration-500',
+                'font-[family-name:var(--font-display)] text-[clamp(1.6rem,3.2vw,2.4rem)] leading-[1.15] text-ivory/90 hover:text-bronze-light transition-all duration-500',
                 menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
               )}
-              style={{ transitionDelay: menuOpen ? `${i * 70 + 120}ms` : '0ms' }}
+              style={{ transitionDelay: menuOpen ? `${i * 60 + 100}ms` : '0ms' }}
             >
               {l.label}
             </Link>
           ))}
+
+          {/* Hairline divider between navigation and account actions */}
+          <span
+            aria-hidden
+            className={cn(
+              'block h-px w-12 bg-bronze/40 my-5 transition-opacity duration-500',
+              menuOpen ? 'opacity-100' : 'opacity-0',
+            )}
+            style={{ transitionDelay: menuOpen ? `${LINKS.length * 60 + 140}ms` : '0ms' }}
+          />
+
           <Link
             href="/membership-application"
             className={cn(
-              'mt-8 inline-flex items-center gap-2 px-8 py-3.5 border border-bronze/60 rounded-full font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-bronze-light transition-all duration-500',
+              'inline-flex items-center gap-2 px-7 py-3 border border-bronze/60 hover:border-bronze hover:bg-bronze/15 rounded-full font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-all duration-500',
               menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
             )}
-            style={{ transitionDelay: menuOpen ? `${LINKS.length * 70 + 160}ms` : '0ms' }}
+            style={{ transitionDelay: menuOpen ? `${LINKS.length * 60 + 180}ms` : '0ms' }}
           >
             Apply
           </Link>
           <Link
             href="/login"
             className={cn(
-              'mt-3 inline-flex items-center px-8 py-3.5 border border-graphite-line/70 rounded-full font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-ivory/85 transition-all duration-500',
+              'mt-2 font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory/70 hover:text-bronze-light transition-all duration-500',
               menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
             )}
-            style={{ transitionDelay: menuOpen ? `${LINKS.length * 70 + 240}ms` : '0ms' }}
+            style={{ transitionDelay: menuOpen ? `${LINKS.length * 60 + 240}ms` : '0ms' }}
           >
-            Member Login
+            Member login
           </Link>
-          <div
-            className={cn(
-              'mt-4 transition-all duration-500',
-              menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
-            )}
-            style={{ transitionDelay: menuOpen ? `${LINKS.length * 70 + 320}ms` : '0ms' }}
-          >
-            <ThemeToggle variant="icon" />
           </div>
         </div>
       </div>
