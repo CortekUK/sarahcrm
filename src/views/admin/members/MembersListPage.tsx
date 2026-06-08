@@ -64,6 +64,7 @@ interface MemberRow {
 const STATUS_OPTIONS: { value: MemberStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
   { value: 'pending', label: 'Pending' },
   { value: 'expired', label: 'Expired' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -76,8 +77,9 @@ const TIER_OPTIONS: { value: MemberTier | 'all'; label: string }[] = [
   { value: 'tier_3', label: 'Tier 3' },
 ]
 
-const statusVariant: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urgent'> = {
+const statusVariant: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
   active: 'active',
+  paused: 'info',
   pending: 'upcoming',
   expired: 'draft',
   cancelled: 'urgent',

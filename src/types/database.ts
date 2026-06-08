@@ -1057,84 +1057,273 @@ export type Database = {
       }
       members: {
         Row: {
+          accounts_contact_email: string | null
+          accounts_contact_name: string | null
+          accounts_contact_phone: string | null
+          achievements: string | null
+          ai_intelligence: Json | null
+          allergies: string | null
+          annual_turnover: string | null
+          assistant_contact: string | null
+          assistant_name: string | null
+          awards: string | null
+          birthday: string | null
+          budgets: string | null
+          business_objectives: string | null
+          card_on_file: boolean
+          career_history: string | null
+          charitable_interests: string | null
+          churn_risk_score: number | null
+          company_address: string | null
           company_description: string | null
+          company_linkedin_url: string | null
+          company_logo_url: string | null
           company_name: string | null
           company_website: string | null
+          contract_signed: boolean
+          contract_url: string | null
           created_at: string
           deleted_at: string | null
+          dietary_requirements: string | null
+          direct_debit_active: boolean
+          dream_introductions: string | null
+          drink_preferences: string | null
+          employee_count: string | null
+          engagement_score: number | null
+          estimated_profit: string | null
+          event_preferences: string[] | null
+          favourite_brands: string | null
+          favourite_restaurants: string | null
+          fd_contact: string | null
           gocardless_mandate_id: string | null
+          hobbies: string | null
           id: string
+          important_dates: string | null
+          interest_flags: string[] | null
+          intro_target_criteria: string | null
+          intro_target_types: string | null
+          introducer_agreement_url: string | null
           intros_used_this_month: number
+          invoice_address: string | null
+          invoice_chaser_contact: string | null
+          lifetime_value_pence: number | null
+          ltv_forecast_pence: number | null
+          media_features: string | null
+          member_satisfaction_score: number | null
+          member_testimonial: string | null
+          membership_agreement_url: string | null
           membership_end_date: string | null
+          membership_manager: string | null
           membership_start_date: string | null
           membership_status: Database["public"]["Enums"]["membership_status"]
           membership_tier: Database["public"]["Enums"]["membership_tier"]
           membership_type: Database["public"]["Enums"]["membership_type"]
+          membership_value_pence: number | null
           monthly_intro_quota: number
+          nda_url: string | null
           notes: string | null
+          nps_score: number | null
+          offices: string | null
+          partner_name: string | null
+          payment_frequency: string | null
           profile_id: string
           referred_by: string | null
+          relationship_capital_score: number | null
+          relationship_health_score: number | null
           renewal_date: string | null
+          sector: string | null
           showcase_enabled: boolean
           source: string | null
           sponsor_aligned: boolean
+          sporting_interests: string | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
+          sub_sector: string | null
+          success_stories: string | null
+          travel_profile: string | null
           updated_at: string
+          upgrade_potential: number | null
+          what_they_can_offer: string | null
           xero_contact_id: string | null
         }
         Insert: {
+          accounts_contact_email?: string | null
+          accounts_contact_name?: string | null
+          accounts_contact_phone?: string | null
+          achievements?: string | null
+          ai_intelligence?: Json | null
+          allergies?: string | null
+          annual_turnover?: string | null
+          assistant_contact?: string | null
+          assistant_name?: string | null
+          awards?: string | null
+          birthday?: string | null
+          budgets?: string | null
+          business_objectives?: string | null
+          card_on_file?: boolean
+          career_history?: string | null
+          charitable_interests?: string | null
+          churn_risk_score?: number | null
+          company_address?: string | null
           company_description?: string | null
+          company_linkedin_url?: string | null
+          company_logo_url?: string | null
           company_name?: string | null
           company_website?: string | null
+          contract_signed?: boolean
+          contract_url?: string | null
           created_at?: string
           deleted_at?: string | null
+          dietary_requirements?: string | null
+          direct_debit_active?: boolean
+          dream_introductions?: string | null
+          drink_preferences?: string | null
+          employee_count?: string | null
+          engagement_score?: number | null
+          estimated_profit?: string | null
+          event_preferences?: string[] | null
+          favourite_brands?: string | null
+          favourite_restaurants?: string | null
+          fd_contact?: string | null
           gocardless_mandate_id?: string | null
+          hobbies?: string | null
           id?: string
+          important_dates?: string | null
+          interest_flags?: string[] | null
+          intro_target_criteria?: string | null
+          intro_target_types?: string | null
+          introducer_agreement_url?: string | null
           intros_used_this_month?: number
+          invoice_address?: string | null
+          invoice_chaser_contact?: string | null
+          lifetime_value_pence?: number | null
+          ltv_forecast_pence?: number | null
+          media_features?: string | null
+          member_satisfaction_score?: number | null
+          member_testimonial?: string | null
+          membership_agreement_url?: string | null
           membership_end_date?: string | null
+          membership_manager?: string | null
           membership_start_date?: string | null
           membership_status?: Database["public"]["Enums"]["membership_status"]
           membership_tier?: Database["public"]["Enums"]["membership_tier"]
           membership_type?: Database["public"]["Enums"]["membership_type"]
+          membership_value_pence?: number | null
           monthly_intro_quota?: number
+          nda_url?: string | null
           notes?: string | null
+          nps_score?: number | null
+          offices?: string | null
+          partner_name?: string | null
+          payment_frequency?: string | null
           profile_id: string
           referred_by?: string | null
+          relationship_capital_score?: number | null
+          relationship_health_score?: number | null
           renewal_date?: string | null
+          sector?: string | null
           showcase_enabled?: boolean
           source?: string | null
           sponsor_aligned?: boolean
+          sporting_interests?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          sub_sector?: string | null
+          success_stories?: string | null
+          travel_profile?: string | null
           updated_at?: string
+          upgrade_potential?: number | null
+          what_they_can_offer?: string | null
           xero_contact_id?: string | null
         }
         Update: {
+          accounts_contact_email?: string | null
+          accounts_contact_name?: string | null
+          accounts_contact_phone?: string | null
+          achievements?: string | null
+          ai_intelligence?: Json | null
+          allergies?: string | null
+          annual_turnover?: string | null
+          assistant_contact?: string | null
+          assistant_name?: string | null
+          awards?: string | null
+          birthday?: string | null
+          budgets?: string | null
+          business_objectives?: string | null
+          card_on_file?: boolean
+          career_history?: string | null
+          charitable_interests?: string | null
+          churn_risk_score?: number | null
+          company_address?: string | null
           company_description?: string | null
+          company_linkedin_url?: string | null
+          company_logo_url?: string | null
           company_name?: string | null
           company_website?: string | null
+          contract_signed?: boolean
+          contract_url?: string | null
           created_at?: string
           deleted_at?: string | null
+          dietary_requirements?: string | null
+          direct_debit_active?: boolean
+          dream_introductions?: string | null
+          drink_preferences?: string | null
+          employee_count?: string | null
+          engagement_score?: number | null
+          estimated_profit?: string | null
+          event_preferences?: string[] | null
+          favourite_brands?: string | null
+          favourite_restaurants?: string | null
+          fd_contact?: string | null
           gocardless_mandate_id?: string | null
+          hobbies?: string | null
           id?: string
+          important_dates?: string | null
+          interest_flags?: string[] | null
+          intro_target_criteria?: string | null
+          intro_target_types?: string | null
+          introducer_agreement_url?: string | null
           intros_used_this_month?: number
+          invoice_address?: string | null
+          invoice_chaser_contact?: string | null
+          lifetime_value_pence?: number | null
+          ltv_forecast_pence?: number | null
+          media_features?: string | null
+          member_satisfaction_score?: number | null
+          member_testimonial?: string | null
+          membership_agreement_url?: string | null
           membership_end_date?: string | null
+          membership_manager?: string | null
           membership_start_date?: string | null
           membership_status?: Database["public"]["Enums"]["membership_status"]
           membership_tier?: Database["public"]["Enums"]["membership_tier"]
           membership_type?: Database["public"]["Enums"]["membership_type"]
+          membership_value_pence?: number | null
           monthly_intro_quota?: number
+          nda_url?: string | null
           notes?: string | null
+          nps_score?: number | null
+          offices?: string | null
+          partner_name?: string | null
+          payment_frequency?: string | null
           profile_id?: string
           referred_by?: string | null
+          relationship_capital_score?: number | null
+          relationship_health_score?: number | null
           renewal_date?: string | null
+          sector?: string | null
           showcase_enabled?: boolean
           source?: string | null
           sponsor_aligned?: boolean
+          sporting_interests?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          sub_sector?: string | null
+          success_stories?: string | null
+          travel_profile?: string | null
           updated_at?: string
+          upgrade_potential?: number | null
+          what_they_can_offer?: string | null
           xero_contact_id?: string | null
         }
         Relationships: [
@@ -1161,6 +1350,7 @@ export type Database = {
           amount_paid_pence: number | null
           annual_turnover: string | null
           bio: string | null
+          charge_error: string | null
           city: string | null
           company: string | null
           created_at: string
@@ -1178,6 +1368,7 @@ export type Database = {
           notes: string | null
           paid_at: string | null
           payment_preference: string | null
+          pending_email_sent_at: string | null
           phone: string | null
           photo_url: string | null
           position: string | null
@@ -1185,6 +1376,7 @@ export type Database = {
           preferred_location: string | null
           preferred_tier: string | null
           pronouns: string | null
+          quoted_amount_pence: number | null
           referral_name: string | null
           referral_source: string | null
           refund_amount_pence: number | null
@@ -1194,6 +1386,8 @@ export type Database = {
           reviewed_by: string | null
           status: string
           stripe_customer_id: string | null
+          stripe_payment_method_id: string | null
+          stripe_setup_intent_id: string | null
           stripe_subscription_id: string | null
           tiktok_url: string | null
           updated_at: string
@@ -1208,6 +1402,7 @@ export type Database = {
           amount_paid_pence?: number | null
           annual_turnover?: string | null
           bio?: string | null
+          charge_error?: string | null
           city?: string | null
           company?: string | null
           created_at?: string
@@ -1225,6 +1420,7 @@ export type Database = {
           notes?: string | null
           paid_at?: string | null
           payment_preference?: string | null
+          pending_email_sent_at?: string | null
           phone?: string | null
           photo_url?: string | null
           position?: string | null
@@ -1232,6 +1428,7 @@ export type Database = {
           preferred_location?: string | null
           preferred_tier?: string | null
           pronouns?: string | null
+          quoted_amount_pence?: number | null
           referral_name?: string | null
           referral_source?: string | null
           refund_amount_pence?: number | null
@@ -1241,6 +1438,8 @@ export type Database = {
           reviewed_by?: string | null
           status?: string
           stripe_customer_id?: string | null
+          stripe_payment_method_id?: string | null
+          stripe_setup_intent_id?: string | null
           stripe_subscription_id?: string | null
           tiktok_url?: string | null
           updated_at?: string
@@ -1255,6 +1454,7 @@ export type Database = {
           amount_paid_pence?: number | null
           annual_turnover?: string | null
           bio?: string | null
+          charge_error?: string | null
           city?: string | null
           company?: string | null
           created_at?: string
@@ -1272,6 +1472,7 @@ export type Database = {
           notes?: string | null
           paid_at?: string | null
           payment_preference?: string | null
+          pending_email_sent_at?: string | null
           phone?: string | null
           photo_url?: string | null
           position?: string | null
@@ -1279,6 +1480,7 @@ export type Database = {
           preferred_location?: string | null
           preferred_tier?: string | null
           pronouns?: string | null
+          quoted_amount_pence?: number | null
           referral_name?: string | null
           referral_source?: string | null
           refund_amount_pence?: number | null
@@ -1288,6 +1490,8 @@ export type Database = {
           reviewed_by?: string | null
           status?: string
           stripe_customer_id?: string | null
+          stripe_payment_method_id?: string | null
+          stripe_setup_intent_id?: string | null
           stripe_subscription_id?: string | null
           tiktok_url?: string | null
           updated_at?: string
@@ -1901,9 +2105,14 @@ export type Database = {
         | "accepted"
         | "completed"
         | "declined"
-      membership_status: "active" | "pending" | "expired" | "cancelled"
+      membership_status:
+        | "active"
+        | "pending"
+        | "expired"
+        | "cancelled"
+        | "paused"
       membership_tier: "tier_1" | "tier_2" | "tier_3"
-      membership_type: "individual" | "business"
+      membership_type: "individual" | "business" | "partner"
       payment_method: "stripe" | "gocardless" | "invoice" | "manual"
       payment_status: "paid" | "pending" | "overdue" | "refunded" | "failed"
       tag_category: "industry" | "interest" | "need" | "service"
@@ -2046,9 +2255,15 @@ export const Constants = {
         "completed",
         "declined",
       ],
-      membership_status: ["active", "pending", "expired", "cancelled"],
+      membership_status: [
+        "active",
+        "pending",
+        "expired",
+        "cancelled",
+        "paused",
+      ],
       membership_tier: ["tier_1", "tier_2", "tier_3"],
-      membership_type: ["individual", "business"],
+      membership_type: ["individual", "business", "partner"],
       payment_method: ["stripe", "gocardless", "invoice", "manual"],
       payment_status: ["paid", "pending", "overdue", "refunded", "failed"],
       tag_category: ["industry", "interest", "need", "service"],

@@ -49,6 +49,7 @@ import {
   Building2,
   User as UserIcon,
   Tag as TagIcon,
+  Sparkles,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -81,6 +82,23 @@ interface MemberDetail {
   source: string | null
   notes: string | null
   created_at: string
+  // Relationship-intelligence fields (Spec §4) — curated subset surfaced
+  sector: string | null
+  sub_sector: string | null
+  employee_count: string | null
+  annual_turnover: string | null
+  estimated_profit: string | null
+  company_address: string | null
+  invoice_address: string | null
+  intro_target_types: string | null
+  intro_target_criteria: string | null
+  dream_introductions: string | null
+  what_they_can_offer: string | null
+  business_objectives: string | null
+  budgets: string | null
+  dietary_requirements: string | null
+  partner_name: string | null
+  assistant_name: string | null
   profiles: {
     first_name: string | null
     last_name: string | null
@@ -140,18 +158,80 @@ const editSchema = z.object({
   company_name: z.string().optional(),
   company_description: z.string().optional(),
   company_website: z.string().optional(),
-  membership_type: z.enum(['individual', 'business']),
+  membership_type: z.enum(['individual', 'business', 'partner']),
   membership_tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
-  membership_status: z.enum(['active', 'pending', 'expired', 'cancelled']),
+  membership_status: z.enum(['active', 'pending', 'expired', 'cancelled', 'paused']),
   notes: z.string().optional(),
+  // ── Relationship intelligence (Spec §4) — curated high-value fields ──
+  sector: z.string().optional(),
+  sub_sector: z.string().optional(),
+  employee_count: z.string().optional(),
+  annual_turnover: z.string().optional(),
+  estimated_profit: z.string().optional(),
+  company_address: z.string().optional(),
+  invoice_address: z.string().optional(),
+  intro_target_types: z.string().optional(),
+  intro_target_criteria: z.string().optional(),
+  dream_introductions: z.string().optional(),
+  what_they_can_offer: z.string().optional(),
+  business_objectives: z.string().optional(),
+  budgets: z.string().optional(),
+  dietary_requirements: z.string().optional(),
+  partner_name: z.string().optional(),
+  assistant_name: z.string().optional(),
 })
 type EditFormData = z.infer<typeof editSchema>
 
-const statusBadge: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urgent'> = {
+// Field config for the Relationship-Intelligence card — keeps the edit
+// form and read view in sync without 16 repetitive blocks.
+const RI_GROUPS: {
+  title: string
+  fields: { name: keyof EditFormData; label: string; long?: boolean }[]
+}[] = [
+  {
+    title: 'Company depth',
+    fields: [
+      { name: 'sector', label: 'Sector' },
+      { name: 'sub_sector', label: 'Sub-sector' },
+      { name: 'employee_count', label: 'Employee count' },
+      { name: 'annual_turnover', label: 'Annual turnover' },
+      { name: 'estimated_profit', label: 'Estimated profit' },
+      { name: 'company_address', label: 'Company address', long: true },
+      { name: 'invoice_address', label: 'Invoice address', long: true },
+    ],
+  },
+  {
+    title: 'Introduction strategy',
+    fields: [
+      { name: 'intro_target_types', label: 'Who they want to meet' },
+      { name: 'intro_target_criteria', label: 'Target criteria', long: true },
+      { name: 'dream_introductions', label: 'Top dream introductions', long: true },
+      { name: 'what_they_can_offer', label: 'What they can offer', long: true },
+    ],
+  },
+  {
+    title: 'Objectives & budgets',
+    fields: [
+      { name: 'business_objectives', label: 'Business objectives', long: true },
+      { name: 'budgets', label: 'Marketing / events budgets', long: true },
+    ],
+  },
+  {
+    title: 'Preferences',
+    fields: [
+      { name: 'partner_name', label: 'Partner name' },
+      { name: 'assistant_name', label: 'Assistant name' },
+      { name: 'dietary_requirements', label: 'Dietary requirements', long: true },
+    ],
+  },
+]
+
+const statusBadge: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
   active: 'active',
   pending: 'upcoming',
   expired: 'draft',
   cancelled: 'urgent',
+  paused: 'info',
 }
 const introStatusBadge: Record<IntroStatus, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
   suggested: 'draft',
@@ -195,6 +275,7 @@ const CATEGORY_STYLES: Record<string, string> = {
 const typeOptions = [
   { value: 'individual', label: 'Individual' },
   { value: 'business', label: 'Business' },
+  { value: 'partner', label: 'Partner' },
 ]
 const tierOptions = [
   { value: 'tier_1', label: 'Tier 1' },
@@ -203,6 +284,7 @@ const tierOptions = [
 ]
 const statusOptions = [
   { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
   { value: 'pending', label: 'Pending' },
   { value: 'expired', label: 'Expired' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -355,10 +437,27 @@ export function MemberDetailPage() {
       company_name: member.company_name ?? '',
       company_description: member.company_description ?? '',
       company_website: member.company_website ?? '',
-      membership_type: member.membership_type as 'individual' | 'business',
+      membership_type: member.membership_type as 'individual' | 'business' | 'partner',
       membership_tier: member.membership_tier,
       membership_status: member.membership_status,
       notes: member.notes ?? '',
+      // Relationship intelligence
+      sector: member.sector ?? '',
+      sub_sector: member.sub_sector ?? '',
+      employee_count: member.employee_count ?? '',
+      annual_turnover: member.annual_turnover ?? '',
+      estimated_profit: member.estimated_profit ?? '',
+      company_address: member.company_address ?? '',
+      invoice_address: member.invoice_address ?? '',
+      intro_target_types: member.intro_target_types ?? '',
+      intro_target_criteria: member.intro_target_criteria ?? '',
+      dream_introductions: member.dream_introductions ?? '',
+      what_they_can_offer: member.what_they_can_offer ?? '',
+      business_objectives: member.business_objectives ?? '',
+      budgets: member.budgets ?? '',
+      dietary_requirements: member.dietary_requirements ?? '',
+      partner_name: member.partner_name ?? '',
+      assistant_name: member.assistant_name ?? '',
     })
     setEditing(true)
   }
@@ -391,6 +490,23 @@ export function MemberDetailPage() {
         company_description: data.company_description || null,
         company_website: data.company_website || null,
         notes: data.notes || null,
+        // Relationship intelligence
+        sector: data.sector || null,
+        sub_sector: data.sub_sector || null,
+        employee_count: data.employee_count || null,
+        annual_turnover: data.annual_turnover || null,
+        estimated_profit: data.estimated_profit || null,
+        company_address: data.company_address || null,
+        invoice_address: data.invoice_address || null,
+        intro_target_types: data.intro_target_types || null,
+        intro_target_criteria: data.intro_target_criteria || null,
+        dream_introductions: data.dream_introductions || null,
+        what_they_can_offer: data.what_they_can_offer || null,
+        business_objectives: data.business_objectives || null,
+        budgets: data.budgets || null,
+        dietary_requirements: data.dietary_requirements || null,
+        partner_name: data.partner_name || null,
+        assistant_name: data.assistant_name || null,
       })
       .eq('id', id)
 
@@ -766,6 +882,61 @@ export function MemberDetailPage() {
               <Textarea label="Notes" rows={2} {...form.register('notes')} />
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Relationship intelligence — the spec §4 profile core. Shows
+          editable inputs while editing, otherwise a read view of whatever
+          has been filled in. */}
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-gold" />
+            <CardTitle>Relationship intelligence</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-7">
+          {RI_GROUPS.map((group) => (
+            <Section key={group.title} title={group.title}>
+              {editing ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {group.fields.map((f) =>
+                    f.long ? (
+                      <Textarea
+                        key={f.name}
+                        label={f.label}
+                        rows={2}
+                        className="sm:col-span-2"
+                        {...form.register(f.name)}
+                      />
+                    ) : (
+                      <Input key={f.name} label={f.label} {...form.register(f.name)} />
+                    ),
+                  )}
+                </div>
+              ) : (
+                (() => {
+                  const read = member as unknown as Record<string, string | null>
+                  const filled = group.fields.filter((f) => read[f.name])
+                  if (filled.length === 0) {
+                    return <p className="text-sm text-text-dim">Not provided yet</p>
+                  }
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+                      {filled.map((f) => (
+                        <DetailRow
+                          key={f.name}
+                          label={f.label}
+                          value={read[f.name]}
+                          className={f.long ? 'sm:col-span-2' : ''}
+                        />
+                      ))}
+                    </div>
+                  )
+                })()
+              )}
+            </Section>
+          ))}
         </CardContent>
       </Card>
 
