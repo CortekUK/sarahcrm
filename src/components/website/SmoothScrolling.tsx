@@ -11,6 +11,12 @@ import { gsap } from 'gsap'
 // public marketing site.
 const NATIVE_SCROLL_PREFIXES = ['/dashboard', '/portal', '/login']
 
+// Shape we expose on window so screen-takeover UI (the nav overlay) can
+// pause/resume Lenis without importing the instance through React context.
+export type LenisWindow = typeof window & {
+  lenis?: { stop: () => void; start: () => void }
+}
+
 export function SmoothScrolling({ children }: { children: React.ReactNode }) {
   const lenisRef = useRef<Lenis | null>(null)
   const pathname = usePathname()
@@ -33,15 +39,24 @@ export function SmoothScrolling({ children }: { children: React.ReactNode }) {
       touchMultiplier: 0,
     })
     lenisRef.current = lenis
+    // Expose the instance so components that take over the screen (e.g. the
+    // fullscreen nav overlay) can pause/resume Lenis. Lenis hijacks wheel
+    // at the document level, which otherwise stops fixed overlays from
+    // scrolling natively.
+    ;(window as LenisWindow).lenis = lenis
 
-    gsap.ticker.add((time) => {
+    const tick = (time: number) => {
       lenis.raf(time * 1000)
-    })
+    }
+    gsap.ticker.add(tick)
     gsap.ticker.lagSmoothing(0)
 
     return () => {
+      gsap.ticker.remove(tick)
       lenis.destroy()
       lenisRef.current = null
+      const lw = window as unknown as { lenis?: unknown }
+      if (lw.lenis === lenis) lw.lenis = undefined
     }
   }, [pathname])
 

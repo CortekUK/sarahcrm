@@ -8,6 +8,7 @@ import { Menu, X } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { useTheme } from '@/providers/ThemeProvider'
 import { cn } from '@/lib/utils'
+import type { LenisWindow } from '@/components/website/SmoothScrolling'
 
 // Public site navigation, night palette.
 // Behaviour:
@@ -96,13 +97,19 @@ export function NightHeader() {
     setMenuOpen(false)
   }, [pathname])
 
-  // Body scroll lock while overlay is open
+  // Body scroll lock while overlay is open + pause Lenis. Lenis hijacks
+  // wheel events at the document level, so without stopping it the
+  // fixed overlay can't scroll natively. We pause it while the menu owns
+  // the screen and resume on close.
   useEffect(() => {
     if (!menuOpen) return
+    const lenis = (window as LenisWindow).lenis
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    lenis?.stop()
     return () => {
       document.body.style.overflow = prev
+      lenis?.start()
     }
   }, [menuOpen])
 
@@ -237,10 +244,14 @@ export function NightHeader() {
       {/* Fullscreen menu overlay — all links, every breakpoint.
           Scroll container with vertically-centred content that pads past
           the 72px header so the first link is never clipped; on short
-          viewports it scrolls instead of overflowing. */}
+          viewports it scrolls instead of overflowing.
+          `data-lenis-prevent` is essential: Lenis hijacks wheel events at
+          the document level, so without it this fixed overlay can't scroll
+          natively. */}
       <div
+        data-lenis-prevent
         className={cn(
-          'fixed inset-0 z-40 bg-ink overflow-y-auto transition-opacity duration-500',
+          'fixed inset-0 z-40 bg-ink overflow-y-auto overscroll-contain transition-opacity duration-500',
           menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         )}
       >

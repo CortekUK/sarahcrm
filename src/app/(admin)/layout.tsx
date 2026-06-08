@@ -29,6 +29,7 @@ import {
   Send,
   Ticket,
   ClipboardList,
+  Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -116,6 +117,24 @@ function isNavGroup(item: NavItem | NavGroup): item is NavGroup {
   return 'children' in item
 }
 
+// Flattened leaf list used by the sidebar search. Group children inherit
+// their parent's icon when they don't declare their own, so filtered
+// results still read with a consistent glyph.
+const FLAT_NAV: NavItem[] = NAV_SECTIONS.flatMap((section) =>
+  section.items.flatMap((item) =>
+    isNavGroup(item)
+      ? [
+          { to: item.to, label: item.label, icon: item.icon },
+          ...item.children.map((c) => ({
+            to: c.to,
+            label: c.label,
+            icon: c.icon ?? item.icon,
+          })),
+        ]
+      : [{ to: item.to, label: item.label, icon: item.icon }],
+  ),
+)
+
 function NavLink({
   to,
   label,
@@ -135,21 +154,27 @@ function NavLink({
     <Link
       href={to}
       className={cn(
-        'group relative flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm transition-all',
+        'group relative flex items-center gap-3 pl-4 pr-3 py-2.5 rounded-[var(--radius-md)] text-[13.5px] transition-colors duration-200',
         active
-          ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-graphite-2)]/85 shadow-[var(--shadow-sm)] ring-1 ring-[var(--color-bronze)]/25'
-          : 'text-[var(--color-ivory-soft)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-graphite-2)]/55',
+          ? 'text-[var(--color-ivory)] font-medium bg-[var(--color-bronze)]/[0.10]'
+          : 'text-[var(--color-ivory-soft)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-ivory)]/[0.04]',
       )}
     >
-      {active && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-[var(--color-gold)]" />
-      )}
+      {/* Single, quiet active marker — a gold spine. No ring/shadow stack. */}
+      <span
+        className={cn(
+          'absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] rounded-r-full bg-[var(--color-gold)] transition-all duration-200',
+          active ? 'h-5 opacity-100' : 'h-0 opacity-0',
+        )}
+      />
       <Icon
         size={17}
         strokeWidth={1.6}
         className={cn(
-          'transition-colors',
-          active ? 'text-[var(--color-gold)]' : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text)]',
+          'shrink-0 transition-colors',
+          active
+            ? 'text-[var(--color-gold)]'
+            : 'text-[var(--color-slate-haze)] group-hover:text-[var(--color-bronze-light)]',
           highlight && !active && 'text-[var(--color-gold)]',
         )}
       />
@@ -186,21 +211,26 @@ function NavGroupRow({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className={cn(
-          'group relative flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm w-full transition-all',
+          'group relative flex items-center gap-3 pl-4 pr-3 py-2.5 rounded-[var(--radius-md)] text-[13.5px] w-full transition-colors duration-200',
           isActive
-            ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-graphite-2)]/85 ring-1 ring-[var(--color-bronze)]/25'
-            : 'text-[var(--color-ivory-soft)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-graphite-2)]/55',
+            ? 'text-[var(--color-ivory)] font-medium bg-[var(--color-bronze)]/[0.10]'
+            : 'text-[var(--color-ivory-soft)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-ivory)]/[0.04]',
         )}
       >
-        {isActive && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-[var(--color-gold)]" />
-        )}
+        <span
+          className={cn(
+            'absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] rounded-r-full bg-[var(--color-gold)] transition-all duration-200',
+            isActive ? 'h-5 opacity-100' : 'h-0 opacity-0',
+          )}
+        />
         <Icon
           size={17}
           strokeWidth={1.6}
           className={cn(
-            'transition-colors',
-            isActive ? 'text-[var(--color-gold)]' : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-ivory)]',
+            'shrink-0 transition-colors',
+            isActive
+              ? 'text-[var(--color-gold)]'
+              : 'text-[var(--color-slate-haze)] group-hover:text-[var(--color-bronze-light)]',
           )}
         />
         <span className="flex-1 text-left truncate">{group.label}</span>
@@ -208,7 +238,7 @@ function NavGroupRow({
           size={13}
           strokeWidth={1.8}
           className={cn(
-            'transition-transform',
+            'shrink-0 transition-transform duration-200',
             isActive ? 'text-[var(--color-bronze-light)]' : 'text-[var(--color-text-dim)]',
             expanded && 'rotate-180',
           )}
@@ -234,10 +264,10 @@ function NavGroupRow({
                   key={child.to}
                   href={child.to}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)] text-[13px] transition-colors',
+                    'flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] text-[13px] transition-colors',
                     childActive
-                      ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-bronze)]/12'
-                      : 'text-[var(--color-slate-haze)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-graphite-2)]/55',
+                      ? 'text-[var(--color-bronze-light)] font-medium bg-[var(--color-bronze)]/[0.12]'
+                      : 'text-[var(--color-slate-haze)] hover:text-[var(--color-ivory)] hover:bg-[var(--color-ivory)]/[0.04]',
                   )}
                 >
                   {ChildIcon && (
@@ -274,6 +304,12 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme()
   const router = useRouter()
   const pathname = usePathname()
+  const [query, setQuery] = useState('')
+
+  const trimmedQuery = query.trim().toLowerCase()
+  const filteredNav = trimmedQuery
+    ? FLAT_NAV.filter((item) => item.label.toLowerCase().includes(trimmedQuery))
+    : []
 
   async function handleSignOut() {
     await signOut()
@@ -300,45 +336,58 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             'linear-gradient(180deg, var(--color-graphite-3) 0%, var(--color-graphite) 100%)',
         }}
       >
-        {/* Brand header — diamond-C monogram + Playfair wordmark.
-            Logo-gold sits in the same bronze family as the sidebar
-            accents, so it reads as a continuation of the palette
-            rather than a separate brand asset bolted on top. */}
-        <div className="px-6 pt-7 pb-5">
+        {/* Brand header — diamond-C monogram + serif wordmark. Uses the
+            display serif (same as the public site) so the admin shell
+            reads as the same brand, not a separate dashboard skin. */}
+        <div className="px-6 pt-7 pb-6">
           <div className="flex items-center gap-3">
             <Image
               src="/logo-gold.png"
               alt=""
-              width={36}
-              height={36}
+              width={38}
+              height={38}
               priority
-              className="w-9 h-9 object-contain shrink-0"
+              className="w-[38px] h-[38px] object-contain shrink-0"
             />
             <div className="min-w-0">
-              <h1 className="font-[family-name:var(--font-heading)] text-[15px] font-semibold text-[var(--color-ivory)] leading-tight">
+              <h1 className="font-[family-name:var(--font-display)] text-[19px] text-[var(--color-ivory)] leading-none tracking-[0.01em]">
                 The Club
               </h1>
-              <p className="font-[family-name:var(--font-label)] text-[9px] font-medium uppercase tracking-[0.22em] text-[var(--color-slate-haze)] mt-0.5">
+              <p className="font-[family-name:var(--font-label)] text-[8.5px] font-medium uppercase tracking-[0.28em] text-[var(--color-bronze-light)] mt-1.5">
                 by Sarah Restrick
               </p>
             </div>
           </div>
         </div>
 
-        <div className="h-px bg-[var(--color-border)]/70 mx-5" />
+        {/* Quiet search — filters the nav. A subtle command-bar touch
+            that keeps a long nav navigable without leaving the sidebar. */}
+        <div className="px-4 pb-4">
+          <div className="relative">
+            <Search
+              size={14}
+              strokeWidth={1.7}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-dim)] pointer-events-none"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search…"
+              className="w-full pl-9 pr-3 py-2 rounded-[var(--radius-md)] bg-[var(--color-ivory)]/[0.04] border border-[var(--color-border)]/70 text-[13px] text-[var(--color-ivory)] placeholder:text-[var(--color-text-dim)] focus:outline-none focus:border-[var(--color-bronze)]/50 focus:bg-[var(--color-ivory)]/[0.06] transition-colors"
+            />
+          </div>
+        </div>
 
-        {/* Nav — grouped with section labels */}
+        <div className="h-px bg-[var(--color-border)]/60 mx-5" />
+
+        {/* Nav — grouped with section labels, or a flat filtered list
+            while searching. */}
         <nav className="flex-1 py-4 px-3 overflow-y-auto">
-          {NAV_SECTIONS.map((section, idx) => (
-            <div key={section.label} className={idx > 0 ? 'mt-5' : ''}>
-              <p className="px-3 mb-1.5 text-[9px] font-medium uppercase tracking-[0.22em] text-[var(--color-text-dim)]">
-                {section.label}
-              </p>
+          {trimmedQuery ? (
+            filteredNav.length > 0 ? (
               <div className="space-y-0.5">
-                {section.items.map((item) => {
-                  if (isNavGroup(item)) {
-                    return <NavGroupRow key={item.to} group={item} pathname={pathname} />
-                  }
+                {filteredNav.map((item) => {
                   const active =
                     item.to === '/dashboard'
                       ? pathname === '/dashboard'
@@ -354,15 +403,47 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   )
                 })}
               </div>
-            </div>
-          ))}
+            ) : (
+              <p className="px-4 py-3 text-[13px] text-[var(--color-text-dim)] italic">
+                No matches for “{query.trim()}”.
+              </p>
+            )
+          ) : (
+            NAV_SECTIONS.map((section, idx) => (
+              <div key={section.label} className={idx > 0 ? 'mt-6' : ''}>
+                <p className="px-4 mb-2 text-[9.5px] font-medium uppercase tracking-[0.26em] text-[var(--color-text-dim)]">
+                  {section.label}
+                </p>
+                <div className="space-y-0.5">
+                  {section.items.map((item) => {
+                    if (isNavGroup(item)) {
+                      return <NavGroupRow key={item.to} group={item} pathname={pathname} />
+                    }
+                    const active =
+                      item.to === '/dashboard'
+                        ? pathname === '/dashboard'
+                        : pathname.startsWith(item.to)
+                    return (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        label={item.label}
+                        Icon={item.icon}
+                        active={active}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            ))
+          )}
         </nav>
 
         {/* Footer — profile, settings, signout */}
-        <div className="border-t border-[var(--color-border)]/70 px-3 py-3 space-y-0.5">
+        <div className="border-t border-[var(--color-border)]/60 px-3 py-3 space-y-0.5">
           {profile && (
-            <div className="flex items-center gap-2.5 px-3 py-2 mb-1">
-              <div className="w-8 h-8 rounded-full bg-[var(--color-bronze)]/15 ring-1 ring-[var(--color-bronze)]/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
+            <div className="flex items-center gap-3 px-3 py-2.5 mb-1">
+              <div className="w-9 h-9 rounded-full bg-[var(--color-bronze)]/15 ring-1 ring-[var(--color-bronze)]/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
                 {profile.avatar_url ? (
                   <Image
                     src={profile.avatar_url}
@@ -396,9 +477,13 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-1">
             <button
               onClick={handleSignOut}
-              className="group flex flex-1 items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm text-[var(--color-ivory-soft)] hover:text-[var(--color-accent-warm)] hover:bg-[var(--color-graphite-2)]/55 transition-all"
+              className="group flex flex-1 items-center gap-3 pl-4 pr-3 py-2.5 rounded-[var(--radius-md)] text-[13.5px] text-[var(--color-ivory-soft)] hover:text-[var(--color-accent-warm)] hover:bg-[var(--color-accent-warm)]/[0.08] transition-colors"
             >
-              <LogOut size={17} strokeWidth={1.6} />
+              <LogOut
+                size={17}
+                strokeWidth={1.6}
+                className="text-[var(--color-slate-haze)] group-hover:text-[var(--color-accent-warm)] transition-colors"
+              />
               <span>Sign out</span>
             </button>
             <ThemeToggle variant="icon" />
