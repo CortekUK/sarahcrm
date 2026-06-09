@@ -70,6 +70,11 @@ function memberName(p: { first_name: string | null; last_name: string | null } |
 
 export function FinancePage() {
   const [totalRevenue, setTotalRevenue] = useState(0)
+  const [revenueBySource, setRevenueBySource] = useState({
+    membership: 0,
+    events: 0,
+    sponsorship: 0,
+  })
   const [outstanding, setOutstanding] = useState(0)
   const [activeSubscriptions, setActiveSubscriptions] = useState(0)
   const [mrr, setMrr] = useState(0)
@@ -94,11 +99,14 @@ export function FinancePage() {
       overdueRes,
       subsRes,
       mrrRes,
+      sponsorshipsRes,
     ] = await Promise.all([
-      // Membership / event-via-member revenue (paid payment rows)
+      // Membership / event-via-member revenue (paid payment rows).
+      // payment_type splits these into membership vs event income for
+      // the "Revenue by source" breakdown.
       supabase
         .from('payments')
-        .select('amount_pence')
+        .select('amount_pence, payment_type')
         .eq('status', 'paid'),
 
       // Guest event-booking revenue — payments.member_id is NOT NULL so
@@ -204,14 +212,35 @@ export function FinancePage() {
         .not('stripe_subscription_id', 'is', null)
         .eq('membership_status', 'active')
         .is('deleted_at', null),
+
+      // Sponsorship revenue — committed (confirmed or beyond) sponsor
+      // fees, the third income source alongside membership + events.
+      supabase
+        .from('sponsorships')
+        .select('amount_pence, status')
+        .in('status', ['confirmed', 'invoiced', 'paid']),
     ])
 
     const paymentsRevenue = (revenueRes.data ?? []).reduce(
       (sum, p) => sum + (p.amount_pence ?? 0),
       0,
     )
+    // Split paid payment rows by type so we can attribute them to the
+    // right source. Anything that isn't an event booking is treated as
+    // membership income (the dominant case).
+    const membershipPayments = (revenueRes.data ?? [])
+      .filter((p) => p.payment_type !== 'event_booking')
+      .reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
+    const eventMemberPayments = (revenueRes.data ?? [])
+      .filter((p) => p.payment_type === 'event_booking')
+      .reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
     const bookingsRevenue = (bookingsRevenueRes.data ?? []).reduce(
       (sum, b) => sum + (b.amount_pence ?? 0),
+      0,
+    )
+    // Committed sponsorship fees (confirmed / invoiced / paid).
+    const sponsorshipRevenue = (sponsorshipsRes.data ?? []).reduce(
+      (sum, s) => sum + (s.amount_pence ?? 0),
       0,
     )
     // Refunded application accounting needs BOTH sides of the ledger
@@ -248,10 +277,26 @@ export function FinancePage() {
     setTotalRevenue(
       paymentsRevenue +
         bookingsRevenue +
+        sponsorshipRevenue +
         pendingPaidTotal +
         refundedOriginalsTotal -
         refundedTotal,
     )
+    // Attribute revenue to its source for the breakdown card.
+    //  • Membership = membership payment rows + pending-but-paid
+    //    applications, net of refunds (refund nets to ≈0 per the
+    //    add-original / subtract-refund logic above).
+    //  • Events = member event-booking payments + guest booking revenue.
+    //  • Sponsorship = committed sponsor fees.
+    setRevenueBySource({
+      membership:
+        membershipPayments +
+        pendingPaidTotal +
+        refundedOriginalsTotal -
+        refundedTotal,
+      events: eventMemberPayments + bookingsRevenue,
+      sponsorship: sponsorshipRevenue,
+    })
     setOutstanding(
       (outstandingRes.data ?? []).reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
     )
@@ -430,6 +475,67 @@ export function FinancePage() {
           changeType="positive"
         />
       </div>
+
+      {/* Revenue by source */}
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Revenue by source</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const sources = [
+              { key: 'membership', label: 'Membership', value: revenueBySource.membership, color: 'bg-gold' },
+              { key: 'events', label: 'Events', value: revenueBySource.events, color: 'bg-accent-blue' },
+              { key: 'sponsorship', label: 'Sponsorship', value: revenueBySource.sponsorship, color: 'bg-accent' },
+            ]
+            const sum = sources.reduce((s, x) => s + Math.max(0, x.value), 0)
+            if (sum === 0) {
+              return (
+                <p className="text-sm text-text-dim py-4 text-center">
+                  No revenue recorded yet.
+                </p>
+              )
+            }
+            return (
+              <div className="space-y-5">
+                {/* Stacked bar */}
+                <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
+                  {sources.map((s) =>
+                    s.value > 0 ? (
+                      <div
+                        key={s.key}
+                        className={s.color}
+                        style={{ width: `${(s.value / sum) * 100}%` }}
+                        title={`${s.label}: ${formatCurrency(s.value)}`}
+                      />
+                    ) : null,
+                  )}
+                </div>
+                {/* Legend rows */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {sources.map((s) => {
+                    const pct = sum > 0 ? Math.round((Math.max(0, s.value) / sum) * 100) : 0
+                    return (
+                      <div key={s.key} className="flex items-start gap-2.5">
+                        <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${s.color}`} />
+                        <div className="min-w-0">
+                          <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                            {s.label}
+                          </p>
+                          <p className="text-lg text-text tabular-nums">
+                            {formatCurrency(s.value)}
+                          </p>
+                          <p className="text-xs text-text-dim">{pct}% of revenue</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+        </CardContent>
+      </Card>
 
       {/* Overdue Invoices (only if any exist) */}
       {overduePayments.length > 0 && (
