@@ -17,6 +17,7 @@ import type {
   EditorBlock,
   BlockType,
 } from '@/lib/templates/editor-types'
+import { EMAIL_FONTS } from '@/lib/templates/editor-types'
 import { BlockLibrary } from './BlockLibrary'
 import { BlockProperties } from './BlockProperties'
 
@@ -132,6 +133,32 @@ export function LeftSidebar({
                 />
               </div>
             )}
+          </div>
+          <div>
+            <Label className="text-xs">Default font</Label>
+            <Select
+              value={settings.theme?.fontFamily || 'default'}
+              onValueChange={(v) =>
+                onSettingsChange({
+                  theme: { ...settings.theme, fontFamily: v === 'default' ? undefined : v },
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Brand default (DM Sans)</SelectItem>
+                {EMAIL_FONTS.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-[var(--color-text-dim)] mt-1">
+              Applies to the whole email; individual text blocks can override it.
+            </p>
           </div>
           <div>
             <Label className="text-xs">Category</Label>

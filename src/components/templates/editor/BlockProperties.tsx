@@ -26,6 +26,7 @@ import type {
   VideoBlockContent,
   SocialBlockContent,
 } from '@/lib/templates/editor-types'
+import { EMAIL_FONTS } from '@/lib/templates/editor-types'
 
 interface BlockPropertiesProps {
   block: EditorBlock | null
@@ -144,6 +145,21 @@ function TextProps({ block, update }: { block: TextBlockContent; update: (u: Rec
             <SelectItem value="normal">Normal</SelectItem>
             <SelectItem value="large">Large</SelectItem>
             <SelectItem value="xlarge">XLarge</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label className="text-xs">Font</Label>
+        <Select
+          value={block.fontFamily || 'inherit'}
+          onValueChange={(v) => update({ fontFamily: v === 'inherit' ? undefined : v })}
+        >
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="inherit">Template default</SelectItem>
+            {EMAIL_FONTS.map((f) => (
+              <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

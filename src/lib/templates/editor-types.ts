@@ -37,6 +37,9 @@ export interface TextBlockContent {
   html: string
   alignment: 'left' | 'center' | 'right'
   fontSize: 'small' | 'normal' | 'large' | 'xlarge'
+  // Optional per-block font override (a CSS font stack from EMAIL_FONTS).
+  // Empty / undefined means "inherit the template's default font".
+  fontFamily?: string
   paddingTop: number
   paddingBottom: number
   backgroundColor?: string
@@ -171,7 +174,33 @@ export interface TemplateTheme {
   footerLinkColor?: string
   pageBgColor?: string
   bodyBgColor?: string
+  // Default font for the whole email body. Individual text blocks can
+  // override it. Empty / undefined falls back to the brand body font.
+  fontFamily?: string
 }
+
+// Curated, email-safe font stacks. Email clients (especially Outlook)
+// only reliably render web-safe fonts, so we offer a fixed list of stacks
+// rather than a free-text box — each value is a full fallback chain. The
+// two brand fonts (Playfair / DM Sans) degrade gracefully to web-safe
+// fonts where the web font isn't available.
+export const EMAIL_FONTS: { label: string; value: string }[] = [
+  { label: 'Brand serif (Playfair)', value: "'Playfair Display', Georgia, 'Times New Roman', serif" },
+  { label: 'Brand sans (DM Sans)', value: "'DM Sans', Arial, Helvetica, sans-serif" },
+  { label: 'Georgia (serif)', value: "Georgia, 'Times New Roman', serif" },
+  { label: 'Times New Roman (serif)', value: "'Times New Roman', Times, serif" },
+  { label: 'Garamond (serif)', value: "Garamond, 'Times New Roman', serif" },
+  { label: 'Arial (sans-serif)', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Helvetica (sans-serif)', value: 'Helvetica, Arial, sans-serif' },
+  { label: 'Verdana (sans-serif)', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Tahoma (sans-serif)', value: 'Tahoma, Geneva, sans-serif' },
+  { label: 'Trebuchet MS (sans-serif)', value: "'Trebuchet MS', Helvetica, sans-serif" },
+  { label: 'Courier New (monospace)', value: "'Courier New', Courier, monospace" },
+]
+
+// The brand body default used when neither the block nor the template
+// specifies a font.
+export const DEFAULT_EMAIL_FONT = "'DM Sans', Arial, Helvetica, sans-serif"
 
 export interface TemplateSettings {
   name: string

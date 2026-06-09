@@ -14,6 +14,7 @@ import type {
   FileBlockContent,
   TemplateTheme,
 } from './editor-types'
+import { DEFAULT_EMAIL_FONT } from './editor-types'
 import { SOCIAL_PLATFORMS } from './social-icons'
 
 // The Club's brand defaults — warm cream + gold rather than IFG's slate blue.
@@ -27,6 +28,7 @@ export const DEFAULT_THEME: Required<TemplateTheme> = {
   footerLinkColor: '#B8975A',
   pageBgColor: '#F7F5F0',
   bodyBgColor: '#FFFFFF',
+  fontFamily: DEFAULT_EMAIL_FONT,
 }
 
 export function resolveTheme(theme?: TemplateTheme | null): Required<TemplateTheme> {
@@ -50,7 +52,8 @@ export function renderBlocksToHTML(
     </div>
   `
 
-  const body = blocks.map((block) => renderBlock(block)).join('')
+  const defaultFont = t.fontFamily || DEFAULT_EMAIL_FONT
+  const body = blocks.map((block) => renderBlock(block, defaultFont)).join('')
 
   const footer = `
     <div style="background-color: ${t.footerBgColor}; padding: 24px 20px; text-align: center; font-size: 12px; color: ${t.footerTextColor};">
@@ -83,7 +86,7 @@ export function renderBlocksToHTML(
     }
   </style>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'DM Sans', Arial, Helvetica, sans-serif; background-color: ${t.pageBgColor};">
+<body style="margin: 0; padding: 0; font-family: ${defaultFont}; background-color: ${t.pageBgColor};">
   <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: ${t.pageBgColor};">
     <tr>
       <td align="center">
@@ -116,10 +119,10 @@ export function renderBlocksToHTML(
   `.trim()
 }
 
-function renderBlock(block: EditorBlock): string {
+function renderBlock(block: EditorBlock, defaultFont: string): string {
   switch (block.type) {
     case 'text':
-      return renderTextBlock(block.content as TextBlockContent)
+      return renderTextBlock(block.content as TextBlockContent, defaultFont)
     case 'image':
       return renderImageBlock(block.content as ImageBlockContent)
     case 'button':
@@ -135,9 +138,9 @@ function renderBlock(block: EditorBlock): string {
     case 'html':
       return renderHTMLBlock(block.content as HTMLBlockContent)
     case 'columns':
-      return renderColumnsBlock(block.content as ColumnsBlockContent)
+      return renderColumnsBlock(block.content as ColumnsBlockContent, defaultFont)
     case 'conditional':
-      return renderConditionalBlock(block.content as ConditionalBlockContent)
+      return renderConditionalBlock(block.content as ConditionalBlockContent, defaultFont)
     case 'sarah_signature':
       return renderSarahSignatureBlock(block.content as SarahSignatureBlockContent)
     case 'file':
@@ -147,15 +150,17 @@ function renderBlock(block: EditorBlock): string {
   }
 }
 
-function renderTextBlock(content: TextBlockContent): string {
+function renderTextBlock(content: TextBlockContent, defaultFont: string): string {
   const fontSize =
     content.fontSize === 'small' ? '14px'
     : content.fontSize === 'large' ? '18px'
     : content.fontSize === 'xlarge' ? '24px'
     : '16px'
   const bgStyle = content.backgroundColor ? `background-color: ${content.backgroundColor};` : ''
+  // Per-block font wins; otherwise inherit the template's default font.
+  const fontFamily = content.fontFamily || defaultFont
   return `
-    <div style="text-align: ${content.alignment}; padding-top: ${content.paddingTop}px; padding-bottom: ${content.paddingBottom}px; font-size: ${fontSize}; line-height: 1.6; color: #2C2825; ${bgStyle}">
+    <div style="text-align: ${content.alignment}; padding-top: ${content.paddingTop}px; padding-bottom: ${content.paddingBottom}px; font-family: ${fontFamily}; font-size: ${fontSize}; line-height: 1.6; color: #2C2825; ${bgStyle}">
       ${content.html}
     </div>
   `
@@ -272,7 +277,7 @@ function renderHTMLBlock(content: HTMLBlockContent): string {
   return content.code || ''
 }
 
-function renderColumnsBlock(content: ColumnsBlockContent): string {
+function renderColumnsBlock(content: ColumnsBlockContent, defaultFont: string): string {
   const gap = content.gap || 20
   const halfGap = Math.floor(gap / 2)
   const widths = content.columnWidths || (content.columns === 3 ? [33, 33, 34] : [50, 50])
@@ -280,7 +285,7 @@ function renderColumnsBlock(content: ColumnsBlockContent): string {
     if (!blocks || blocks.length === 0) {
       return '<p style="margin: 0; color: #A09A93; font-size: 14px;">Empty column</p>'
     }
-    return blocks.map((block) => renderBlock(block)).join('')
+    return blocks.map((block) => renderBlock(block, defaultFont)).join('')
   }
   const leftTd = `<td style="width: ${widths[0]}%; vertical-align: top; padding-right: ${halfGap}px;">${renderColumnBlocks(content.leftBlocks)}</td>`
   let centerTd = ''
@@ -297,9 +302,9 @@ function renderColumnsBlock(content: ColumnsBlockContent): string {
   `
 }
 
-function renderConditionalBlock(content: ConditionalBlockContent): string {
+function renderConditionalBlock(content: ConditionalBlockContent, defaultFont: string): string {
   if (!content.children || content.children.length === 0) return ''
-  const childrenHtml = content.children.map((block) => renderBlock(block)).join('')
+  const childrenHtml = content.children.map((block) => renderBlock(block, defaultFont)).join('')
   return `
     <div style="padding-top: ${content.paddingTop || 0}px; padding-bottom: ${content.paddingBottom || 0}px;">
       {{#if ${content.conditionField} ${content.conditionOperator} "${content.conditionValue}"}}${childrenHtml}{{/if}}
