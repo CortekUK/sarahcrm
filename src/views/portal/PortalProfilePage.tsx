@@ -36,6 +36,21 @@ const profileSchema = z.object({
   company_name: z.string().optional(),
   company_description: z.string().optional(),
   company_website: z.string().optional(),
+  // ── Relationship intelligence (member-owned fields) — these drive
+  //    matchmaking. Members fill them here; admins see the same values. ──
+  sector: z.string().optional(),
+  sub_sector: z.string().optional(),
+  employee_count: z.string().optional(),
+  annual_turnover: z.string().optional(),
+  intro_target_types: z.string().optional(),
+  intro_target_criteria: z.string().optional(),
+  dream_introductions: z.string().optional(),
+  what_they_can_offer: z.string().optional(),
+  business_objectives: z.string().optional(),
+  budgets: z.string().optional(),
+  partner_name: z.string().optional(),
+  assistant_name: z.string().optional(),
+  dietary_requirements: z.string().optional(),
 })
 
 type ProfileFormData = z.infer<typeof profileSchema>
@@ -80,7 +95,9 @@ export function PortalProfilePage() {
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase
         .from('members')
-        .select('id, membership_tier, company_name, company_description, company_website')
+        .select(
+          'id, membership_tier, company_name, company_description, company_website, sector, sub_sector, employee_count, annual_turnover, intro_target_types, intro_target_criteria, dream_introductions, what_they_can_offer, business_objectives, budgets, partner_name, assistant_name, dietary_requirements',
+        )
         .eq('profile_id', userId)
         .single(),
       supabase.from('tags').select('*').order('category').order('name'),
@@ -145,6 +162,19 @@ export function PortalProfilePage() {
         ),
         company_description: memberRes.data?.company_description ?? '',
         company_website: memberRes.data?.company_website ?? '',
+        sector: memberRes.data?.sector ?? '',
+        sub_sector: memberRes.data?.sub_sector ?? '',
+        employee_count: memberRes.data?.employee_count ?? '',
+        annual_turnover: memberRes.data?.annual_turnover ?? '',
+        intro_target_types: memberRes.data?.intro_target_types ?? '',
+        intro_target_criteria: memberRes.data?.intro_target_criteria ?? '',
+        dream_introductions: memberRes.data?.dream_introductions ?? '',
+        what_they_can_offer: memberRes.data?.what_they_can_offer ?? '',
+        business_objectives: memberRes.data?.business_objectives ?? '',
+        budgets: memberRes.data?.budgets ?? '',
+        partner_name: memberRes.data?.partner_name ?? '',
+        assistant_name: memberRes.data?.assistant_name ?? '',
+        dietary_requirements: memberRes.data?.dietary_requirements ?? '',
       })
     }
 
@@ -194,6 +224,19 @@ export function PortalProfilePage() {
           company_name: data.company_name || null,
           company_description: data.company_description || null,
           company_website: data.company_website || null,
+          sector: data.sector || null,
+          sub_sector: data.sub_sector || null,
+          employee_count: data.employee_count || null,
+          annual_turnover: data.annual_turnover || null,
+          intro_target_types: data.intro_target_types || null,
+          intro_target_criteria: data.intro_target_criteria || null,
+          dream_introductions: data.dream_introductions || null,
+          what_they_can_offer: data.what_they_can_offer || null,
+          business_objectives: data.business_objectives || null,
+          budgets: data.budgets || null,
+          partner_name: data.partner_name || null,
+          assistant_name: data.assistant_name || null,
+          dietary_requirements: data.dietary_requirements || null,
         })
         .eq('id', memberId)
 
@@ -303,6 +346,98 @@ export function PortalProfilePage() {
             </div>
             <PortalField label="Company description">
               <PortalTextarea rows={3} {...register('company_description')} />
+            </PortalField>
+          </div>
+        </PortalCard>
+
+        {/* Company depth — feeds matchmaking */}
+        <PortalCard className="p-6 lg:p-8">
+          <PortalSectionTitle eyebrow="Your Business">Company detail.</PortalSectionTitle>
+          <p className="mb-6 font-[family-name:var(--font-editorial)] italic text-[14px] leading-[1.7] text-ivory-soft/85">
+            A fuller picture of your business helps us place you with the right people.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+            <PortalField label="Sector">
+              <PortalInput placeholder="e.g. Hospitality, Fintech" {...register('sector')} />
+            </PortalField>
+            <PortalField label="Sub-sector">
+              <PortalInput placeholder="e.g. Boutique hotels" {...register('sub_sector')} />
+            </PortalField>
+            <PortalField label="Team size">
+              <PortalInput placeholder="e.g. 25" {...register('employee_count')} />
+            </PortalField>
+            <PortalField label="Annual turnover">
+              <PortalInput placeholder="e.g. £2–5M" {...register('annual_turnover')} />
+            </PortalField>
+          </div>
+        </PortalCard>
+
+        {/* Introduction strategy — the heart of matchmaking */}
+        <PortalCard className="p-6 lg:p-8">
+          <PortalSectionTitle eyebrow="Introductions">Who you'd like to meet.</PortalSectionTitle>
+          <p className="mb-6 font-[family-name:var(--font-editorial)] italic text-[14px] leading-[1.7] text-ivory-soft/85">
+            The more specific you are, the better the introductions we can make for you.
+          </p>
+          <div className="space-y-6">
+            <PortalField
+              label="Who you want to meet"
+              hint="The kinds of people or businesses you're hoping to connect with."
+            >
+              <PortalInput
+                placeholder="e.g. Investors, founders in retail, family offices"
+                {...register('intro_target_types')}
+              />
+            </PortalField>
+            <PortalField
+              label="What makes a great match"
+              hint="Any criteria — sector, stage, geography, the situation you're solving for."
+            >
+              <PortalTextarea rows={3} {...register('intro_target_criteria')} />
+            </PortalField>
+            <PortalField
+              label="Your dream introductions"
+              hint="Specific people or companies you'd love to be introduced to."
+            >
+              <PortalTextarea rows={3} {...register('dream_introductions')} />
+            </PortalField>
+            <PortalField
+              label="What you can offer other members"
+              hint="Expertise, access, or opportunities you bring to the room."
+            >
+              <PortalTextarea rows={3} {...register('what_they_can_offer')} />
+            </PortalField>
+          </div>
+        </PortalCard>
+
+        {/* Goals & preferences */}
+        <PortalCard className="p-6 lg:p-8">
+          <PortalSectionTitle eyebrow="Goals & Preferences">What you're working towards.</PortalSectionTitle>
+          <div className="space-y-6">
+            <PortalField
+              label="Your objectives"
+              hint="What you're hoping to achieve through the club this year."
+            >
+              <PortalTextarea rows={3} {...register('business_objectives')} />
+            </PortalField>
+            <PortalField
+              label="Budgets"
+              hint="Optional — any marketing, events or partnership budget you're working with."
+            >
+              <PortalTextarea rows={2} {...register('budgets')} />
+            </PortalField>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+              <PortalField label="Partner / guest name" hint="Who usually joins you at events.">
+                <PortalInput {...register('partner_name')} />
+              </PortalField>
+              <PortalField label="Assistant / EA name" hint="Who we can copy on logistics.">
+                <PortalInput {...register('assistant_name')} />
+              </PortalField>
+            </div>
+            <PortalField
+              label="Dietary requirements"
+              hint="So dinners and events are arranged around you."
+            >
+              <PortalTextarea rows={2} {...register('dietary_requirements')} />
             </PortalField>
           </div>
         </PortalCard>
