@@ -36,8 +36,11 @@ import {
   Trash2,
   Mail,
   Building2,
+  Upload,
+  Download,
 } from 'lucide-react'
 import { AddMemberModal } from './AddMemberModal'
+import { ImportMembersModal } from './ImportMembersModal'
 import type { Database } from '@/types/database'
 
 type MemberStatus = Database['public']['Enums']['membership_status']
@@ -58,7 +61,9 @@ interface MemberRow {
     avatar_url: string | null
     company_name: string | null
     job_title: string | null
+    phone: string | null
   }
+  member_tags: { tag_id: string }[]
 }
 
 const STATUS_OPTIONS: { value: MemberStatus | 'all'; label: string }[] = [
@@ -99,14 +104,17 @@ export function MembersListPage() {
   const [search, setSearch] = useState('')
   const [tierFilter, setTierFilter] = useState<MemberTier | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<MemberStatus | 'all'>('all')
+  const [tagFilter, setTagFilter] = useState<string>('all')
+  const [tags, setTags] = useState<{ id: string; name: string; category: string }[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const fetchMembers = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
       .from('members')
       .select(
-        'id, membership_tier, membership_status, intros_used_this_month, monthly_intro_quota, company_name, created_at, profiles(first_name, last_name, email, avatar_url, company_name, job_title)',
+        'id, membership_tier, membership_status, intros_used_this_month, monthly_intro_quota, company_name, created_at, profiles(first_name, last_name, email, avatar_url, company_name, job_title, phone), member_tags(tag_id)',
       )
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
@@ -126,11 +134,23 @@ export function MembersListPage() {
     fetchMembers()
   }, [fetchMembers])
 
+  useEffect(() => {
+    supabase
+      .from('tags')
+      .select('id, name, category')
+      .order('category')
+      .order('name')
+      .then(({ data }) => {
+        if (data) setTags(data)
+      })
+  }, [])
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     return members.filter((m) => {
       if (tierFilter !== 'all' && m.membership_tier !== tierFilter) return false
       if (statusFilter !== 'all' && m.membership_status !== statusFilter) return false
+      if (tagFilter !== 'all' && !m.member_tags?.some((t) => t.tag_id === tagFilter)) return false
       if (!term) return true
       const name = `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.toLowerCase()
       const company = (m.company_name ?? m.profiles?.company_name ?? '').toLowerCase()
@@ -143,7 +163,41 @@ export function MembersListPage() {
         job.includes(term)
       )
     })
-  }, [members, search, tierFilter, statusFilter])
+  }, [members, search, tierFilter, statusFilter, tagFilter])
+
+  // Export the current filtered view (the active "segment") to CSV —
+  // re-importable and ready to drop into a mail tool.
+  function handleExport() {
+    const headers = [
+      'first_name', 'last_name', 'email', 'phone',
+      'company_name', 'job_title', 'membership_tier', 'membership_status',
+    ]
+    const esc = (v: string | null | undefined) => {
+      const s = (v ?? '').toString()
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines = [headers.join(',')]
+    for (const m of filtered) {
+      lines.push([
+        esc(m.profiles?.first_name),
+        esc(m.profiles?.last_name),
+        esc(m.profiles?.email),
+        esc(m.profiles?.phone),
+        esc(m.company_name ?? m.profiles?.company_name),
+        esc(m.profiles?.job_title),
+        esc(m.membership_tier),
+        esc(m.membership_status),
+      ].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `members-${filtered.length}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast({ title: 'Exported', description: `${filtered.length} member${filtered.length === 1 ? '' : 's'} downloaded as CSV.` })
+  }
 
   const counts = useMemo(
     () => ({
@@ -248,9 +302,17 @@ export function MembersListPage() {
           </span>
         }
         actions={
-          <Button icon={<Plus size={16} />} onClick={() => setShowAddModal(true)}>
-            Add member
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" icon={<Download size={15} />} onClick={handleExport}>
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+            <Button variant="secondary" icon={<Upload size={15} />} onClick={() => setShowImportModal(true)}>
+              <span className="hidden sm:inline">Import</span>
+            </Button>
+            <Button icon={<Plus size={16} />} onClick={() => setShowAddModal(true)}>
+              Add member
+            </Button>
+          </div>
         }
       />
 
@@ -312,6 +374,23 @@ export function MembersListPage() {
             </button>
           ))}
         </div>
+        {tags.length > 0 && (
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className={cn(
+              'px-3 py-1.5 text-xs rounded-full border transition-colors bg-[var(--color-surface)] text-text-muted border-border hover:border-border-hover cursor-pointer',
+              tagFilter !== 'all' && 'bg-gold text-white border-gold',
+            )}
+          >
+            <option value="all">All tags</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {filtered.length === 0 ? (
@@ -518,6 +597,12 @@ export function MembersListPage() {
           setShowAddModal(false)
           fetchMembers()
         }}
+      />
+
+      <ImportMembersModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={fetchMembers}
       />
     </div>
   )
