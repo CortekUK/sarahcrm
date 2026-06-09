@@ -30,6 +30,7 @@ import {
   Ticket,
   ClipboardList,
   Search,
+  Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -83,6 +84,7 @@ const NAV_SECTIONS: NavSection[] = [
         ],
       },
       { to: '/dashboard/finance', label: 'Finance', icon: PoundSterling },
+      { to: '/dashboard/automations', label: 'Automations', icon: Zap },
     ],
   },
   {
