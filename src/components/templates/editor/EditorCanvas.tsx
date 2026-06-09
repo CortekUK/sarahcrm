@@ -10,6 +10,7 @@ import type {
   TextBlockContent,
   ButtonBlockContent,
 } from '@/lib/templates/editor-types'
+import { DEFAULT_EMAIL_FONT } from '@/lib/templates/editor-types'
 import { cn } from '@/lib/utils'
 import {
   GripVertical,
@@ -259,6 +260,7 @@ export function EditorCanvas({
                           {block.type === 'text' ? (
                             <InlineTextBlock
                               content={block.content as TextBlockContent}
+                              defaultFont={theme?.fontFamily || DEFAULT_EMAIL_FONT}
                               onChange={(html) => onUpdateBlock(block.id, { html })}
                             />
                           ) : block.type === 'button' ? (
@@ -337,9 +339,11 @@ export function EditorCanvas({
 
 function InlineTextBlock({
   content,
+  defaultFont,
   onChange,
 }: {
   content: TextBlockContent
+  defaultFont: string
   onChange: (html: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -385,6 +389,7 @@ function InlineTextBlock({
         textAlign: content.alignment,
         paddingTop: content.paddingTop,
         paddingBottom: content.paddingBottom,
+        fontFamily: content.fontFamily || defaultFont,
         fontSize,
         lineHeight: 1.6,
         color: '#2C2825',

@@ -108,6 +108,16 @@
   --color-destructive-foreground: #FFFFFF;
   --color-input: #E5E0D8;
   --color-ring: rgba(184, 151, 90, 0.4);
+  /* Popover / card / accent-foreground were missing — without these the
+     Tailwind v4 `bg-popover` / `text-popover-foreground` utilities don't
+     exist, so shadcn dropdown popovers rendered with no background (text
+     bled through). Registering them here generates the utilities and sets
+     the light defaults. */
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #2C2825;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #2C2825;
+  --color-accent-foreground: #FFFFFF;
 
   /* Radius alias the shadcn primitives reference. */
   --radius: 8px;
@@ -243,6 +253,12 @@
   --color-destructive-foreground: var(--color-ink);
   --color-input: var(--color-graphite-line);
   --color-ring: rgba(168, 123, 79, 0.5);
+  /* Dark dropdown popovers / cards. */
+  --color-popover: var(--color-graphite-2);
+  --color-popover-foreground: var(--color-ivory);
+  --color-card: var(--color-graphite-2);
+  --color-card-foreground: var(--color-ivory);
+  --color-accent-foreground: var(--color-ivory);
 
   /* Base — apply on the root so the admin shell paints ink behind
      the sidebar gradient + main content, with ivory body text in Sora. */
@@ -381,6 +397,26 @@
   --color-accent: #5B7B6A;
   --color-accent-warm: #C4694A;
   --color-accent-blue: #5A7B96;
+  /* Restore the light shadcn aliases too — otherwise (in night-admin mode)
+     dropdown popovers, inputs and buttons inside the editor inherit the
+     dark tokens from .theme-night-admin and clash with the cream chrome. */
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #2C2825;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #2C2825;
+  --color-accent-foreground: #FFFFFF;
+  --color-primary: #B8975A;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F3F0EA;
+  --color-secondary-foreground: #2C2825;
+  --color-muted: #F7F5F0;
+  --color-muted-foreground: #6B6560;
+  --color-input: #E5E0D8;
+  --color-ring: rgba(184, 151, 90, 0.4);
+  --color-background: #FAFAF7;
+  --color-foreground: #2C2825;
+  --color-destructive: #C4694A;
+  --color-destructive-foreground: #FFFFFF;
   --shadow-sm: 0 1px 2px rgba(44, 40, 37, 0.05);
   --shadow-md: 0 4px 6px rgba(44, 40, 37, 0.07);
   --shadow-lg: 0 10px 15px rgba(44, 40, 37, 0.1);
