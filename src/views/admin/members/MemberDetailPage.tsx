@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
+import { RepsPanel } from './RepsPanel'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -99,6 +101,9 @@ interface MemberDetail {
   dietary_requirements: string | null
   partner_name: string | null
   assistant_name: string | null
+  parent_member_id: string | null
+  is_primary_rep: boolean
+  rep_role: string | null
   profiles: {
     first_name: string | null
     last_name: string | null
@@ -939,6 +944,33 @@ export function MemberDetailPage() {
           ))}
         </CardContent>
       </Card>
+
+      {/* Representatives — business / partner accounts that hold the
+          membership (not themselves a rep under another account). */}
+      {!editing &&
+        (member.membership_type === 'business' || member.membership_type === 'partner') &&
+        !member.parent_member_id && (
+          <div className="mb-6">
+            <RepsPanel parentMemberId={member.id} companyName={member.company_name} />
+          </div>
+        )}
+
+      {/* Rep notice — this member belongs to a parent business account. */}
+      {!editing && member.parent_member_id && (
+        <Card className="mb-6">
+          <CardContent className="py-4 flex items-center justify-between gap-3">
+            <p className="text-sm text-text-muted">
+              This member is a representative under a business account.
+            </p>
+            <Link
+              href={`/dashboard/members/${member.parent_member_id}`}
+              className="text-sm text-gold hover:underline shrink-0"
+            >
+              Open business account →
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Subscription */}
       {!editing && (

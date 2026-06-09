@@ -84,6 +84,36 @@ export type Database = {
         }
         Relationships: []
       }
+      automation_log: {
+        Row: {
+          created_at: string
+          detail: string | null
+          flow: string
+          id: string
+          recipient_email: string | null
+          ref_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: string | null
+          flow: string
+          id?: string
+          recipient_email?: string | null
+          ref_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          flow?: string
+          id?: string
+          recipient_email?: string | null
+          ref_id?: string
+          status?: string
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           accommodation_booked: boolean
@@ -1106,6 +1136,7 @@ export type Database = {
           intros_used_this_month: number
           invoice_address: string | null
           invoice_chaser_contact: string | null
+          is_primary_rep: boolean
           lifetime_value_pence: number | null
           ltv_forecast_pence: number | null
           media_features: string | null
@@ -1124,6 +1155,7 @@ export type Database = {
           notes: string | null
           nps_score: number | null
           offices: string | null
+          parent_member_id: string | null
           partner_name: string | null
           payment_frequency: string | null
           profile_id: string
@@ -1131,6 +1163,7 @@ export type Database = {
           relationship_capital_score: number | null
           relationship_health_score: number | null
           renewal_date: string | null
+          rep_role: string | null
           sector: string | null
           showcase_enabled: boolean
           source: string | null
@@ -1196,6 +1229,7 @@ export type Database = {
           intros_used_this_month?: number
           invoice_address?: string | null
           invoice_chaser_contact?: string | null
+          is_primary_rep?: boolean
           lifetime_value_pence?: number | null
           ltv_forecast_pence?: number | null
           media_features?: string | null
@@ -1214,6 +1248,7 @@ export type Database = {
           notes?: string | null
           nps_score?: number | null
           offices?: string | null
+          parent_member_id?: string | null
           partner_name?: string | null
           payment_frequency?: string | null
           profile_id: string
@@ -1221,6 +1256,7 @@ export type Database = {
           relationship_capital_score?: number | null
           relationship_health_score?: number | null
           renewal_date?: string | null
+          rep_role?: string | null
           sector?: string | null
           showcase_enabled?: boolean
           source?: string | null
@@ -1286,6 +1322,7 @@ export type Database = {
           intros_used_this_month?: number
           invoice_address?: string | null
           invoice_chaser_contact?: string | null
+          is_primary_rep?: boolean
           lifetime_value_pence?: number | null
           ltv_forecast_pence?: number | null
           media_features?: string | null
@@ -1304,6 +1341,7 @@ export type Database = {
           notes?: string | null
           nps_score?: number | null
           offices?: string | null
+          parent_member_id?: string | null
           partner_name?: string | null
           payment_frequency?: string | null
           profile_id?: string
@@ -1311,6 +1349,7 @@ export type Database = {
           relationship_capital_score?: number | null
           relationship_health_score?: number | null
           renewal_date?: string | null
+          rep_role?: string | null
           sector?: string | null
           showcase_enabled?: boolean
           source?: string | null
@@ -1327,6 +1366,13 @@ export type Database = {
           xero_contact_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "members_parent_member_id_fkey"
+            columns: ["parent_member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "members_profile_id_fkey"
             columns: ["profile_id"]
@@ -1349,6 +1395,7 @@ export type Database = {
           address_line_2: string | null
           amount_paid_pence: number | null
           annual_turnover: string | null
+          applicant_stage: string | null
           bio: string | null
           charge_error: string | null
           city: string | null
@@ -1364,6 +1411,7 @@ export type Database = {
           interests: string[] | null
           last_name: string
           linkedin_url: string | null
+          looking_for: string | null
           nationality: string | null
           notes: string | null
           paid_at: string | null
@@ -1390,8 +1438,10 @@ export type Database = {
           stripe_setup_intent_id: string | null
           stripe_subscription_id: string | null
           tiktok_url: string | null
+          track: string
           updated_at: string
           website_url: string | null
+          what_they_can_offer: string | null
           work_email: string | null
           x_url: string | null
           youtube_url: string | null
@@ -1401,6 +1451,7 @@ export type Database = {
           address_line_2?: string | null
           amount_paid_pence?: number | null
           annual_turnover?: string | null
+          applicant_stage?: string | null
           bio?: string | null
           charge_error?: string | null
           city?: string | null
@@ -1416,6 +1467,7 @@ export type Database = {
           interests?: string[] | null
           last_name: string
           linkedin_url?: string | null
+          looking_for?: string | null
           nationality?: string | null
           notes?: string | null
           paid_at?: string | null
@@ -1442,8 +1494,10 @@ export type Database = {
           stripe_setup_intent_id?: string | null
           stripe_subscription_id?: string | null
           tiktok_url?: string | null
+          track?: string
           updated_at?: string
           website_url?: string | null
+          what_they_can_offer?: string | null
           work_email?: string | null
           x_url?: string | null
           youtube_url?: string | null
@@ -1453,6 +1507,7 @@ export type Database = {
           address_line_2?: string | null
           amount_paid_pence?: number | null
           annual_turnover?: string | null
+          applicant_stage?: string | null
           bio?: string | null
           charge_error?: string | null
           city?: string | null
@@ -1468,6 +1523,7 @@ export type Database = {
           interests?: string[] | null
           last_name?: string
           linkedin_url?: string | null
+          looking_for?: string | null
           nationality?: string | null
           notes?: string | null
           paid_at?: string | null
@@ -1494,8 +1550,10 @@ export type Database = {
           stripe_setup_intent_id?: string | null
           stripe_subscription_id?: string | null
           tiktok_url?: string | null
+          track?: string
           updated_at?: string
           website_url?: string | null
+          what_they_can_offer?: string | null
           work_email?: string | null
           x_url?: string | null
           youtube_url?: string | null
