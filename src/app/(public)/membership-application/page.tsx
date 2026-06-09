@@ -166,6 +166,9 @@ const TURNOVER = [
   'Prefer not to say',
 ]
 const HEADCOUNT = ['1', '2 – 10', '11 – 50', '51 – 250', '251 – 1,000', '1,000+']
+// Business stage drives the application track: early-stage applicants
+// seeking investment are routed to PITCH rather than standard membership.
+const STAGES = ['Established business', 'Early-stage, seeking investment'] as const
 
 // Plan card shape used by the picker UI. Built from the DB-driven
 // `membership_plans` rows below; the FALLBACK_TIERS array kicks in when
@@ -279,6 +282,11 @@ const schema = z.object({
   annual_turnover: z.string().optional(),
   employees: z.string().optional(),
   referral_name: z.string().optional(),
+  // Due-diligence / introduction strategy (Spec §2/§3). Optional so they
+  // never block submission, but they're the key matchmaking inputs.
+  applicant_stage: z.string().optional(),
+  looking_for: z.string().optional(),
+  what_they_can_offer: z.string().optional(),
 
   // Free-text slug rather than a hardcoded enum — keeps the form open
   // to whatever plans an admin publishes via /dashboard/website/memberships.
@@ -1362,6 +1370,32 @@ function BusinessStep({
             )}
           />
         </div>
+        <Controller
+          name="applicant_stage"
+          control={control}
+          render={({ field }) => (
+            <EditorialSelect
+              label="Where is your business right now?"
+              options={STAGES as unknown as string[]}
+              value={field.value ?? ''}
+              onChange={field.onChange}
+            />
+          )}
+        />
+        <Field
+          as="textarea"
+          rows={3}
+          label="Who would you like to meet, and what are you looking for? (optional)"
+          placeholder="The kind of people, businesses or opportunities you'd value an introduction to."
+          {...register('looking_for')}
+        />
+        <Field
+          as="textarea"
+          rows={3}
+          label="What can you offer other members? (optional)"
+          placeholder="Products, services, investment, partnerships, mentoring, sponsorship…"
+          {...register('what_they_can_offer')}
+        />
         <Field
           label="Member who can recommend you (optional)"
           placeholder="If you know an existing Member, add their name"

@@ -120,6 +120,15 @@ export async function POST(req: NextRequest) {
       annual_turnover: (body.annual_turnover as string) || null,
       employees: (body.employees as string) || null,
       referral_name: (body.referral_name as string) || null,
+      applicant_stage: (body.applicant_stage as string) || null,
+      looking_for: (body.looking_for as string) || null,
+      what_they_can_offer: (body.what_they_can_offer as string) || null,
+      // PITCH routing: early-stage applicants seeking investment go to the
+      // PITCH track; everyone else to standard membership. Admins can
+      // override later.
+      track: /early-stage|investment/i.test((body.applicant_stage as string) || '')
+        ? 'pitch'
+        : 'membership',
       preferred_tier: tier,
       payment_preference: cadence,
       quoted_amount_pence: quotedGross,

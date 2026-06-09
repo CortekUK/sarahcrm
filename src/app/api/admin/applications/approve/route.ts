@@ -14,6 +14,7 @@ import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { computeNextRenewal } from '@/lib/billing/renewal'
+import { sendInviteEmail } from '@/lib/email/invite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -267,43 +268,42 @@ export async function POST(req: NextRequest) {
           .eq('id', userId)
       }
     } else {
-      // 3. Create the auth user. We use inviteUserByEmail so Supabase
-      //    sends them a "set your password" email — they don't need us to
-      //    know or share a password manually. `redirectTo` points to OUR
-      //    branded /set-password page so the post-click experience is on
-      //    The Club's surface, not Supabase's default page. The
-      //    handle_new_user trigger auto-creates a profile row keyed off
-      //    the new auth.users.id.
-      //
-      //    NB: The email's subject + body branding (sender name, copy,
-      //    logo) is configured in Supabase Dashboard → Auth → Email
-      //    Templates → "Invite user". Update that template once to match
-      //    The Club's voice — there's no code knob for it.
+      // 3. Create the auth user. When sending the invite we generate the
+      //    set-password link ourselves and email it via Resend with our
+      //    branded template (see lib/email/invite) — NOT Supabase's default
+      //    mailer — so every email is on-brand and on one pipeline. The
+      //    link redirects to OUR /set-password page. The handle_new_user
+      //    trigger auto-creates the profile row keyed off the new user id.
       const send = body.send_invite !== false
-      const inviteRes = send
-        ? await admin.auth.admin.inviteUserByEmail(app.email, {
-            redirectTo: setPasswordRedirect,
-            data: {
-              first_name: app.first_name,
-              last_name: app.last_name,
-            },
-          })
-        : await admin.auth.admin.createUser({
-            email: app.email,
-            email_confirm: true,
-            user_metadata: {
-              first_name: app.first_name,
-              last_name: app.last_name,
-            },
-          })
-
-      if (inviteRes.error || !inviteRes.data.user) {
-        return Response.json(
-          { error: inviteRes.error?.message ?? 'Failed to create auth user' },
-          { status: 500 },
-        )
+      if (send) {
+        const inv = await sendInviteEmail(admin, {
+          email: app.email,
+          firstName: app.first_name,
+          redirectTo: setPasswordRedirect,
+        })
+        if (!inv.userId) {
+          return Response.json(
+            { error: inv.error ?? 'Failed to create auth user' },
+            { status: 500 },
+          )
+        }
+        userId = inv.userId
+        // inv.emailSent === false is non-fatal: the member exists; admin can
+        // re-send the invite. We surface it in the response below.
+      } else {
+        const created = await admin.auth.admin.createUser({
+          email: app.email,
+          email_confirm: true,
+          user_metadata: { first_name: app.first_name, last_name: app.last_name },
+        })
+        if (created.error || !created.data.user) {
+          return Response.json(
+            { error: created.error?.message ?? 'Failed to create auth user' },
+            { status: 500 },
+          )
+        }
+        userId = created.data.user.id
       }
-      userId = inviteRes.data.user.id
 
       // Trigger created a minimal profile; flesh it out with details from
       // the application. Photo + website carry through so the new member
@@ -350,6 +350,23 @@ export async function POST(req: NextRequest) {
       ? computeNextRenewal(paidAt, appAny.payment_preference)
       : null
 
+    // Carry the application's due-diligence + introduction-strategy data
+    // into the member profile so new members arrive with company depth and
+    // matchmaking inputs already populated (Spec §4 keystone).
+    const profileFromApp = {
+      sector: app.industry ?? null,
+      annual_turnover: app.annual_turnover ?? null,
+      employee_count: app.employees ?? null,
+      intro_target_types: app.looking_for ?? null,
+      what_they_can_offer: app.what_they_can_offer ?? null,
+      payment_frequency: app.payment_preference ?? null,
+    }
+    // On re-approval of an existing member, don't blank fields the admin may
+    // have already filled in — only carry over values the application has.
+    const profileFromAppNonEmpty = Object.fromEntries(
+      Object.entries(profileFromApp).filter(([, v]) => v != null && v !== ''),
+    )
+
     if (existingMember) {
       const { data: updated, error: updErr } = await admin
         .from('members')
@@ -361,6 +378,7 @@ export async function POST(req: NextRequest) {
           company_name: app.company ?? null,
           source: app.referral_source ?? null,
           deleted_at: null,
+          ...profileFromAppNonEmpty,
           // Only overwrite if the application has fresh Stripe IDs —
           // don't blank existing ones if admin re-approves a manual
           // member who already had a sub linked.
@@ -391,6 +409,7 @@ export async function POST(req: NextRequest) {
           stripe_customer_id: stripeCustomerId,
           stripe_subscription_id: stripeSubscriptionId,
           renewal_date: renewalDate,
+          ...profileFromApp,
         })
         .select('id')
         .single()

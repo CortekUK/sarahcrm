@@ -903,6 +903,37 @@ function ApplicationDetailModal({
           </Section>
         )}
 
+        {/* ── Goals & track ───────────────────────────────────────── */}
+        {(a.looking_for || a.what_they_can_offer || a.applicant_stage || a.track === 'pitch') && (
+          <Section title="Goals & track" icon={<TrendingUp size={11} />}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+              {a.applicant_stage && (
+                <DetailRow label="Business stage" value={a.applicant_stage} />
+              )}
+              {a.track && (
+                <DetailRow
+                  label="Track"
+                  value={a.track === 'pitch' ? 'PITCH — early-stage' : 'Membership'}
+                />
+              )}
+              {a.looking_for && (
+                <DetailRow
+                  label="Who they want to meet / looking for"
+                  value={a.looking_for}
+                  className="sm:col-span-2"
+                />
+              )}
+              {a.what_they_can_offer && (
+                <DetailRow
+                  label="What they can offer"
+                  value={a.what_they_can_offer}
+                  className="sm:col-span-2"
+                />
+              )}
+            </div>
+          </Section>
+        )}
+
         {/* ── Online presence ─────────────────────────────────────── */}
         {activeSocials.length > 0 && (
           <Section title="Online presence" icon={<Globe size={11} />}>
