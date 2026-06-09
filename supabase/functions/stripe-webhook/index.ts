@@ -487,7 +487,13 @@ Deno.serve(async (req) => {
         console.log('Subscription activated for member:', member_id, 'sub:', subscriptionId)
       } else {
         // ── Event booking checkout ──
-        const { event_id, member_id } = session.metadata ?? {}
+        const {
+          event_id,
+          member_id,
+          guests_invited,
+          guest_name,
+          accommodation_booked,
+        } = session.metadata ?? {}
 
         if (!event_id || !member_id) {
           console.error('Missing metadata on checkout session:', session.id)
@@ -515,7 +521,11 @@ Deno.serve(async (req) => {
 
         const amountPence = session.amount_total ?? 0
 
-        // Create booking
+        // Create booking. Guest + accommodation add-ons (if any) ride on
+        // this single row — guests_invited / guest_name / accommodation
+        // come from the checkout metadata; amount_pence already includes
+        // their line items.
+        const guestsInvited = parseInt(guests_invited ?? '0', 10) || 0
         const { data: booking, error: bookingError } = await supabaseAdmin
           .from('bookings')
           .insert({
@@ -525,6 +535,9 @@ Deno.serve(async (req) => {
             payment_method: 'stripe',
             amount_pence: amountPence,
             stripe_payment_intent_id: paymentIntentId,
+            guests_invited: guestsInvited,
+            guest_name: guestsInvited > 0 && guest_name ? guest_name : null,
+            accommodation_booked: accommodation_booked === 'true',
           })
           .select('id')
           .single()

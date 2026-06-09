@@ -18,6 +18,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { SponsorsPanel } from './SponsorsPanel'
 import { formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import {
   ArrowLeft,
@@ -46,6 +47,8 @@ interface GuestRow {
   checked_in_at: string | null
   is_guest: boolean
   guest_name: string | null
+  guests_invited: number
+  accommodation_booked: boolean
   members: {
     id: string
     profiles: {
@@ -98,7 +101,7 @@ export function EventDetailPage() {
       supabase
         .from('bookings')
         .select(
-          'id, status, amount_pence, payment_method, dietary_requirements, special_requests, checked_in, checked_in_at, is_guest, guest_name, members(id, profiles(first_name, last_name, email, avatar_url, company_name))',
+          'id, status, amount_pence, payment_method, dietary_requirements, special_requests, checked_in, checked_in_at, is_guest, guest_name, guests_invited, accommodation_booked, members(id, profiles(first_name, last_name, email, avatar_url, company_name))',
         )
         .eq('event_id', eventId)
         .order('created_at', { ascending: false }),
@@ -504,6 +507,18 @@ export function EventDetailPage() {
                                 {company && (
                                   <p className="text-xs text-text-dim truncate">{company}</p>
                                 )}
+                                {(guest.guests_invited > 0 || guest.accommodation_booked) && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {guest.guests_invited > 0 && (
+                                      <Badge variant="info">
+                                        +1 guest{guest.guest_name ? `: ${guest.guest_name}` : ''}
+                                      </Badge>
+                                    )}
+                                    {guest.accommodation_booked && (
+                                      <Badge variant="draft">Accommodation</Badge>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </TableCell>
@@ -637,6 +652,11 @@ export function EventDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Sponsors — packages, members and committed revenue for this event */}
+      <div className="mt-6">
+        <SponsorsPanel eventId={id} defaultAmountPence={event.sponsor_price_pence} />
+      </div>
     </div>
   )
 }

@@ -40,8 +40,15 @@ Deno.serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // Parse body
-    const { event_id } = await req.json()
+    // Parse body. Optional guest + accommodation add-ons ride on the
+    // member's single booking (no separate guest row): we add line items
+    // for them and stamp the details into metadata for the webhook.
+    const {
+      event_id,
+      bring_guest = false,
+      guest_name = '',
+      add_accommodation = false,
+    } = await req.json()
     if (!event_id) {
       return new Response(
         JSON.stringify({ error: 'event_id is required' }),
@@ -66,7 +73,9 @@ Deno.serve(async (req) => {
     // Get event
     const { data: event, error: eventError } = await supabaseAdmin
       .from('events')
-      .select('id, title, member_price_pence, status, capacity, slug, bookings(count)')
+      .select(
+        'id, title, member_price_pence, guest_price_pence, accommodation_available, accommodation_price_pence, status, capacity, slug, bookings(count)',
+      )
       .eq('id', event_id)
       .single()
 
@@ -117,24 +126,63 @@ Deno.serve(async (req) => {
 
     const siteUrl = Deno.env.get('SITE_URL') || 'http://localhost:5173'
 
+    // Build line items: member ticket, plus optional guest + accommodation.
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+      {
+        price_data: {
+          currency: 'gbp',
+          unit_amount: event.member_price_pence,
+          product_data: {
+            name: event.title,
+            description: `Booking for ${event.title}`,
+          },
+        },
+        quantity: 1,
+      },
+    ]
+
+    const wantsGuest = bring_guest === true && (event.guest_price_pence ?? 0) > 0
+    if (wantsGuest) {
+      lineItems.push({
+        price_data: {
+          currency: 'gbp',
+          unit_amount: event.guest_price_pence,
+          product_data: {
+            name: `${event.title} — Guest`,
+            description: guest_name ? `Guest: ${guest_name}` : 'Guest place',
+          },
+        },
+        quantity: 1,
+      })
+    }
+
+    const wantsAccommodation =
+      add_accommodation === true &&
+      event.accommodation_available === true &&
+      (event.accommodation_price_pence ?? 0) > 0
+    if (wantsAccommodation) {
+      lineItems.push({
+        price_data: {
+          currency: 'gbp',
+          unit_amount: event.accommodation_price_pence,
+          product_data: {
+            name: `${event.title} — Accommodation`,
+            description: 'Overnight accommodation',
+          },
+        },
+        quantity: 1,
+      })
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: 'gbp',
-            unit_amount: event.member_price_pence,
-            product_data: {
-              name: event.title,
-              description: `Booking for ${event.title}`,
-            },
-          },
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
       metadata: {
         event_id: event.id,
         member_id: member.id,
+        guests_invited: wantsGuest ? '1' : '0',
+        guest_name: wantsGuest ? String(guest_name || '').slice(0, 120) : '',
+        accommodation_booked: wantsAccommodation ? 'true' : 'false',
       },
       success_url: `${siteUrl}/portal/events/${event.id}/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/portal/events/${event.id}`,

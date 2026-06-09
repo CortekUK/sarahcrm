@@ -83,6 +83,10 @@ export function PortalEventDetailPage() {
   const [loading, setLoading] = useState(true)
   const [booking, setBooking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Optional add-ons that ride on the member's booking.
+  const [bringGuest, setBringGuest] = useState(false)
+  const [guestName, setGuestName] = useState('')
+  const [addAccommodation, setAddAccommodation] = useState(false)
 
   useEffect(() => {
     if (id && user) fetchData()
@@ -121,7 +125,12 @@ export function PortalEventDetailPage() {
     setError(null)
     try {
       const { data, error: fnError } = await supabase.functions.invoke('checkout', {
-        body: { event_id: id },
+        body: {
+          event_id: id,
+          bring_guest: bringGuest,
+          guest_name: bringGuest ? guestName.trim() : '',
+          add_accommodation: addAccommodation,
+        },
       })
       if (fnError || !data?.url) {
         const friendly = await extractFunctionErrorMessage(fnError, data)
@@ -220,6 +229,22 @@ export function PortalEventDetailPage() {
   const isComplimentary = event.member_price_pence === 0
   const speakers = parseSpeakers(event.speakers)
   const agenda = parseAgenda(event.agenda)
+
+  // Optional add-ons available on this event.
+  const guestPrice = event.guest_price_pence ?? 0
+  const accommodationPrice = event.accommodation_price_pence ?? 0
+  const guestAvailable = guestPrice > 0
+  const accommodationAvailable = event.accommodation_available === true && accommodationPrice > 0
+  const hasAddOns = guestAvailable || accommodationAvailable
+  // Running total = member ticket + any selected add-ons.
+  const bookingTotal =
+    event.member_price_pence +
+    (bringGuest && guestAvailable ? guestPrice : 0) +
+    (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
+  // Route through paid checkout whenever there's anything to charge — even
+  // a complimentary member ticket becomes a paid booking once a priced
+  // guest or accommodation add-on is selected.
+  const useComplimentaryPath = bookingTotal === 0
 
   return (
     <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
@@ -362,15 +387,75 @@ export function PortalEventDetailPage() {
               </PortalButton>
             ) : (
               <>
+                {/* Add-ons */}
+                {hasAddOns && (
+                  <div className="mb-5 space-y-3">
+                    {guestAvailable && (
+                      <div className="border border-graphite-line/45 rounded-sm p-3.5">
+                        <label className="flex items-center justify-between gap-3 cursor-pointer">
+                          <span className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={bringGuest}
+                              onChange={(e) => setBringGuest(e.target.checked)}
+                              className="h-4 w-4 accent-bronze"
+                            />
+                            <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-ivory">
+                              Bring a guest
+                            </span>
+                          </span>
+                          <span className="font-[family-name:var(--font-display)] text-[14px] text-bronze-light tabular-nums">
+                            +{formatCurrency(guestPrice)}
+                          </span>
+                        </label>
+                        {bringGuest && (
+                          <input
+                            type="text"
+                            value={guestName}
+                            onChange={(e) => setGuestName(e.target.value)}
+                            placeholder="Guest's full name"
+                            className="mt-3 w-full bg-graphite/40 border border-graphite-line/45 rounded-sm px-3 py-2 text-[13px] text-ivory placeholder:text-slate-haze focus:outline-none focus:border-bronze/55"
+                          />
+                        )}
+                      </div>
+                    )}
+                    {accommodationAvailable && (
+                      <div className="border border-graphite-line/45 rounded-sm p-3.5">
+                        <label className="flex items-center justify-between gap-3 cursor-pointer">
+                          <span className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={addAccommodation}
+                              onChange={(e) => setAddAccommodation(e.target.checked)}
+                              className="h-4 w-4 accent-bronze"
+                            />
+                            <span className="font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-ivory">
+                              Add accommodation
+                            </span>
+                          </span>
+                          <span className="font-[family-name:var(--font-display)] text-[14px] text-bronze-light tabular-nums">
+                            +{formatCurrency(accommodationPrice)}
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <PortalButton
                   className="w-full justify-center"
                   loading={booking}
-                  onClick={isComplimentary ? handleBookComplimentary : handleBookPaid}
+                  disabled={bringGuest && guestAvailable && !guestName.trim()}
+                  onClick={useComplimentaryPath ? handleBookComplimentary : handleBookPaid}
                 >
-                  {isComplimentary
+                  {useComplimentaryPath
                     ? 'Reserve seat'
-                    : `Book · ${formatCurrency(event.member_price_pence)}`}
+                    : `Book · ${formatCurrency(bookingTotal)}`}
                 </PortalButton>
+                {bringGuest && guestAvailable && !guestName.trim() && (
+                  <p className="mt-2 text-center font-[family-name:var(--font-editorial)] italic text-[12px] text-slate-haze">
+                    Add your guest&apos;s name to continue.
+                  </p>
+                )}
                 {error && (
                   <div className="mt-4 px-3 py-3 border-l-2 border-rose-500/60 bg-rose-900/15">
                     <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-rose-300 mb-1.5">
