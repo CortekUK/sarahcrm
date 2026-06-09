@@ -7,6 +7,318 @@ steps and confirm the feature works. Newest entries at the top.
 > Test accounts (staging): use the member sign-in / admin sign-in pages.
 > Test card for any payment step: **4242 4242 4242 4242**, any future expiry,
 > any 3 digits for CVC.
+>
+> **Outstanding items that need Sarah or a production step are tracked in
+> [BLOCKERS.md](BLOCKERS.md).**
+
+---
+
+## Guests & accommodation at event booking
+**Date:** 9 Jun 2026
+
+**What was asked:** When a member books an event they should be able to bring a
+guest and/or add accommodation, paying for those extras in the same checkout.
+
+**What we did:** On an event's booking card in the member portal, members now see
+optional add-ons (only when the event offers them):
+- **Bring a guest** — tick it, type the guest's name, and the guest price is added.
+- **Add accommodation** — tick it to add the accommodation fee.
+
+The price shown on the **Book** button updates live to the full total, and the
+member pays for everything in one card payment. (If the member's own ticket is
+complimentary but they add a paid guest or accommodation, the booking simply
+becomes a paid checkout for those extras.) The booking records who the guest is and
+whether accommodation was taken, and the **admin event page** shows a **"+1 guest:
+Name"** tag and an **"Accommodation"** tag against that member in the guest list, so
+the team can plan tables and rooms.
+
+**How to test:**
+1. As an admin, make sure an event has a **guest price** (and, to test rooms, mark
+   **accommodation available** with a price) — Events → edit the event.
+2. Sign in as a **member**, open that event. On the booking card you'll see
+   **"Bring a guest"** and/or **"Add accommodation"**.
+3. Tick **Bring a guest**, type a name — the **Book** button total goes up by the
+   guest price. Tick **Add accommodation** — it rises again.
+4. Click **Book**, pay with test card `4242 4242 4242 4242`.
+5. Back in the admin → that event → **Guest list**: the member's row shows a
+   **"+1 guest: <name>"** tag (and **Accommodation** if chosen).
+
+---
+
+## Multi-representative business accounts
+**Date:** 9 Jun 2026
+
+**What was asked:** A business membership should be able to cover several people —
+a primary contact plus colleagues — who each get their own login and share the
+company's membership, with the company billed once.
+
+**What we did:** On any **Business** or **Partner** member's page in the admin
+there's now a **"Representatives"** panel. From it you can:
+- **Add a representative** — name, email, their role at the business, and whether
+  they're the **primary contact**. They're created as a full member in their own
+  right (so they get their own portal login and their own introductions), linked to
+  the company account, on the **same tier** — but **no separate bill**: payment
+  stays on the main company account.
+- Optionally **send them a branded invite** to set their password, or add them
+  silently.
+- **Mark a primary contact** (a gold star), shown at the top of the roster.
+- **Open** any representative's own record, or **remove** one (revokes their access
+  without touching the company account or the other reps).
+
+If you open a representative's own page, it shows a note linking back up to the
+business account they belong to.
+
+**How to test:**
+1. Admin → **Members** → open a member → **Edit** → set **Type** to **Business**
+   (or Partner) → **Save**.
+2. A **"Representatives"** panel appears. Click **Add rep**, enter a colleague's
+   details, tick **primary contact**, and save.
+3. They appear in the roster with a **Primary** star. Click **Open** to see their
+   own member page — it carries the same tier and shows a link back to the company.
+4. On the company page, click the remove icon next to a rep — their status becomes
+   **cancelled** and their portal access is revoked; the company account is
+   untouched.
+
+---
+
+## Members: CSV import, export & tag segments
+**Date:** 9 Jun 2026
+
+**What was asked:** Bulk-bring Sarah's existing contacts in as members, and be able
+to slice the membership into segments for targeting.
+
+**What we did:** Added three things to the **Members** page in the admin:
+- **Import (CSV)** — upload a spreadsheet of contacts. It auto-detects the columns
+  (it understands common header names like *first name, surname, email, company,
+  role, tier, status*), shows a **preview and a count of how many are ready**, lets
+  you set a default tier/status and choose whether to email invites, then creates
+  them all in one go. Re-importing the same sheet is safe — existing people are
+  updated, not duplicated — and a **results summary** lists anything skipped and
+  why (e.g. a missing email).
+- **Export (CSV)** — downloads whatever you're currently looking at (after search
+  and filters) as a spreadsheet — so a filtered view becomes a ready-to-use list
+  for a mailing.
+- **Tag filter ("segments")** — a new **tag dropdown** alongside the tier/status
+  filters lets you narrow the list to a single interest/industry/need tag. Combine
+  it with Export to pull, say, "everyone tagged Property" into a CSV.
+
+**How to test:**
+1. Admin → **Members**. Make a small CSV with headers
+   `first_name,last_name,email,company_name` and 2–3 rows.
+2. Click **Import**, choose the file — you'll see a preview and "X ready to import".
+   Leave invites off, click **Import**. The results show how many were added.
+3. The new people appear in the list. Run **Import** with the same file again —
+   they're **updated, not duplicated**.
+4. Pick a **tag** from the new tag dropdown to narrow the list, then click
+   **Export** — a CSV of just that segment downloads.
+
+---
+
+## Finance: revenue by source
+**Date:** 9 Jun 2026
+
+**What was asked:** The finance page showed one big revenue number. Now that we
+track sponsorship money too, the team should see revenue split by where it comes
+from.
+
+**What we did:** Added a **"Revenue by source"** panel to the Finance page that
+breaks all-time revenue into **Membership**, **Events**, and **Sponsorship**, with
+a coloured bar and each source's amount and share. Sponsorship income (committed
+sponsor fees) is now also included in the headline revenue total.
+
+**How to test:**
+1. Admin → **Finance**. Under the top stat cards you'll see **"Revenue by source"**
+   with three figures and a coloured proportion bar.
+2. Add a confirmed sponsor to an event (Events → open one → Sponsors → set status
+   Confirmed). Reload Finance — the **Sponsorship** figure and the total both rise.
+
+---
+
+## Event sponsorships — manage sponsors per event
+**Date:** 8 Jun 2026
+
+**What was asked:** The platform could store sponsorships but had no screen to
+manage them. The team needs to attach sponsors to an event, record the package and
+fee, and track each sponsor from a first proposal through to paid.
+
+**What we did:** Added a **"Sponsors"** panel at the bottom of each event's page in
+the admin. For each event you can:
+- **Add a sponsor** — pick the member, name the package (e.g. "Headline", "Drinks
+  reception"), set the fee (pre-filled with the event's sponsor price), choose a
+  status, and optionally note a showcase slot and why the brand fits.
+- **Track status inline** — each sponsor has a dropdown to move them through
+  *Proposed → Confirmed → Invoiced → Paid* (or *Declined*), saved instantly.
+- **See committed revenue** — the panel totals the fees of every sponsor that's
+  Confirmed or beyond, shown next to the heading, so the team sees expected
+  sponsorship income for the event at a glance.
+- **Remove a sponsor** — with a confirmation step.
+
+**How to test:**
+1. Admin → **Events** → open any event → scroll to the new **"Sponsors"** panel.
+2. Click **Add sponsor**, choose a member, type a package name and amount, pick a
+   status, and save. They appear in the list with their fee and a status dropdown.
+3. Change the status dropdown to **Confirmed** — the **"committed"** total next to
+   the heading updates to include their fee.
+4. Click the bin icon to remove a sponsor (you'll be asked to confirm).
+
+---
+
+## Members can fill in their own matchmaking profile
+**Date:** 8 Jun 2026
+
+**What was asked:** The rich member profile (who they want to meet, what they can
+offer, goals, preferences) was only fillable by admins. Members should be able to
+keep their own matchmaking details up to date from inside their portal — the same
+information that drives introductions.
+
+**What we did:** Added three new sections to a member's **Profile** page in their
+portal, styled to match the rest of the members' area:
+- **Company detail** — sector, sub-sector, team size, annual turnover.
+- **Who you'd like to meet** — who they want to be introduced to, what makes a
+  great match, their "dream introductions", and what they can offer other members.
+- **What you're working towards** — objectives, budgets, partner/assistant names,
+  and dietary requirements.
+
+Whatever a member types here is the **same data the admin sees** on the member's
+record — so a member updating their own goals instantly improves the matchmaking
+the team can do, with no double entry. If the team already filled some of these in
+(e.g. carried over from the application), the member sees those values pre-filled
+and can refine them.
+
+**How to test:**
+1. Sign in as a **member** and open **Profile** (in the member portal).
+2. Scroll past Personal/Company — you'll see the new **"Who you'd like to meet"**
+   and **"What you're working towards"** sections. Fill a few in and **Save**.
+3. Sign in as an **admin** → **Members** → open that same member. Their
+   **"Relationship intelligence"** panel should show exactly what the member typed.
+4. The reverse works too: anything an admin enters there shows pre-filled when the
+   member next opens their Profile.
+
+---
+
+## Every email via Resend + one premium look
+**Date:** 8 Jun 2026
+
+**What was asked:** Make sure **every** email — including the "set your password"
+emails that used to come from Supabase — is sent through our email provider
+(Resend), and give them all one consistent premium look in the brand theme.
+
+**What we did:**
+- **The "set your password / welcome" emails no longer come from Supabase.** We
+  now create the sign-in link ourselves and send it through Resend with our own
+  branded template (used both when an application is approved and when an admin
+  adds a member by hand).
+- **Pointed Supabase's account emails at Resend too**, as a safety net — so even
+  a password-reset or email-change message (if ever used) goes through Resend and
+  carries the brand, never Supabase's plain default.
+- **Unified every email onto one premium template** in your preferred **light
+  cream + gold** theme: welcome/invite, "application received", rejection, all six
+  daily automations, and the existing booking-confirmation emails now all look
+  identical and on-brand.
+- Sent a branded sample to confirm the new look renders correctly in a real inbox.
+
+**How to test:**
+1. Check your inbox for the sample email — it shows the new light cream + gold
+   design (header wordmark, gold accents, gold button, serif headings).
+2. To see the live "welcome" email: in the admin, approve a pending application
+   (or add a member). The new member receives the branded **"Welcome to The Club —
+   set your password"** email — sent via Resend, not Supabase.
+3. Any automated email (renewal, post-event, etc.) sent from the Automations page
+   uses the same look.
+
+**⚠️ Still for production:** add the email settings (and `CRON_SECRET`) to the live
+site's environment in Vercel, and ideally verify a Club-branded sending domain so
+the "from" address isn't a developer domain.
+
+---
+
+## Real email turned on + automated email "machine"
+**Date:** 8 Jun 2026
+
+**What was asked:** Switch the platform to a verified email account so emails
+reach real inboxes, and build the automatic lifecycle emails the club needs —
+renewal reminders, failed-payment notices, post-event follow-ups, guest
+invitations, overdue-balance chasers and introduction notifications — with a way
+for Sarah to preview and run them anytime.
+
+**What we did:**
+- **Connected the verified email account** so emails now deliver to real
+  recipients (sent a successful test). Emails read as *"The Club"*. *(Note: the
+  current sending domain is a developer domain; for production we'd verify a
+  Club-branded domain — see the warning at the end.)*
+- Built a daily **"automation" engine** that wakes up every morning, looks
+  through the data, and sends the right email to the right people:
+  - **Renewal reminder** — membership renews within 7 days.
+  - **Failed payment** — a card payment failed; asks them to update it.
+  - **Post-event follow-up** — thanks attendees 1–3 days after an event.
+  - **Guest → member invitation** — past guests who haven't joined.
+  - **Overdue balance** — chases unpaid/overdue invoices.
+  - **Introduction notification** — emails both members when an introduction is
+    marked "sent".
+- Nobody is ever emailed twice for the same thing — the system remembers what it
+  has already sent.
+- Added an **"Automations"** page in the admin (left menu) with two buttons:
+  - **Preview** — shows exactly who *would* be emailed, **without sending
+    anything**.
+  - **Run now** — sends to everyone currently due (with a confirm step).
+- It also runs **automatically every morning** on its own.
+
+**How to test:**
+1. In the admin, open **Automations** (left menu, under "Engage").
+2. Click **Preview**. You'll see each flow and who would be emailed — likely
+   "Nobody due right now" if nothing matches today. **Nothing is sent.**
+3. (Optional, to see it find someone) Edit a member and set their renewal date to
+   a few days from now, then **Preview** again — they'll appear under "Renewal
+   reminders" as *would send*.
+4. Click **Run now** and confirm — it sends the real emails and shows how many
+   went out. Running again is safe; already-emailed people are skipped.
+
+**⚠️ Before production:** the verified sending domain is currently a developer
+domain (`dashboard.cortek.io`), so recipients see that address. For a polished
+launch, verify a Club-branded domain in the email provider and update the
+"from" address. Also add the email + cron settings to the live site's
+environment (Vercel) so production sends too.
+
+---
+
+## Application captures matchmaking info + PITCH routing
+**Date:** 8 Jun 2026
+
+**What was asked:** The application form should gather the "due-diligence" and
+relationship information the club needs — what an applicant is looking for, what
+they can offer, and whether they're an established business or an early-stage one
+seeking investment (which should go down a separate **PITCH** track rather than
+standard membership). And that information should flow into the member's profile
+once approved, so members arrive with it already filled in.
+
+**What we did:**
+- Added three questions to the **"Your Business"** step of the application:
+  - **"Where is your business right now?"** — Established business, or Early-stage
+    seeking investment.
+  - **"Who would you like to meet, and what are you looking for?"**
+  - **"What can you offer other members?"**
+- Based on the stage answer, the application is automatically tagged as either the
+  **Membership** track or the **PITCH** track (early-stage seeking investment).
+- The admin application review now shows a **"Goals & track"** panel with the
+  stage, the track (Membership / PITCH), and the two free-text answers — so the
+  reviewer sees the full picture before approving.
+- On **approval**, this information (plus sector, turnover and employee count) is
+  **carried straight into the new member's profile** — populating the company
+  depth and introduction-strategy fields automatically.
+
+**How to test:**
+1. Go to **Apply for Membership** and work through to the **"Your Business"** step.
+   You'll see the three new questions.
+2. Choose **"Early-stage, seeking investment"**, fill in the two text boxes, and
+   finish the application (test card `4242 4242 4242 4242`).
+3. In the admin → **Applications**, open the new application. The **"Goals &
+   track"** panel should show **Track: PITCH — early-stage** plus your answers.
+4. Click **Approve**, then open the new member under **Members**. Their
+   **"Relationship intelligence"** panel should already show the sector, turnover,
+   employee count, "who they want to meet" and "what they can offer" — carried over
+   from the application.
+5. Repeat choosing **"Established business"** to confirm that application is tagged
+   **Track: Membership** instead.
 
 ---
 
