@@ -92,10 +92,17 @@ export async function POST(request: NextRequest) {
     const renderedSubject = replaceMergeTags(subject, data)
 
     const resend = new Resend(apiKey)
-    const fromEmail = process.env.FROM_EMAIL || 'onboarding@resend.dev'
+    // Resolve the "from" the same way as the shared club-email sender, so a
+    // verified domain set via RESEND_FROM_EMAIL is honoured here too. Reading
+    // only FROM_EMAIL meant the test fell back to onboarding@resend.dev (which
+    // Resend locks to the account owner's own address) whenever only
+    // RESEND_FROM_EMAIL was configured.
+    const fromEmail =
+      process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL || 'onboarding@resend.dev'
+    const fromName = process.env.RESEND_FROM_NAME || 'The Club'
 
     const result = await resend.emails.send({
-      from: `The Club Test <${fromEmail}>`,
+      from: `${fromName} (Test) <${fromEmail}>`,
       to: [user.email],
       subject: `[TEST] ${renderedSubject}`,
       html,

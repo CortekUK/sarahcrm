@@ -220,7 +220,12 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'RESEND_API_KEY not configured' }, { status: 500 })
     }
     const resend = apiKey ? new Resend(apiKey) : null
-    const fromEmail = process.env.FROM_EMAIL || 'onboarding@resend.dev'
+    // Resolve "from" like the shared club-email sender (RESEND_FROM_EMAIL
+    // first) so the verified sending domain is used. Reading only FROM_EMAIL
+    // fell back to onboarding@resend.dev when only RESEND_FROM_EMAIL was set,
+    // which Resend restricts to the account owner's own address.
+    const fromEmail =
+      process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL || 'onboarding@resend.dev'
     const fromHeader = `${sender.full_name} <${fromEmail}>`
 
     // Per-recipient send loop

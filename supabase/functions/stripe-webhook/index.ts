@@ -454,12 +454,15 @@ Deno.serve(async (req) => {
           const recipientEmail = profile?.email ?? null
           if (recipientEmail) {
             const firstName = profile?.first_name ?? 'there'
-            const fromEmail = Deno.env.get('FROM_EMAIL') ?? 'onboarding@resend.dev'
+            // Prefer the verified RESEND_FROM_EMAIL; fall back to FROM_EMAIL.
+            const fromEmail =
+              Deno.env.get('RESEND_FROM_EMAIL') ?? Deno.env.get('FROM_EMAIL') ?? 'onboarding@resend.dev'
+            const fromName = Deno.env.get('RESEND_FROM_NAME') ?? 'The Club'
             const siteUrl = Deno.env.get('SITE_URL') ?? 'http://localhost:3001'
             const html = renderMembershipWelcomeHtml(firstName, `${siteUrl}/portal`)
             const subject = `Welcome to The Club, ${firstName}`
             const { id: resendId, error: emailErr } = await sendResendEmail({
-              from: `The Club <${fromEmail}>`,
+              from: `${fromName} <${fromEmail}>`,
               to: recipientEmail,
               subject,
               html,
@@ -601,7 +604,10 @@ Deno.serve(async (req) => {
           if (recipientEmail && eventRes.data) {
             const firstName = profile?.first_name ?? 'there'
             const ev = eventRes.data
-            const fromEmail = Deno.env.get('FROM_EMAIL') ?? 'onboarding@resend.dev'
+            // Prefer the verified RESEND_FROM_EMAIL; fall back to FROM_EMAIL.
+            const fromEmail =
+              Deno.env.get('RESEND_FROM_EMAIL') ?? Deno.env.get('FROM_EMAIL') ?? 'onboarding@resend.dev'
+            const fromName = Deno.env.get('RESEND_FROM_NAME') ?? 'The Club'
             const siteUrl = Deno.env.get('SITE_URL') ?? 'http://localhost:3001'
             const html = renderBookingConfirmationHtml({
               firstName,
@@ -615,7 +621,7 @@ Deno.serve(async (req) => {
             })
             const subject = `Your spot at ${ev.title} is confirmed`
             const { id: resendId, error: emailErr } = await sendResendEmail({
-              from: `The Club <${fromEmail}>`,
+              from: `${fromName} <${fromEmail}>`,
               to: recipientEmail,
               subject,
               html,
