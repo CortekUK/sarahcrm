@@ -28,6 +28,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
+import { sendInviteEmail } from '@/lib/email/invite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -113,31 +114,35 @@ export async function POST(req: NextRequest) {
     } else {
       const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
       const send = body.send_invite !== false
-      const inviteRes = send
-        ? await admin.auth.admin.inviteUserByEmail(body.email, {
-            redirectTo: `${origin}/set-password`,
-            data: {
-              first_name: body.first_name,
-              last_name: body.last_name,
-            },
-          })
-        : await admin.auth.admin.createUser({
-            email: body.email,
-            email_confirm: true,
-            user_metadata: {
-              first_name: body.first_name,
-              last_name: body.last_name,
-            },
-          })
-
-      if (inviteRes.error || !inviteRes.data.user) {
-        return Response.json(
-          { error: inviteRes.error?.message ?? 'Failed to create auth user' },
-          { status: 500 },
-        )
+      if (send) {
+        // Branded invite via Resend (not Supabase's default mailer).
+        const inv = await sendInviteEmail(admin, {
+          email: body.email,
+          firstName: body.first_name,
+          redirectTo: `${origin}/set-password`,
+        })
+        if (!inv.userId) {
+          return Response.json(
+            { error: inv.error ?? 'Failed to create auth user' },
+            { status: 500 },
+          )
+        }
+        userId = inv.userId
+        inviteSent = inv.emailSent
+      } else {
+        const created = await admin.auth.admin.createUser({
+          email: body.email,
+          email_confirm: true,
+          user_metadata: { first_name: body.first_name, last_name: body.last_name },
+        })
+        if (created.error || !created.data.user) {
+          return Response.json(
+            { error: created.error?.message ?? 'Failed to create auth user' },
+            { status: 500 },
+          )
+        }
+        userId = created.data.user.id
       }
-      userId = inviteRes.data.user.id
-      inviteSent = send
     }
 
     // 2. Update profile with the rest of the info.

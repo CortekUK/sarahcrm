@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 
 // POST /api/membership-application/confirm
 //
@@ -30,80 +31,26 @@ interface RequestBody {
   application_id?: string
 }
 
-function buildPendingEmail(args: { firstName: string }): { subject: string; html: string } {
-  const html = `
-<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8" /></head>
-<body style="margin:0;padding:0;background:#0E1014;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0E1014;padding:48px 16px;">
-    <tr><td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background:#14171D;border:1px solid #2C313B;">
-        <tr><td align="center" style="padding:40px 32px 24px 32px;border-bottom:1px solid #2C313B;">
-          <div style="font-family:Georgia,'Times New Roman',serif;font-size:28px;letter-spacing:0.02em;color:#F0EBE0;font-weight:600;">The Club</div>
-          <div style="margin-top:10px;">
-            <span style="display:inline-block;width:32px;height:1px;background:#A87B4F;vertical-align:middle;"></span>
-            <span style="font-size:10px;letter-spacing:0.22em;text-transform:uppercase;color:#A87B4F;padding:0 12px;font-weight:500;">by Sarah Restrick</span>
-            <span style="display:inline-block;width:32px;height:1px;background:#A87B4F;vertical-align:middle;"></span>
-          </div>
-        </td></tr>
-        <tr><td style="padding:40px 40px 16px 40px;">
-          <p style="margin:0 0 24px 0;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#C09870;font-weight:500;">Your application</p>
-          <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:1.2;color:#F0EBE0;font-weight:500;letter-spacing:-0.01em;">
-            We&apos;ve received your application.
-          </h1>
-        </td></tr>
-        <tr><td style="padding:0 40px 8px 40px;">
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">Hello ${args.firstName || 'there'},</p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">
-            Thank you for applying to The Club. Your application is now with the team for review.
-          </p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">
-            Your card has been securely saved, but <strong style="color:#F0EBE0;">nothing has been charged.</strong>
-            We&apos;ll only take payment if your application is approved &mdash; and if it isn&apos;t,
-            no payment is taken and your card details are removed.
-          </p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">
-            You&apos;ll hear from us with a decision within seven days.
-          </p>
-        </td></tr>
-        <tr><td style="padding:24px 40px 40px 40px;">
-          <p style="margin:0 0 8px 0;font-style:italic;font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#D6D0C2;">With warmth,</p>
-          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:#F0EBE0;">Sarah Restrick &amp; the team</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`
-  return { subject: "We've received your application — The Club", html }
-}
-
 async function sendPendingEmail(args: {
   toEmail: string
   firstName: string
 }): Promise<{ sent: boolean; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY
-  // The reject route historically read RESEND_FROM_EMAIL, but .env.local
-  // defines FROM_EMAIL — accept either so the email actually sends.
-  const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL
-  if (!apiKey || !fromEmail) return { sent: false, error: 'Resend not configured' }
-
-  const fromName = process.env.RESEND_FROM_NAME || 'The Club'
-  const { subject, html } = buildPendingEmail({ firstName: args.firstName })
-
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [args.toEmail], subject, html }),
-    })
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText)
-      return { sent: false, error: `Resend ${res.status}: ${text}` }
-    }
-    return { sent: true }
-  } catch (e) {
-    return { sent: false, error: e instanceof Error ? e.message : 'Unknown send error' }
-  }
+  const html = renderClubEmail({
+    eyebrow: 'Your application',
+    heading: 'We’ve received your application.',
+    paragraphs: [
+      `Hello ${args.firstName || 'there'},`,
+      `Thank you for applying to The Club. Your application is now with the team for review.`,
+      `Your card has been securely saved, but <strong style="color:#2C2825;">nothing has been charged.</strong> We'll only take payment if your application is approved — and if it isn't, no payment is taken and your card details are removed.`,
+      `You'll hear from us with a decision within seven days.`,
+    ],
+  })
+  const r = await sendClubEmail({
+    to: args.toEmail,
+    subject: "We've received your application — The Club",
+    html,
+  })
+  return { sent: r.sent, error: r.error }
 }
 
 export async function POST(req: NextRequest) {

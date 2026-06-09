@@ -21,6 +21,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -163,114 +164,43 @@ async function refundLatestSubscriptionPayment(
   return null
 }
 
-// Build the rejection email body. Plain HTML — the same look-and-feel
-// vocabulary as the invite email so the applicant doesn't get a jarring
-// shift in voice. Refund amount is only mentioned when there's an
-// actual refund.
-function buildRejectionEmail(args: {
-  firstName: string
-  refundAmountPence: number
-  reason?: string | null
-}): { subject: string; html: string } {
-  const refundLine = args.refundAmountPence
-    ? `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">
-         We've refunded your application payment of
-         <strong style="color:#F0EBE0;">£${(args.refundAmountPence / 100).toFixed(2)}</strong>
-         to the card you used to apply. It typically appears on your statement within 5–10
-         working days.
-       </p>`
-    : ''
-  const reasonLine = args.reason
-    ? `<p style="margin:0 0 16px 0;font-style:italic;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;line-height:1.7;color:#C09870;">
-         ${args.reason}
-       </p>`
-    : ''
-  const html = `
-<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8" /></head>
-<body style="margin:0;padding:0;background:#0E1014;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0E1014;padding:48px 16px;">
-    <tr><td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background:#14171D;border:1px solid #2C313B;">
-        <tr><td align="center" style="padding:40px 32px 24px 32px;border-bottom:1px solid #2C313B;">
-          <div style="font-family:Georgia,'Times New Roman',serif;font-size:28px;letter-spacing:0.02em;color:#F0EBE0;font-weight:600;">The Club</div>
-          <div style="margin-top:10px;">
-            <span style="display:inline-block;width:32px;height:1px;background:#A87B4F;vertical-align:middle;"></span>
-            <span style="font-size:10px;letter-spacing:0.22em;text-transform:uppercase;color:#A87B4F;padding:0 12px;font-weight:500;">by Sarah Restrick</span>
-            <span style="display:inline-block;width:32px;height:1px;background:#A87B4F;vertical-align:middle;"></span>
-          </div>
-        </td></tr>
-        <tr><td style="padding:40px 40px 16px 40px;">
-          <p style="margin:0 0 24px 0;font-size:10px;letter-spacing:0.32em;text-transform:uppercase;color:#C09870;font-weight:500;">Your application</p>
-          <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:1.2;color:#F0EBE0;font-weight:500;letter-spacing:-0.01em;">
-            Not the right fit at this time.
-          </h1>
-        </td></tr>
-        <tr><td style="padding:0 40px 8px 40px;">
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">Hello ${args.firstName || 'there'},</p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">
-            Thank you for the care you put into your application to The Club. After review,
-            we won't be moving forward at this stage.
-          </p>
-          ${reasonLine}
-          ${refundLine}
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#D6D0C2;">
-            You're welcome to apply again in the future if your circumstances change. With our thanks for your time.
-          </p>
-        </td></tr>
-        <tr><td style="padding:24px 40px 40px 40px;">
-          <p style="margin:0 0 8px 0;font-style:italic;font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#D6D0C2;">With warmth,</p>
-          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:16px;color:#F0EBE0;">Sarah Restrick &amp; the team</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`
-  return { subject: 'Your application to The Club', html }
-}
-
+// Rejection email — built on the shared branded shell so it matches every
+// other Club email. Refund line only appears when there's an actual refund.
 async function sendRejectionEmailViaResend(args: {
   toEmail: string
   toName: string
   refundAmountPence: number
   reason?: string | null
 }): Promise<{ sent: boolean; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY
-  // .env.local defines FROM_EMAIL; accept RESEND_FROM_EMAIL too so the
-  // email actually sends (previously this only read RESEND_FROM_EMAIL,
-  // which is unset — so rejection emails silently no-op'd).
-  const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL
-  if (!apiKey || !fromEmail) return { sent: false, error: 'Resend not configured' }
-
-  const fromName = process.env.RESEND_FROM_NAME || 'The Club'
-  const { subject, html } = buildRejectionEmail({
-    firstName: args.toName,
-    refundAmountPence: args.refundAmountPence,
-    reason: args.reason,
-  })
-
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: `${fromName} <${fromEmail}>`,
-        to: [args.toEmail],
-        subject,
-        html,
-      }),
-    })
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText)
-      return { sent: false, error: `Resend ${res.status}: ${text}` }
-    }
-    return { sent: true }
-  } catch (e) {
-    return { sent: false, error: e instanceof Error ? e.message : 'Unknown send error' }
+  const paragraphs = [
+    `Hello ${args.toName || 'there'},`,
+    `Thank you for the care you put into your application to The Club. After review, we won't be moving forward at this stage.`,
+  ]
+  if (args.reason) {
+    paragraphs.push(
+      `<span style="font-style:italic;font-family:Georgia,'Times New Roman',serif;color:#8A6D3B;">${args.reason}</span>`,
+    )
   }
+  if (args.refundAmountPence) {
+    paragraphs.push(
+      `We've refunded your application payment of <strong style="color:#2C2825;">£${(args.refundAmountPence / 100).toFixed(2)}</strong> to the card you used to apply. It typically appears on your statement within 5–10 working days.`,
+    )
+  }
+  paragraphs.push(
+    `You're welcome to apply again in the future if your circumstances change. With our thanks for your time.`,
+  )
+
+  const html = renderClubEmail({
+    eyebrow: 'Your application',
+    heading: 'Not the right fit at this time.',
+    paragraphs,
+  })
+  const r = await sendClubEmail({
+    to: args.toEmail,
+    subject: 'Your application to The Club',
+    html,
+  })
+  return { sent: r.sent, error: r.error }
 }
 
 export async function POST(req: NextRequest) {
