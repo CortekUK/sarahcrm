@@ -28,6 +28,8 @@ import {
   mergeAiBlocksWithExisting,
   compactBlockForPrompt,
   openAiJsonSchema,
+  AI_FONT_OPTIONS,
+  resolveAiFont,
 } from '@/lib/templates/ai-schema'
 import type { EditorBlock } from '@/lib/templates/editor-types'
 import type { AiAttachment } from '@/lib/ai/attachments'
@@ -277,11 +279,26 @@ Available knobs:
 - \`footerLinkColor\` — default \`#B8975A\` (brand gold)
 - \`pageBgColor\` — default \`#F7F5F0\`
 - \`bodyBgColor\` — default \`#FFFFFF\`
+- \`fontFamily\` — the DEFAULT font for the whole email. Must be ONE of the named fonts in the Fonts section below (use the exact name). Default is the brand sans.
 
 **Critical interpretation rules:**
 - "Change the header colour to gold" → set \`theme.headerBgColor: "#B8975A"\`. Do NOT recolour a heading block in the body — that's different.
 - When the user did NOT ask for a chrome / theme change, set \`theme: null\`.
 - When they DID ask for a chrome change, return \`theme\` as an object. **Set ONLY the keys the user is asking about. Set EVERY OTHER theme key to \`null\`.**
+
+# Fonts
+
+Emails only render reliably in a fixed set of email-safe fonts. You can ONLY use these named fonts (use the exact name): ${AI_FONT_OPTIONS}.
+
+Two ways to set fonts:
+- **Whole email:** set \`theme.fontFamily\` to one of the named fonts (e.g. "Georgia (serif)").
+- **A single text or heading block:** set that block's \`font\` field to one of the named fonts. Leave \`font: null\` to inherit the email default.
+
+Rules:
+- If the user names a font that isn't in the list (e.g. "Comic Sans", "Roboto"), pick the closest email-safe option from the list and say which you used in \`reply\`. NEVER invent a font name.
+- "What fonts can I use?" / "list the fonts" → answer (intent \`answer\`) and list the named fonts above.
+- "Change the font to Georgia" with no specific block → set \`theme.fontFamily: "Georgia (serif)"\` and leave block \`font\` values null.
+- "Make this heading Times" → set that block's \`font\` to "Times New Roman (serif)".
 
 # Available block types
 
@@ -603,6 +620,7 @@ export async function POST(req: NextRequest) {
       footerLinkColor?: string
       pageBgColor?: string
       bodyBgColor?: string
+      fontFamily?: string
     }
     let theme: ThemeOverrides | null = null
 
@@ -624,6 +642,12 @@ export async function POST(req: NextRequest) {
         if (t.footerLinkColor) onlySet.footerLinkColor = t.footerLinkColor
         if (t.pageBgColor) onlySet.pageBgColor = t.pageBgColor
         if (t.bodyBgColor) onlySet.bodyBgColor = t.bodyBgColor
+        // Map a friendly font name (e.g. "Georgia (serif)") to its real
+        // email-safe CSS stack; ignore anything unrecognised.
+        if (t.fontFamily) {
+          const f = resolveAiFont(t.fontFamily)
+          if (f) onlySet.fontFamily = f
+        }
         if (Object.keys(onlySet).length > 0) theme = onlySet
       }
     }

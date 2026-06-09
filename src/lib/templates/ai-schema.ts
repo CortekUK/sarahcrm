@@ -20,7 +20,28 @@ import type {
   SocialBlockContent,
   ColumnsBlockContent,
 } from './editor-types'
-import { defaultBlockContent } from './editor-types'
+import { defaultBlockContent, EMAIL_FONTS } from './editor-types'
+
+// Map a font value the AI returns (a CSS stack, or a friendly label like
+// "Georgia" / "brand serif") to one of our curated email-safe stacks.
+// Returns undefined when it doesn't match — the block then inherits the
+// template default. Keeps the AI from inventing unsupported fonts.
+const FONT_BY_VALUE = new Map(EMAIL_FONTS.map((f) => [f.value.toLowerCase(), f.value]))
+const FONT_BY_LABEL = new Map(EMAIL_FONTS.map((f) => [f.label.toLowerCase(), f.value]))
+export function resolveAiFont(input: string | null | undefined): string | undefined {
+  if (!input) return undefined
+  const v = input.trim().toLowerCase()
+  if (FONT_BY_VALUE.has(v)) return FONT_BY_VALUE.get(v)
+  if (FONT_BY_LABEL.has(v)) return FONT_BY_LABEL.get(v)
+  // Loose match: first font in the stack or a label keyword (e.g. "georgia").
+  for (const f of EMAIL_FONTS) {
+    if (f.label.toLowerCase().includes(v) || f.value.toLowerCase().includes(v)) return f.value
+  }
+  return undefined
+}
+
+// Human-readable list for the AI system prompt.
+export const AI_FONT_OPTIONS = EMAIL_FONTS.map((f) => `"${f.label}"`).join(', ')
 
 const alignmentSchema = z.enum(['left', 'center', 'right'])
 const fontSizeSchema = z.enum(['small', 'normal', 'large', 'xlarge'])
@@ -38,6 +59,7 @@ const textBlockSchema = z.object({
   ),
   alignment: alignmentSchema.nullish(),
   size: fontSizeSchema.nullish(),
+  font: z.string().nullish().describe('Optional font for this block — use one of the named email-safe fonts. Null = inherit the template default.'),
   color: z.string().nullish().describe('Optional hex colour for the whole block.'),
   background: z.string().nullish(),
   paddingTop,
@@ -49,6 +71,7 @@ const headingBlockSchema = z.object({
   text: z.string(),
   level: headingLevelSchema.nullish(),
   alignment: alignmentSchema.nullish(),
+  font: z.string().nullish().describe('Optional font — one of the named email-safe fonts.'),
   color: z.string().nullish(),
   background: z.string().nullish(),
   paddingTop,
@@ -189,6 +212,7 @@ export const aiTemplateResponseSchema = z.object({
       footerLinkColor: z.string().nullish(),
       pageBgColor: z.string().nullish(),
       bodyBgColor: z.string().nullish(),
+      fontFamily: z.string().nullish().describe('Default font for the whole email — one of the named email-safe fonts.'),
     })
     .nullish(),
   event_picks: z.array(z.string()).max(10).nullish(),
@@ -212,12 +236,13 @@ const nullableBoolean = () => ({ anyOf: [{ type: 'boolean' }, { type: 'null' }] 
 const textBranch = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'html', 'alignment', 'size', 'color', 'background', 'paddingTop', 'paddingBottom'],
+  required: ['type', 'html', 'alignment', 'size', 'font', 'color', 'background', 'paddingTop', 'paddingBottom'],
   properties: {
     type: { type: 'string', enum: ['text'] },
     html: { type: 'string' },
     alignment: nullableEnum(['left', 'center', 'right']),
     size: nullableEnum(['small', 'normal', 'large', 'xlarge']),
+    font: nullableString(),
     color: nullableString(),
     background: nullableString(),
     paddingTop: nullableInteger(),
@@ -227,12 +252,13 @@ const textBranch = {
 const headingBranch = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'text', 'level', 'alignment', 'color', 'background', 'paddingTop', 'paddingBottom'],
+  required: ['type', 'text', 'level', 'alignment', 'font', 'color', 'background', 'paddingTop', 'paddingBottom'],
   properties: {
     type: { type: 'string', enum: ['heading'] },
     text: { type: 'string' },
     level: nullableEnum([1, 2, 3]),
     alignment: nullableEnum(['left', 'center', 'right']),
+    font: nullableString(),
     color: nullableString(),
     background: nullableString(),
     paddingTop: nullableInteger(),
@@ -437,7 +463,7 @@ export const openAiJsonSchema = {
             additionalProperties: false,
             required: [
               'headerBgColor', 'headerTextColor', 'footerBgColor', 'footerTextColor',
-              'footerLinkColor', 'pageBgColor', 'bodyBgColor',
+              'footerLinkColor', 'pageBgColor', 'bodyBgColor', 'fontFamily',
             ],
             properties: {
               headerBgColor: nullableString(),
@@ -447,6 +473,7 @@ export const openAiJsonSchema = {
               footerLinkColor: nullableString(),
               pageBgColor: nullableString(),
               bodyBgColor: nullableString(),
+              fontFamily: nullableString(),
             },
           },
           { type: 'null' },
@@ -518,6 +545,7 @@ export function expandAiBlock(ai: AiBlock): EditorBlock {
       const sanitised = sanitizeHtml(ai.html)
       const html = ai.color ? wrapWithColor(sanitised, ai.color) : sanitised
       const base = defaultBlockContent.text as TextBlockContent
+      const font = resolveAiFont(ai.font)
       const content: TextBlockContent = {
         ...base,
         html,
@@ -525,6 +553,7 @@ export function expandAiBlock(ai: AiBlock): EditorBlock {
         fontSize: ai.size ?? 'normal',
         paddingTop: ai.paddingTop ?? base.paddingTop,
         paddingBottom: ai.paddingBottom ?? base.paddingBottom,
+        ...(font ? { fontFamily: font } : {}),
         ...(ai.background ? { backgroundColor: sanitiseColour(ai.background) } : {}),
       }
       return { id: newId(), type: 'text', content }
@@ -537,6 +566,7 @@ export function expandAiBlock(ai: AiBlock): EditorBlock {
         ? `<span style="color:${colour}"><strong>${safeText}</strong></span>`
         : `<strong>${safeText}</strong>`
       const base = defaultBlockContent.text as TextBlockContent
+      const font = resolveAiFont(ai.font)
       const content: TextBlockContent = {
         ...base,
         html: `<p>${inner}</p>`,
@@ -544,6 +574,7 @@ export function expandAiBlock(ai: AiBlock): EditorBlock {
         fontSize: SIZE_BY_HEADING_LEVEL[level],
         paddingTop: ai.paddingTop ?? 14,
         paddingBottom: ai.paddingBottom ?? 6,
+        ...(font ? { fontFamily: font } : {}),
         ...(ai.background ? { backgroundColor: sanitiseColour(ai.background) } : {}),
       }
       return { id: newId(), type: 'text', content }
@@ -708,6 +739,7 @@ function compactEqual(a: AiBlock | null, b: AiBlock | null): boolean {
         normaliseHtml(a.html) === normaliseHtml((b as typeof a).html) &&
         (a.alignment ?? null) === ((b as typeof a).alignment ?? null) &&
         (a.size ?? null) === ((b as typeof a).size ?? null) &&
+        (a.font ?? null) === ((b as typeof a).font ?? null) &&
         (a.color ?? null) === ((b as typeof a).color ?? null) &&
         (a.background ?? null) === ((b as typeof a).background ?? null) &&
         (a.paddingTop ?? null) === ((b as typeof a).paddingTop ?? null) &&
@@ -849,6 +881,7 @@ export function compactBlockForPrompt(block: EditorBlock): AiBlock | null {
         html: colorMatch ? colorMatch[2] : rawHtml,
         alignment: c.alignment as 'left' | 'center' | 'right' | undefined,
         size: c.fontSize as 'small' | 'normal' | 'large' | 'xlarge' | undefined,
+        font: typeof c.fontFamily === 'string' ? c.fontFamily : undefined,
         color: colorMatch ? colorMatch[1] : undefined,
         background: c.backgroundColor ? String(c.backgroundColor) : undefined,
         paddingTop: typeof c.paddingTop === 'number' ? c.paddingTop : undefined,
