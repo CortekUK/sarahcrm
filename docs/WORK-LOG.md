@@ -8,8 +8,8 @@ steps and confirm the feature works. Newest entries at the top.
 > Test card for any payment step: **4242 4242 4242 4242**, any future expiry,
 > any 3 digits for CVC.
 >
-> **Outstanding items that need Sarah or a production step are tracked in
-> [BLOCKERS.md](BLOCKERS.md).**
+> **Outstanding items that need Sarah or a production step are listed in
+> [Blockers & outstanding items](#blockers--outstanding-items) at the bottom.**
 
 ---
 
@@ -464,3 +464,94 @@ menu list scrolls normally, then resume it when the menu closes.
 2. Scroll with the mouse wheel — the menu list should now scroll to reveal all
    links and the Apply / Member login at the bottom.
 3. Close the menu — the page should scroll smoothly as before.
+
+---
+---
+
+# Blockers & outstanding items
+
+Things the platform **cannot finish on its own** — they need something from Sarah,
+an external account, or a production deploy step. Plain English. When a blocker is
+cleared, move it to **Resolved** at the bottom with the date.
+
+**Last updated:** 9 Jun 2026
+
+## 1. Waiting on Sarah / an external account
+
+These features are built or part-built but can't go live until we have the account
+or information from Sarah.
+
+### Xero (accounting integration)
+- **What's needed:** A Xero account for the business and API access (so the
+  platform can push invoices/payments into Xero).
+- **Why it's blocked:** We can't connect to an account that doesn't exist yet, and
+  Xero requires the account owner to authorise the connection.
+- **What's ready our side:** Finance data (membership, events, sponsorship revenue)
+  is already structured and could be exported/synced once connected.
+
+### GoCardless (direct debit payments)
+- **What's needed:** A GoCardless account and its API keys.
+- **Why it's blocked:** Direct-debit collection runs through GoCardless; without the
+  account we can't set up mandates or collect.
+- **What's ready our side:** The payment records already have a "GoCardless" method
+  option; Stripe is the only live processor until this is connected.
+
+### Branded sending email domain
+- **What's needed:** Sarah to confirm a domain to send email from (e.g.
+  `hello@theclub…`) so we can verify it in the email provider (Resend).
+- **Why it's blocked:** Right now all email sends from a developer domain
+  (`dashboard.cortek.io`). Members see that as the "from" address, which isn't
+  on-brand for a premium club.
+- **What's ready our side:** Every email already goes through Resend on one premium
+  branded template — only the "from" address needs swapping once the domain is
+  verified. This is a ~10-minute change once we have the domain.
+
+### Real client content (copy, photos, testimonials)
+- **What's needed:** Genuine quotes, testimonials, press mentions, event photos and
+  any member-attributed copy.
+- **Why it's blocked:** We never invent quotes or copy attributed to a real person —
+  we need the source material from Sarah.
+- **What's ready our side:** All the places these appear (testimonials list,
+  galleries, reviews) are built and waiting for real content.
+
+## 2. Production / deployment steps (no code left — just configuration)
+
+These are not "waiting on Sarah" so much as a **launch checklist** — done in the
+hosting dashboards so the live site behaves like local does.
+
+### Add environment variables in Vercel
+- **What's needed:** Copy the email + automation settings into the live site's
+  environment (Vercel → Project → Settings → Environment Variables):
+  - `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `FROM_EMAIL`
+  - `CRON_SECRET` (so the daily automations can run)
+  - Confirm the Supabase + Stripe keys are present too.
+- **Why it matters:** Without these, the live site can't send email or run the daily
+  automation engine, even though it works locally.
+
+### Supabase build env (already flagged once)
+- **What's needed:** Ensure `NEXT_PUBLIC_SUPABASE_URL` and the Supabase keys are set
+  in Vercel — a past build failed (`supabaseUrl is required`) because they were
+  missing during prerender.
+- **Status:** Reported as added — worth re-confirming on the next deploy.
+
+### Deploy is automatic from `main`
+- **What's needed:** Nothing extra — pushing to `main` triggers a Vercel deploy.
+- **Why it matters:** The Supabase side (database migrations + the `checkout` and
+  `stripe-webhook` edge functions for guest add-ons) is **already live**. The latest
+  app changes are pushed, so the next Vercel build lines the site up with the
+  backend — just confirm that build goes green.
+
+## 3. Parked / future (not blocked, just not started)
+
+Lower priority, buildable any time — listed so nothing is forgotten.
+
+- **AI relationship scoring** — the profile fields that feed it are stored; the
+  scoring engine itself isn't built yet (there is work-in-progress for this).
+- **Segmented marketing campaigns** — beyond the current newsletter + the new
+  members CSV export/tag segments.
+
+## Resolved
+
+_(Move items here with a date once cleared.)_
+
+- _Nothing yet._
