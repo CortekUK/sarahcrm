@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
-import { Eye, Send, Loader2, Clock } from 'lucide-react'
+import { RefreshCw, Send, Loader2, Clock } from 'lucide-react'
 
 interface FlowResult {
   flow: string
@@ -42,9 +42,16 @@ export function AutomationsPage() {
   const [busy, setBusy] = useState<null | 'preview' | 'run'>(null)
   const [result, setResult] = useState<RunResult | null>(null)
 
+  // Load the preview automatically on open so the admin sees who's due
+  // without clicking anything.
+  useEffect(() => {
+    call(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function call(dryRun: boolean) {
     setBusy(dryRun ? 'preview' : 'run')
-    setResult(null)
+    // Keep the current list visible while refreshing (no blank flash).
     try {
       const res = await fetch(`/api/cron/automations${dryRun ? '?dryRun=true' : ''}`, {
         method: 'POST',
@@ -88,11 +95,11 @@ export function AutomationsPage() {
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              icon={busy === 'preview' ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+              icon={busy === 'preview' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
               disabled={busy !== null}
               onClick={() => call(true)}
             >
-              Preview
+              Refresh
             </Button>
             <Button
               icon={busy === 'run' ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -119,12 +126,22 @@ export function AutomationsPage() {
         </CardContent>
       </Card>
 
+      {!result && busy === 'preview' && (
+        <div className="flex items-center gap-2 text-sm text-text-muted py-6">
+          <Loader2 size={15} className="animate-spin text-gold" />
+          Checking who&apos;s due…
+        </div>
+      )}
+
       {result && (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <Badge variant={result.dryRun ? 'info' : 'active'} dot>
               {result.dryRun ? 'Preview' : 'Sent'}
             </Badge>
+            {busy === 'preview' && (
+              <Loader2 size={13} className="animate-spin text-text-dim" />
+            )}
             <span className="text-sm text-text-muted">
               {result.dryRun
                 ? `${result.totals.pending} email(s) would be sent`
