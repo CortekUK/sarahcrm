@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -500,6 +500,53 @@ export type Database = {
             columns: ["template_id"]
             isOneToOne: false
             referencedRelation: "email_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_log: {
+        Row: {
+          category: string | null
+          created_at: string
+          error: string | null
+          html: string | null
+          id: string
+          member_id: string | null
+          resend_message_id: string | null
+          status: string
+          subject: string | null
+          to_email: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          error?: string | null
+          html?: string | null
+          id?: string
+          member_id?: string | null
+          resend_message_id?: string | null
+          status?: string
+          subject?: string | null
+          to_email: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          error?: string | null
+          html?: string | null
+          id?: string
+          member_id?: string | null
+          resend_message_id?: string | null
+          status?: string
+          subject?: string | null
+          to_email?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_log_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
             referencedColumns: ["id"]
           },
         ]

@@ -482,6 +482,16 @@ Deno.serve(async (req) => {
               sent_at: emailErr ? null : new Date().toISOString(),
               resend_message_id: resendId,
             })
+            await supabaseAdmin.from('email_log').insert({
+              to_email: recipientEmail,
+              subject,
+              html,
+              category: 'membership_welcome',
+              status: emailErr ? 'failed' : 'sent',
+              error: emailErr ?? null,
+              resend_message_id: resendId,
+              member_id,
+            })
           }
         } catch (emailErr) {
           console.error('[email] welcome pipeline error:', emailErr)
@@ -684,6 +694,16 @@ Deno.serve(async (req) => {
               status: emailErr ? 'failed' : 'sent',
               sent_at: emailErr ? null : new Date().toISOString(),
               resend_message_id: resendId,
+            })
+            await supabaseAdmin.from('email_log').insert({
+              to_email: recipientEmail,
+              subject,
+              html,
+              category: 'booking_confirmation',
+              status: emailErr ? 'failed' : 'sent',
+              error: emailErr ?? null,
+              resend_message_id: resendId,
+              member_id,
             })
           } else {
             console.warn(

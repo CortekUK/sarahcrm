@@ -68,12 +68,48 @@ export interface SendResult {
   error?: string
 }
 
+// Best-effort: record every send (full HTML) in email_log so the admin can
+// see and open any message the platform sent. Never throws.
+async function logEmail(entry: {
+  to: string
+  subject: string
+  html: string
+  category?: string
+  memberId?: string | null
+  status: 'sent' | 'failed'
+  error?: string | null
+  resendId?: string | null
+}): Promise<void> {
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) return
+    const { createClient } = await import('@supabase/supabase-js')
+    const admin = createClient(url, key, { auth: { persistSession: false } })
+    await admin.from('email_log').insert({
+      to_email: entry.to,
+      subject: entry.subject,
+      html: entry.html,
+      category: entry.category ?? null,
+      status: entry.status,
+      error: entry.error ?? null,
+      resend_message_id: entry.resendId ?? null,
+      member_id: entry.memberId ?? null,
+    })
+  } catch (e) {
+    console.error('[email_log] insert failed:', e)
+  }
+}
+
 // Single Resend sender. Reads RESEND_FROM_EMAIL (falling back to FROM_EMAIL)
-// and RESEND_FROM_NAME so the verified-domain config lives in env.
+// and RESEND_FROM_NAME so the verified-domain config lives in env. Logs every
+// send to email_log (pass `category` to label it, e.g. "booking_confirmation").
 export async function sendClubEmail(args: {
   to: string
   subject: string
   html: string
+  category?: string
+  memberId?: string | null
 }): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY
   const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL
@@ -93,11 +129,16 @@ export async function sendClubEmail(args: {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText)
-      return { sent: false, error: `Resend ${res.status}: ${text}` }
+      const error = `Resend ${res.status}: ${text}`
+      await logEmail({ ...args, status: 'failed', error })
+      return { sent: false, error }
     }
     const json = (await res.json().catch(() => ({}))) as { id?: string }
+    await logEmail({ ...args, status: 'sent', resendId: json.id ?? null })
     return { sent: true, id: json.id }
   } catch (e) {
-    return { sent: false, error: e instanceof Error ? e.message : 'Unknown send error' }
+    const error = e instanceof Error ? e.message : 'Unknown send error'
+    await logEmail({ ...args, status: 'failed', error })
+    return { sent: false, error }
   }
 }

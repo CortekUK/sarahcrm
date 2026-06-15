@@ -126,13 +126,6 @@ export default async function ReviewsPage() {
         />
         <div className="absolute inset-x-0 bottom-0 h-[45%] hero-fade-bottom pointer-events-none" />
         <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
-          {hero.eyebrow && (
-            <Reveal type="up" delay={0}>
-              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-                {hero.eyebrow}
-              </p>
-            </Reveal>
-          )}
           {hero.headline && (
             <Reveal type="clip" delay={150}>
               <h1 className="display-xl max-w-4xl">{hero.headline}</h1>

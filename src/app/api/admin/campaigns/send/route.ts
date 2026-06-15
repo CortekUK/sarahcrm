@@ -19,6 +19,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -132,10 +133,33 @@ async function buildRecipients(
 }
 
 // Personalise + append unsubscribe footer to the body HTML.
-function buildBodyFor(recipient: Recipient, html: string, origin: string): string {
-  const personalised = html
-    .replace(/\{\{\s*first_name\s*\}\}/gi, recipient.first_name || 'there')
-    .replace(/\{\{\s*last_name\s*\}\}/gi, recipient.last_name || '')
+interface CampaignSender {
+  name: string
+  email: string
+  month: string
+}
+
+function buildBodyFor(
+  recipient: Recipient,
+  html: string,
+  origin: string,
+  sender: CampaignSender,
+): string {
+  // Full merge-tag resolution — handles {{first_name|there}} fallbacks,
+  // {{#if ...}} blocks and {{sender_*}} fields. The naive two-field replace
+  // this used to do left every other token raw in the inbox.
+  const data = {
+    first_name: recipient.first_name || undefined,
+    last_name: recipient.last_name || undefined,
+    email: recipient.email,
+    // Sender name/title keep the template's own defaults (Sarah Restrick /
+    // Founder); we supply the real sending email so its placeholder doesn't
+    // leak, plus a booking link + month for any uses.
+    sender_email: sender.email,
+    booking_link: `${origin}/events`,
+    month_name: sender.month,
+  }
+  const personalised = replaceMergeTags(html, data)
 
   if (!recipient.unsubscribe_token) {
     // Members don't have an unsubscribe token. Their list governance
@@ -297,14 +321,22 @@ export async function POST(req: NextRequest) {
     let lastError: string | null = null
 
     const fromHeader = `${fromName} <${fromEmail}>`
+    const sender: CampaignSender = {
+      name: fromName,
+      email: fromEmail as string,
+      month: new Date().toLocaleDateString('en-GB', { month: 'long' }),
+    }
 
     for (let i = 0; i < recipients.length; i += CHUNK) {
       const slice = recipients.slice(i, i + CHUNK)
       const items: ResendSendItem[] = slice.map((r) => ({
         from: fromHeader,
         to: [r.email],
-        subject: tpl.subject,
-        html: buildBodyFor(r, tpl.body_html, origin),
+        subject: replaceMergeTags(tpl.subject, {
+          first_name: r.first_name || undefined,
+          last_name: r.last_name || undefined,
+        }),
+        html: buildBodyFor(r, tpl.body_html, origin, sender),
       }))
       try {
         await sendViaResend(items, resendKey)

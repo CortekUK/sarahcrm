@@ -98,7 +98,12 @@ async function processFlow(
       out.push({ ref_id: it.ref_id, to: it.to as string, detail: it.detail, status: 'would_send' })
       continue
     }
-    const r = await sendClubEmail({ to: it.to as string, subject: it.subject, html: it.html })
+    const r = await sendClubEmail({
+      to: it.to as string,
+      subject: it.subject,
+      html: it.html,
+      category: `automation:${flow}`,
+    })
     await admin.from('automation_log').insert({
       flow,
       ref_id: it.ref_id,

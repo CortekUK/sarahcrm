@@ -129,6 +129,7 @@ const NAV_SECTIONS: NavSection[] = [
         children: [
           { to: '/dashboard/communications', label: 'Overview', icon: Send },
           { to: '/dashboard/communications/templates', label: 'AI Templates', icon: Sparkles },
+          { to: '/dashboard/communications/log', label: 'Sent mail', icon: Mail },
         ],
       },
       { to: '/dashboard/finance', label: 'Finance', icon: PoundSterling },
