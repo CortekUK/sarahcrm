@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { notifyAdmins } from '@/lib/email/admin-notify'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -129,6 +130,21 @@ export async function POST(req: NextRequest) {
         { status: 500 },
       )
     }
+
+    // Tell the team a new member booking has come in.
+    const notifyOrigin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    await notifyAdmins(admin, {
+      subject: `New member booking — ${event.title}`,
+      heading: 'A member has booked an event.',
+      paragraphs: [
+        `A member booked <strong style="color:#2C2825;">${event.title}</strong>${wantsAccommodation ? ' (with accommodation)' : ''}${wantsGuest ? ' and is bringing a guest' : ''}.`,
+        autoConfirm
+          ? `It will be charged to their card on file.`
+          : `Their request is pending — approve it in the dashboard to charge their card.`,
+      ],
+      ctaUrl: `${notifyOrigin}/dashboard/bookings`,
+      ctaLabel: 'View bookings',
+    })
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
       apiVersion: '2026-02-25.clover',

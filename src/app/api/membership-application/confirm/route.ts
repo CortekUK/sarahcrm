@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { notifyAdmins } from '@/lib/email/admin-notify'
 
 // POST /api/membership-application/confirm
 //
@@ -133,6 +134,19 @@ export async function POST(req: NextRequest) {
       emailSent = r.sent
       emailError = r.error ?? null
       if (r.sent) updatePatch.pending_email_sent_at = new Date().toISOString()
+      // Tell the team a new application is waiting (once, gated by the same
+      // pending-email flag).
+      const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+      await notifyAdmins(admin, {
+        subject: 'New membership application received',
+        heading: 'A new application has come in.',
+        paragraphs: [
+          `<strong style="color:#2C2825;">${app.first_name ?? 'A new applicant'}</strong> has submitted a membership application and saved their card (not charged).`,
+          `Review it in the dashboard to approve or decline.`,
+        ],
+        ctaUrl: `${origin}/dashboard/applications`,
+        ctaLabel: 'Review applications',
+      })
     }
 
     if (Object.keys(updatePatch).length > 0) {

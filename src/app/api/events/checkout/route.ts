@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { notifyAdmins } from '@/lib/email/admin-notify'
 
 // POST /api/events/checkout
 //
@@ -151,6 +152,20 @@ export async function POST(req: NextRequest) {
       .from('bookings')
       .update({ stripe_customer_id: customer.id })
       .eq('id', booking.id)
+
+    // Tell the team a new guest booking has come in.
+    await notifyAdmins(admin, {
+      subject: `New guest booking — ${event.title}`,
+      heading: 'A new guest booking has come in.',
+      paragraphs: [
+        `<strong style="color:#2C2825;">${body.guest_name}</strong> booked <strong style="color:#2C2825;">${event.title}</strong>${accommodationBooked ? ' (with accommodation)' : ''}.`,
+        holdOnly
+          ? `Their card is held — approve the booking in the dashboard to charge it.`
+          : `Payment is being taken now.`,
+      ],
+      ctaUrl: `${origin}/dashboard/bookings`,
+      ctaLabel: 'View bookings',
+    })
 
     const session = holdOnly
       ? // HOLD: save the card now, charge on approval. No charge today.
