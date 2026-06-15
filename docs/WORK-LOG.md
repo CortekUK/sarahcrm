@@ -13,6 +13,75 @@ steps and confirm the feature works. Newest entries at the top.
 
 ---
 
+## Booking & event flow overhaul (hold-or-charge, approvals, notifications)
+**Date:** 15 Jun 2026
+
+**What was asked:** A batch of improvements to the event/booking and membership
+flows: branded date pickers; guest accommodation on the website; respect the
+"auto-confirm" switch (hold the card instead of charging when off); connect guest
+bookings to members who later join; charge a member's card on file instead of
+re-asking for it; recover expired cards; admin notification emails; sidebar
+"pending" counters; and a proper phone field on the membership form.
+
+**What we did:**
+- **Branded date & time pickers.** Creating/editing an event now uses an on-brand
+  calendar + time picker (cream + gold) instead of the grey browser one.
+- **Guest accommodation on the website.** If an event offers accommodation, guests
+  booking from the public site can now add it; the total updates accordingly.
+- **"Auto-confirm" now actually works.** When an event has auto-confirm **off**, a
+  booking (guest *or* member) now **holds the card without charging** and sits as
+  **Pending** for the team to approve — it no longer charges immediately. With
+  auto-confirm **on**, it charges right away as before.
+- **Approve / reject bookings.** The admin **Bookings** page now has **Approve** and
+  **Reject** buttons on pending bookings. Approve **charges the held card** and
+  confirms; reject cancels and **releases the card** (nothing taken). Both email the
+  guest/member.
+- **Members use their card on file.** When a member books, we **charge the card they
+  saved when they joined** — no more being bounced to Stripe to retype it. (With
+  auto-confirm off, it's held and charged on approval.) If they have no usable card,
+  we collect one via Stripe.
+- **Expired cards recover gracefully.** If a saved card is expired/declined, the
+  booking falls back to collecting a fresh card (and approval surfaces the decline so
+  the team can ask for an update).
+- **Guest → member connection.** When someone who booked as a guest later joins with
+  the same email, their past bookings now attach to their member account (already
+  shipped) — they show in the portal and under the member in admin.
+- **Admin notification emails.** The team now gets a branded email on a new
+  application, a new guest booking, and a new member booking (noting whether the card
+  is held or charged), with a dashboard link.
+- **Sidebar pending counters.** The admin sidebar shows count badges for
+  **Applications**, **Bookings**, **Introductions** (pending) and **Finance**
+  (overdue), so you can see at a glance where something needs attention.
+- **Phone field with country picker.** The membership application's contact field is
+  now a real phone input with a searchable country dial-code picker (UK +44 default).
+
+**How to test:**
+1. **Date picker:** Admin → Events → New/Edit → the date fields open a gold calendar.
+2. **Hold vs charge (guest):** Edit an event, **uncheck Auto-confirm**, give it a
+   guest price (and accommodation if you like). On the public site, book as a guest
+   with test card `4242 4242 4242 4242` → you land on "Your request is in" (card held,
+   nothing charged). Admin → **Bookings** → the row is **Pending** with **Approve /
+   Reject**. Click **Approve** → the card is charged and it becomes Confirmed. Confirm
+   in Stripe (test) that no money moved until approval.
+3. **Auto-confirm on:** re-check Auto-confirm on the event → booking charges
+   immediately (no pending step).
+4. **Member card on file:** sign in as a member who has a saved card and book an
+   event → you are **not** sent to Stripe; it charges your saved card (auto-confirm)
+   or shows Pending (auto-confirm off) without re-entering card details.
+5. **Guest → member:** book as a guest with an email, then have an admin add/approve a
+   member with that same email → the booking appears under that member.
+6. **Admin emails:** with the email settings live, submitting an application or making
+   a booking sends the team a notification.
+7. **Sidebar counters:** create a pending application/booking → the number appears next
+   to that item in the admin sidebar.
+8. **Phone field:** Apply for membership → the contact field shows a flag + dial code
+   (UK by default); pick another country or type a number.
+
+**⚠️ Note:** the new email settings must be present in the live environment (Vercel)
+for the admin/booking emails to send.
+
+---
+
 ## Guests & accommodation at event booking
 **Date:** 9 Jun 2026
 
