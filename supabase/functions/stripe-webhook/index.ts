@@ -490,7 +490,18 @@ Deno.serve(async (req) => {
         console.log('Subscription activated for member:', member_id, 'sub:', subscriptionId)
       } else {
         // ── Event booking checkout ──
+        // Card-HOLD checkouts (setup mode, non-auto-confirm events) are
+        // finalised by /api/events/sync on the confirmation page — the card
+        // is saved and the booking stays pending. Nothing to charge here.
+        if (session.mode === 'setup') {
+          return new Response(JSON.stringify({ received: true, hold: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+
         const {
+          booking_id,
           event_id,
           member_id,
           guests_invited,
@@ -509,6 +520,7 @@ Deno.serve(async (req) => {
             : session.payment_intent?.id ?? null
 
         // Idempotency check — skip if we already processed this payment intent
+        // (e.g. /api/events/sync ran first on the confirmation page).
         if (paymentIntentId) {
           const { data: existingBooking } = await supabaseAdmin
             .from('bookings')
@@ -523,51 +535,80 @@ Deno.serve(async (req) => {
         }
 
         const amountPence = session.amount_total ?? 0
-
-        // Create booking. Guest + accommodation add-ons (if any) ride on
-        // this single row — guests_invited / guest_name / accommodation
-        // come from the checkout metadata; amount_pence already includes
-        // their line items.
         const guestsInvited = parseInt(guests_invited ?? '0', 10) || 0
-        const { data: booking, error: bookingError } = await supabaseAdmin
-          .from('bookings')
-          .insert({
-            event_id,
-            member_id,
-            status: 'confirmed',
-            payment_method: 'stripe',
-            amount_pence: amountPence,
-            stripe_payment_intent_id: paymentIntentId,
-            guests_invited: guestsInvited,
-            guest_name: guestsInvited > 0 && guest_name ? guest_name : null,
-            accommodation_booked: accommodation_booked === 'true',
-          })
-          .select('id')
-          .single()
 
-        if (bookingError) {
-          console.error('Failed to create booking:', bookingError)
-          return new Response('Failed to create booking', { status: 500 })
+        // The booking is usually PRE-CREATED by /api/events/book (member) or
+        // /api/events/checkout (guest), with booking_id in the metadata —
+        // confirm it in place so we never create a duplicate. Only insert a
+        // fresh row for the legacy path with no booking_id.
+        let booking: { id: string } | null = null
+        if (booking_id) {
+          const { data: upd, error: updErr } = await supabaseAdmin
+            .from('bookings')
+            .update({
+              status: 'confirmed',
+              payment_method: 'stripe',
+              amount_pence: amountPence,
+              stripe_payment_intent_id: paymentIntentId,
+            })
+            .eq('id', booking_id)
+            .select('id')
+            .single()
+          if (updErr) {
+            console.error('Failed to confirm booking:', updErr)
+            return new Response('Failed to confirm booking', { status: 500 })
+          }
+          booking = upd
+        } else {
+          const { data: ins, error: bookingError } = await supabaseAdmin
+            .from('bookings')
+            .insert({
+              event_id,
+              member_id,
+              status: 'confirmed',
+              payment_method: 'stripe',
+              amount_pence: amountPence,
+              stripe_payment_intent_id: paymentIntentId,
+              guests_invited: guestsInvited,
+              guest_name: guestsInvited > 0 && guest_name ? guest_name : null,
+              accommodation_booked: accommodation_booked === 'true',
+            })
+            .select('id')
+            .single()
+          if (bookingError) {
+            console.error('Failed to create booking:', bookingError)
+            return new Response('Failed to create booking', { status: 500 })
+          }
+          booking = ins
         }
 
-        // Create payment record
-        const { error: paymentError } = await supabaseAdmin
-          .from('payments')
-          .insert({
-            member_id,
-            amount_pence: amountPence,
-            currency: 'GBP',
-            payment_type: 'event_booking',
-            payment_method: 'stripe',
-            status: 'paid',
-            paid_at: new Date().toISOString(),
-            stripe_payment_intent_id: paymentIntentId,
-            reference_id: booking.id,
-            description: `Event booking ${booking.id}`,
-          })
-
-        if (paymentError) {
-          console.error('Failed to create payment:', paymentError)
+        // Create payment record — idempotent on the payment intent so we
+        // don't double-record if /api/events/sync already inserted it.
+        const { data: existingPay } = paymentIntentId
+          ? await supabaseAdmin
+              .from('payments')
+              .select('id')
+              .eq('stripe_payment_intent_id', paymentIntentId)
+              .maybeSingle()
+          : { data: null }
+        if (!existingPay) {
+          const { error: paymentError } = await supabaseAdmin
+            .from('payments')
+            .insert({
+              member_id,
+              amount_pence: amountPence,
+              currency: 'GBP',
+              payment_type: 'event_booking',
+              payment_method: 'stripe',
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              stripe_payment_intent_id: paymentIntentId,
+              reference_id: booking.id,
+              description: `Event booking ${booking.id}`,
+            })
+          if (paymentError) {
+            console.error('Failed to create payment:', paymentError)
+          }
         }
 
         // ── Send branded booking confirmation email ──

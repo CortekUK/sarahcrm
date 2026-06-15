@@ -57,6 +57,20 @@ export function PortalBookingConfirmationPage() {
       setNotFound(true)
       return
     }
+    // If we returned from a Stripe Checkout fallback (no saved card), finalise
+    // the booking here — charge mode → confirmed, setup mode → card held +
+    // pending — without depending on the webhook.
+    if (sessionId) {
+      try {
+        await fetch('/api/events/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId }),
+        })
+      } catch {
+        /* webhook is the backstop */
+      }
+    }
     await findBooking(member.id)
   }
 
@@ -166,13 +180,15 @@ export function PortalBookingConfirmationPage() {
           <CheckCircle2 size={28} strokeWidth={1.5} />
         </div>
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
-          Reserved with thanks
+          {booking?.status === 'pending' ? 'Booking received' : 'Reserved with thanks'}
         </p>
         <h1 className="font-[family-name:var(--font-display)] text-[clamp(1.875rem,3vw,2.5rem)] leading-[1.1] text-ivory">
-          Your seat is held.
+          {booking?.status === 'pending' ? 'Your request is in.' : 'Your seat is held.'}
         </h1>
         <p className="mt-5 font-[family-name:var(--font-editorial)] italic text-[15.5px] text-ivory-soft/90 leading-[1.7] max-w-md mx-auto">
-          We&apos;ll be in touch in the days leading up to the evening with the practicalities.
+          {booking?.status === 'pending'
+            ? 'Your card is securely held — nothing has been charged. We’ll confirm your place once the team approves it, and only then take payment. If it isn’t approved, no payment is taken.'
+            : 'We’ll be in touch in the days leading up to the evening with the practicalities.'}
         </p>
       </div>
 
@@ -201,7 +217,7 @@ export function PortalBookingConfirmationPage() {
         {booking && (
           <div className="mt-6 pt-5 border-t border-graphite-line/45 flex items-baseline justify-between gap-4">
             <span className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze">
-              Amount paid
+              {booking.status === 'pending' ? 'Amount (held)' : 'Amount paid'}
             </span>
             <span className="font-[family-name:var(--font-display)] text-[18px] text-bronze-light tabular-nums">
               {booking.amount_pence === 0 ? 'Complimentary' : formatCurrency(booking.amount_pence)}

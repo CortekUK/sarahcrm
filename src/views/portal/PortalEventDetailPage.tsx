@@ -124,49 +124,42 @@ export function PortalEventDetailPage() {
     setBooking(true)
     setError(null)
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('checkout', {
-        body: {
+      // Member booking goes through /api/events/book, which charges the
+      // card on file (auto-confirm) or holds a pending request (manual
+      // approval) — only falling back to Stripe Checkout when there's no
+      // usable saved card.
+      const res = await fetch('/api/events/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           event_id: id,
           bring_guest: bringGuest,
           guest_name: bringGuest ? guestName.trim() : '',
           add_accommodation: addAccommodation,
-        },
+        }),
       })
-      if (fnError || !data?.url) {
-        const friendly = await extractFunctionErrorMessage(fnError, data)
-        setError(friendly)
+      const json = (await res.json().catch(() => ({}))) as {
+        url?: string
+        ok?: boolean
+        booking_id?: string
+        error?: string
+      }
+      if (!res.ok) {
+        setError(json.error || 'Could not complete your booking.')
         setBooking(false)
         return
       }
-      window.location.href = data.url
+      if (json.url) {
+        // Fallback: collect a card via Stripe.
+        window.location.href = json.url
+        return
+      }
+      // Charged on file or held as pending — straight to confirmation.
+      router.push(`/portal/events/${id}/confirmation?booking_id=${json.booking_id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       setBooking(false)
     }
-  }
-
-  async function extractFunctionErrorMessage(
-    fnError: { message?: string; context?: { response?: Response } } | null,
-    data: unknown,
-  ): Promise<string> {
-    if (data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)) {
-      return String((data as Record<string, unknown>).error)
-    }
-    try {
-      const response = fnError?.context?.response
-      if (response) {
-        const text = await response.clone().text()
-        try {
-          const json = JSON.parse(text)
-          if (json?.error) return String(json.error)
-        } catch {
-          if (text && text.length < 240) return text
-        }
-      }
-    } catch {
-      /* fall through */
-    }
-    return fnError?.message || 'Failed to create checkout session'
   }
 
   async function handleBookComplimentary() {
