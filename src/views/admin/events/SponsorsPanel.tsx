@@ -278,7 +278,7 @@ export function SponsorsPanel({
       </CardContent>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Add sponsor" size="md">
-        <div className="px-6 py-5 space-y-4 overflow-y-auto">
+        <div className="space-y-5">
           <Select
             label="Member"
             placeholder="Choose a member…"
@@ -327,7 +327,9 @@ export function SponsorsPanel({
             onChange={(e) => setBrandAlignment(e.target.value)}
           />
         </div>
-        <div className="px-6 py-4 border-t border-border flex items-center justify-end gap-3">
+        {/* Footer stretches to the panel edges (cancels the Modal's px-6 /
+            pb-4) so the divider runs full-width and the actions sit flush. */}
+        <div className="-mx-6 -mb-4 mt-6 px-6 py-4 border-t border-border flex items-center justify-end gap-3 bg-surface rounded-b-[var(--radius-xl)]">
           <Button variant="secondary" onClick={() => setOpen(false)} disabled={saving}>
             Cancel
           </Button>
