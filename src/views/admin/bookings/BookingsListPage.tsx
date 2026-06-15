@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/Table'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency, formatDateTime, cn } from '@/lib/utils'
 import {
   Search,
@@ -83,14 +85,46 @@ const statusIcon: Record<BookingRow['status'], React.ReactNode> = {
 
 export function BookingsListPage() {
   const router = useRouter()
+  const confirm = useConfirm()
   const [bookings, setBookings] = useState<BookingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
+  const [deciding, setDeciding] = useState<string | null>(null)
 
   useEffect(() => {
     fetchBookings()
   }, [])
+
+  async function decide(booking: BookingRow, action: 'approve' | 'reject') {
+    const ok = await confirm({
+      title: action === 'approve' ? 'Approve & charge this booking?' : 'Reject this booking?',
+      description:
+        action === 'approve'
+          ? `The held card will be charged ${formatCurrency(booking.amount_pence)} now and the booking confirmed.`
+          : 'The booking will be cancelled and the held card released — nothing is charged.',
+      confirmLabel: action === 'approve' ? 'Approve & charge' : 'Reject',
+      tone: action === 'approve' ? 'neutral' : 'danger',
+    })
+    if (!ok) return
+    setDeciding(booking.id)
+    try {
+      const res = await fetch('/api/admin/bookings/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_id: booking.id, action }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (!res.ok || !json.ok) {
+        toast({ title: 'Could not complete', description: json.error ?? 'Please try again.', variant: 'destructive' })
+      } else {
+        toast({ title: action === 'approve' ? 'Booking approved' : 'Booking rejected' })
+        await fetchBookings()
+      }
+    } finally {
+      setDeciding(null)
+    }
+  }
 
   async function fetchBookings() {
     setLoading(true)
@@ -331,11 +365,32 @@ export function BookingsListPage() {
                       <TableCell className="text-text-muted text-xs whitespace-nowrap">
                         {formatDateTime(b.created_at)}
                       </TableCell>
-                      <TableCell>
-                        <ExternalLink
-                          size={13}
-                          className="text-text-dim opacity-0 group-hover:opacity-100 transition-opacity"
-                        />
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        {b.status === 'pending' ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => decide(b, 'approve')}
+                              disabled={deciding === b.id}
+                              className="px-2.5 py-1 text-[11px] font-medium rounded-full bg-accent text-white hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                              title="Charge the held card and confirm"
+                            >
+                              {deciding === b.id ? '…' : 'Approve'}
+                            </button>
+                            <button
+                              onClick={() => decide(b, 'reject')}
+                              disabled={deciding === b.id}
+                              className="px-2.5 py-1 text-[11px] font-medium rounded-full border border-border text-text-muted hover:border-accent-warm hover:text-accent-warm disabled:opacity-50"
+                              title="Cancel and release the held card"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <ExternalLink
+                            size={13}
+                            className="text-text-dim opacity-0 group-hover:opacity-100 transition-opacity"
+                          />
+                        )}
                       </TableCell>
                     </TableRow>
                   )
