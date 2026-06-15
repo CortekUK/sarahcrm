@@ -12,6 +12,7 @@ import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMed
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
+import { PhoneField } from '@/components/website/night/PhoneField'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -650,7 +651,7 @@ export default function MembershipApplicationPage() {
                     step change so each step's fields fade in cleanly. */}
                 <div key={`body-${step}`}>
                   {step === 0 && (
-                    <ContactStep register={register} errors={errors} />
+                    <ContactStep register={register} errors={errors} control={control} />
                   )}
                   {step === 1 && (
                     <Controller
@@ -925,9 +926,11 @@ function StepIndicator({ step }: { step: number }) {
 function ContactStep({
   register,
   errors,
+  control,
 }: {
   register: ReturnType<typeof useForm<FormData>>['register']
   errors: ReturnType<typeof useForm<FormData>>['formState']['errors']
+  control: ReturnType<typeof useForm<FormData>>['control']
 }) {
   return (
     <Reveal type="up" delay={0}>
@@ -943,7 +946,18 @@ function ContactStep({
             error={errors.email?.message}
             {...register('email')}
           />
-          <Field label="Contact number" error={errors.phone?.message} {...register('phone')} />
+          <Controller
+            name="phone"
+            control={control}
+            render={({ field }) => (
+              <PhoneField
+                label="Contact number"
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                error={errors.phone?.message}
+              />
+            )}
+          />
         </div>
         <Field
           label="Address line 1"
