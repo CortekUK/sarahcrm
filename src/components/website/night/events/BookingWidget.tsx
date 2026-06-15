@@ -34,6 +34,9 @@ export interface EventForBooking {
   venue_city: string | null
   guest_price_pence: number | null
   member_price_pence: number | null
+  accommodation_available?: boolean | null
+  accommodation_price_pence?: number | null
+  auto_confirm?: boolean | null
 }
 
 interface BookingWidgetProps {
@@ -62,6 +65,7 @@ function formatDate(iso: string) {
 export function BookingWidget({ event }: BookingWidgetProps) {
   const [step, setStep] = useState<'idle' | 'receipt' | 'submitting'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [addAccommodation, setAddAccommodation] = useState(false)
   const [form, setForm] = useState({
     guest_name: '',
     guest_email: '',
@@ -73,6 +77,12 @@ export function BookingWidget({ event }: BookingWidgetProps) {
   const guestPrice = event.guest_price_pence ?? 0
   const memberPrice = event.member_price_pence ?? 0
   const bookable = guestPrice > 0
+  const accommodationPrice = event.accommodation_price_pence ?? 0
+  const accommodationAvailable = event.accommodation_available === true && accommodationPrice > 0
+  // When the event isn't auto-confirm, the card is held (not charged) until
+  // the team approves the booking.
+  const holdOnly = event.auto_confirm === false
+  const total = guestPrice + (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
 
   function update<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -101,6 +111,7 @@ export function BookingWidget({ event }: BookingWidgetProps) {
           guest_company: form.guest_company.trim() || null,
           dietary_requirements: form.dietary_requirements.trim() || null,
           special_requests: form.special_requests.trim() || null,
+          add_accommodation: addAccommodation && accommodationAvailable,
         }),
       })
       const json = (await res.json()) as { url?: string; error?: string }
@@ -198,6 +209,25 @@ export function BookingWidget({ event }: BookingWidgetProps) {
             rows={2}
           />
 
+          {accommodationAvailable && (
+            <label className="flex items-center justify-between gap-3 cursor-pointer border border-graphite-line/60 rounded-lg px-4 py-3.5">
+              <span className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={addAccommodation}
+                  onChange={(e) => setAddAccommodation(e.target.checked)}
+                  className="h-4 w-4 accent-bronze"
+                />
+                <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-ivory">
+                  Add accommodation
+                </span>
+              </span>
+              <span className="font-[family-name:var(--font-display)] text-[15px] text-bronze-light tabular-nums">
+                +{formatGBP(accommodationPrice)}
+              </span>
+            </label>
+          )}
+
           {error && <p className="text-[12.5px] text-bronze-light italic">{error}</p>}
 
           <button type="submit" className="w-full group/btn relative inline-block mt-2">
@@ -251,6 +281,10 @@ export function BookingWidget({ event }: BookingWidgetProps) {
             )}
             <Row label="Name" value={form.guest_name} />
             <Row label="Email" value={form.guest_email} />
+            <Row label="Seat" value={formatGBP(guestPrice)} />
+            {addAccommodation && accommodationAvailable && (
+              <Row label="Accommodation" value={formatGBP(accommodationPrice)} />
+            )}
           </div>
 
           <div className="h-px bg-bronze/25" />
@@ -258,15 +292,17 @@ export function BookingWidget({ event }: BookingWidgetProps) {
           {/* Total */}
           <div className="flex items-baseline justify-between">
             <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light">
-              Due today
+              {holdOnly ? 'Total (held)' : 'Due today'}
             </p>
             <p className="font-[family-name:var(--font-display)] text-[26px] text-ivory leading-none tabular-nums">
-              {formatGBP(guestPrice)}
+              {formatGBP(total)}
             </p>
           </div>
 
           <p className="font-[family-name:var(--font-editorial)] italic text-[11.5px] text-slate-haze text-center pt-1">
-            You&apos;ll be taken to Stripe to complete payment securely.
+            {holdOnly
+              ? 'Your card is securely held — nothing is charged until your booking is approved. If it isn’t, no payment is taken.'
+              : 'You’ll be taken to Stripe to complete payment securely.'}
           </p>
 
           {error && <p className="text-[12.5px] text-bronze-light italic text-center">{error}</p>}
@@ -295,7 +331,7 @@ export function BookingWidget({ event }: BookingWidgetProps) {
                 ) : (
                   <>
                     <Check size={13} strokeWidth={1.8} />
-                    Confirm and Pay
+                    {holdOnly ? 'Confirm booking' : 'Confirm and Pay'}
                   </>
                 )}
               </span>

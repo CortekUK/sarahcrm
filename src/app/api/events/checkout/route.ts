@@ -21,6 +21,7 @@ interface CheckoutBody {
   guest_company?: string | null
   dietary_requirements?: string | null
   special_requests?: string | null
+  add_accommodation?: boolean
 }
 
 export async function POST(req: NextRequest) {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     const { data: event, error: eventErr } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city',
+        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence',
       )
       .eq('id', body.event_id)
       .single()
@@ -61,13 +62,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This event has already taken place.' }, { status: 400 })
     }
 
-    const price = event.guest_price_pence ?? 0
-    if (price <= 0) {
+    const guestPrice = event.guest_price_pence ?? 0
+    if (guestPrice <= 0) {
       return NextResponse.json(
         { error: 'This event does not have a guest rate.' },
         { status: 400 },
       )
     }
+
+    // Optional accommodation add-on — only when the event offers it.
+    const accommodationPrice =
+      event.accommodation_available && body.add_accommodation
+        ? (event.accommodation_price_pence ?? 0)
+        : 0
+    const accommodationBooked = accommodationPrice > 0
+    const price = guestPrice + accommodationPrice
+
+    // When the event is NOT auto-confirm we HOLD the card (Stripe setup
+    // mode) and charge only on admin approval — no money is taken now.
+    // Auto-confirm events charge immediately.
+    const holdOnly = event.auto_confirm === false
 
     // ── Insert booking (pending — webhook flips to confirmed) ──────
     // payment_method is a postgres enum: stripe | gocardless | invoice
@@ -85,6 +99,7 @@ export async function POST(req: NextRequest) {
         guest_company: body.guest_company || null,
         dietary_requirements: body.dietary_requirements || null,
         special_requests: body.special_requests || null,
+        accommodation_booked: accommodationBooked,
         amount_pence: price,
         status: 'pending',
         payment_method: 'stripe',
@@ -126,42 +141,55 @@ export async function POST(req: NextRequest) {
     })
 
     const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const success_url = `${origin}/events/${event.slug}/success?session_id={CHECKOUT_SESSION_ID}`
+    const cancel_url = `${origin}/events/${event.slug}?cancelled=1`
+    const metadata = { booking_id: booking.id, event_id: event.id }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer: customer.id,
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: 'gbp',
-            unit_amount: price,
-            product_data: {
-              name: event.title,
-              description: [event.venue_name, event.venue_city].filter(Boolean).join(' · '),
+    // Save the customer on the booking so approval can charge the held
+    // card later (hold flow) or reconcile (charge flow).
+    await admin
+      .from('bookings')
+      .update({ stripe_customer_id: customer.id })
+      .eq('id', booking.id)
+
+    const session = holdOnly
+      ? // HOLD: save the card now, charge on approval. No charge today.
+        await stripe.checkout.sessions.create({
+          mode: 'setup',
+          customer: customer.id,
+          metadata,
+          setup_intent_data: { metadata },
+          success_url,
+          cancel_url,
+        })
+      : // CHARGE: take payment immediately.
+        await stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer: customer.id,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: 'gbp',
+                unit_amount: price,
+                product_data: {
+                  name: event.title,
+                  description: [event.venue_name, event.venue_city].filter(Boolean).join(' · '),
+                },
+              },
             },
-          },
-        },
-      ],
-      metadata: {
-        booking_id: booking.id,
-        event_id: event.id,
-      },
-      payment_intent_data: {
-        metadata: {
-          booking_id: booking.id,
-          event_id: event.id,
-        },
-      },
-      success_url: `${origin}/events/${event.slug}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/events/${event.slug}?cancelled=1`,
-    })
+          ],
+          metadata,
+          payment_intent_data: { metadata },
+          success_url,
+          cancel_url,
+        })
 
     if (!session.url) {
       return NextResponse.json({ error: 'Could not open checkout.' }, { status: 500 })
     }
 
-    return NextResponse.json({ url: session.url })
+    return NextResponse.json({ url: session.url, hold: holdOnly })
   } catch (err) {
     console.error('events/checkout error', err)
     const msg = err instanceof Error ? err.message : 'Unexpected error'

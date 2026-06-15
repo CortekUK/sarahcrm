@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       audience_members: {
@@ -118,6 +143,7 @@ export type Database = {
         Row: {
           accommodation_booked: boolean
           amount_pence: number
+          charge_error: string | null
           checked_in: boolean
           checked_in_at: string | null
           created_at: string
@@ -134,13 +160,17 @@ export type Database = {
           special_requests: string | null
           sponsor_package: string | null
           status: Database["public"]["Enums"]["booking_status"]
+          stripe_customer_id: string | null
           stripe_payment_intent_id: string | null
+          stripe_payment_method_id: string | null
+          stripe_setup_intent_id: string | null
           table_assignment: string | null
           updated_at: string
         }
         Insert: {
           accommodation_booked?: boolean
           amount_pence?: number
+          charge_error?: string | null
           checked_in?: boolean
           checked_in_at?: string | null
           created_at?: string
@@ -157,13 +187,17 @@ export type Database = {
           special_requests?: string | null
           sponsor_package?: string | null
           status?: Database["public"]["Enums"]["booking_status"]
+          stripe_customer_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_payment_method_id?: string | null
+          stripe_setup_intent_id?: string | null
           table_assignment?: string | null
           updated_at?: string
         }
         Update: {
           accommodation_booked?: boolean
           amount_pence?: number
+          charge_error?: string | null
           checked_in?: boolean
           checked_in_at?: string | null
           created_at?: string
@@ -180,7 +214,10 @@ export type Database = {
           special_requests?: string | null
           sponsor_package?: string | null
           status?: Database["public"]["Enums"]["booking_status"]
+          stripe_customer_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_payment_method_id?: string | null
+          stripe_setup_intent_id?: string | null
           table_assignment?: string | null
           updated_at?: string
         }
@@ -2300,6 +2337,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       booking_status: ["confirmed", "pending", "cancelled", "refunded"],

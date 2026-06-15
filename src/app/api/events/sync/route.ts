@@ -39,22 +39,8 @@ export async function POST(req: NextRequest) {
     })
 
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['payment_intent'],
+      expand: ['payment_intent', 'setup_intent'],
     })
-
-    if (session.mode !== 'payment') {
-      return NextResponse.json(
-        { error: 'session is not a one-off payment checkout' },
-        { status: 400 },
-      )
-    }
-    if (session.payment_status !== 'paid') {
-      // Stripe hasn't finalised yet — caller can retry shortly.
-      return NextResponse.json(
-        { ok: false, status: 'pending', payment_status: session.payment_status },
-        { status: 200 },
-      )
-    }
 
     const bookingId = (session.metadata?.booking_id as string | undefined) ?? null
     if (!bookingId) {
@@ -64,18 +50,67 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } },
+    )
+
+    // ── HOLD flow (non-auto-confirm events) ──────────────────────────
+    // The card was saved, not charged. Persist the saved card on the
+    // booking and leave status 'pending' for admin approval. No money
+    // has moved.
+    if (session.mode === 'setup') {
+      const si = session.setup_intent
+      const setupIntent =
+        typeof si === 'string' ? await stripe.setupIntents.retrieve(si) : si
+      if (!setupIntent || setupIntent.status !== 'succeeded') {
+        return NextResponse.json(
+          { ok: false, status: 'pending', held: false },
+          { status: 200 },
+        )
+      }
+      const paymentMethodId =
+        typeof setupIntent.payment_method === 'string'
+          ? setupIntent.payment_method
+          : (setupIntent.payment_method?.id ?? null)
+      const customerId =
+        typeof setupIntent.customer === 'string'
+          ? setupIntent.customer
+          : (setupIntent.customer?.id ?? null)
+      // Make the saved card the customer's default so approval can charge
+      // it off-session without re-selecting a payment method.
+      if (paymentMethodId && customerId) {
+        await stripe.customers.update(customerId, {
+          invoice_settings: { default_payment_method: paymentMethodId },
+        })
+      }
+      await admin
+        .from('bookings')
+        .update({
+          stripe_setup_intent_id: setupIntent.id,
+          stripe_payment_method_id: paymentMethodId,
+          stripe_customer_id: customerId,
+        })
+        .eq('id', bookingId)
+      return NextResponse.json({ ok: true, held: true, status: 'pending', booking_id: bookingId })
+    }
+
+    // ── CHARGE flow (auto-confirm events) ────────────────────────────
+    if (session.payment_status !== 'paid') {
+      // Stripe hasn't finalised yet — caller can retry shortly.
+      return NextResponse.json(
+        { ok: false, status: 'pending', payment_status: session.payment_status },
+        { status: 200 },
+      )
+    }
+
     const paymentIntentId =
       typeof session.payment_intent === 'string'
         ? session.payment_intent
         : (session.payment_intent?.id ?? null)
     const amountPence = session.amount_total ?? 0
     const paidAt = new Date().toISOString()
-
-    const admin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } },
-    )
 
     // 1. Flip the booking to confirmed. Save the payment intent id so
     //    the webhook's idempotency check won't double-process if it

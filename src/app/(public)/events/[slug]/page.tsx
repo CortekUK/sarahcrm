@@ -321,6 +321,9 @@ export default async function EventDetailPage({
                       venue_city: event.venue_city,
                       guest_price_pence: event.guest_price_pence,
                       member_price_pence: event.member_price_pence,
+                      accommodation_available: event.accommodation_available,
+                      accommodation_price_pence: event.accommodation_price_pence,
+                      auto_confirm: event.auto_confirm,
                     }}
                   />
                 </Reveal>

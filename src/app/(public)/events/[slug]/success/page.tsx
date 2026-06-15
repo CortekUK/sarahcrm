@@ -33,6 +33,9 @@ function SuccessInner({ slug }: { slug: string }) {
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'failed'>(
     'idle',
   )
+  // True when the event isn't auto-confirm: the card was HELD, not charged,
+  // and the booking awaits admin approval.
+  const [held, setHeld] = useState(false)
 
   useEffect(() => {
     if (!sessionId) return
@@ -44,8 +47,10 @@ function SuccessInner({ slug }: { slug: string }) {
     })
       .then(async (res) => {
         const json = await res.json().catch(() => ({}))
-        if (res.ok && json.ok) setSyncState('done')
-        else {
+        if (res.ok && json.ok) {
+          setHeld(json.held === true)
+          setSyncState('done')
+        } else {
           console.warn('[event-success] sync did not complete', json)
           setSyncState('failed')
         }
@@ -63,14 +68,15 @@ function SuccessInner({ slug }: { slug: string }) {
           <Check size={28} strokeWidth={1.5} className="text-bronze-light day:text-bronze-dark" />
         </div>
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
-          Booking confirmed
+          {held ? 'Booking received' : 'Booking confirmed'}
         </p>
         <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.4vw,2.8rem)] leading-[1.1] text-ivory mb-6">
-          A seat is yours.
+          {held ? 'Your request is in.' : 'A seat is yours.'}
         </h1>
         <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-[1.7]">
-          Your payment is secured and the booking is with the team. A confirmation note will land in
-          your inbox within the next few minutes.
+          {held
+            ? 'Your card is securely held — nothing has been charged. The team will review your booking and, once approved, confirm your place and take payment then. If it isn’t approved, no payment is taken.'
+            : 'Your payment is secured and the booking is with the team. A confirmation note will land in your inbox within the next few minutes.'}
         </p>
 
         {syncState === 'syncing' && (
