@@ -31,6 +31,7 @@ import {
   ClipboardList,
   Search,
   Zap,
+  Tags,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -114,6 +115,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/events', label: 'Events', icon: CalendarDays },
       { to: '/dashboard/bookings', label: 'Bookings', icon: Ticket },
       { to: '/dashboard/introductions', label: 'Introductions', icon: Handshake },
+      { to: '/dashboard/tags', label: 'Tags', icon: Tags },
     ],
   },
   {
