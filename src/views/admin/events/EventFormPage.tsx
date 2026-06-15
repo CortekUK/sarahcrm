@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { supabase } from '@/lib/supabase/client'
@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { ImageUpload } from '@/components/ui/ImageUpload'
 import { MultiImageUpload } from '@/components/ui/MultiImageUpload'
+import { DateTimeField } from '@/components/ui/DateTimeField'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { Plus, Trash2, Save, Send } from 'lucide-react'
 import { slugify } from '@/lib/utils'
@@ -335,18 +336,40 @@ export function EventFormPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Input
-                label="Start date &amp; time"
-                type="datetime-local"
-                error={form.formState.errors.start_date?.message}
-                {...form.register('start_date')}
+              <Controller
+                control={form.control}
+                name="start_date"
+                render={({ field, fieldState }) => (
+                  <DateTimeField
+                    label="Start date & time"
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    error={fieldState.error?.message}
+                  />
+                )}
               />
-              <Input label="End date &amp; time" type="datetime-local" {...form.register('end_date')} />
-              <Input
-                label="Doors open"
-                type="datetime-local"
-                hint="If set, the public time line reads “Doors HH:MM · From HH:MM”."
-                {...form.register('doors_open')}
+              <Controller
+                control={form.control}
+                name="end_date"
+                render={({ field }) => (
+                  <DateTimeField
+                    label="End date & time"
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+              <Controller
+                control={form.control}
+                name="doors_open"
+                render={({ field }) => (
+                  <DateTimeField
+                    label="Doors open"
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    hint="If set, the public time line reads “Doors HH:MM · From HH:MM”."
+                  />
+                )}
               />
             </div>
           </CardContent>

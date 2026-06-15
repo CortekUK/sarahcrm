@@ -198,6 +198,18 @@ export async function POST(req: NextRequest) {
       memberId = ins.id
     }
 
+    // 3b. Connect any prior GUEST bookings made with this email to the
+    //     member, so a contact who attended as a guest before being added
+    //     sees those bookings in their portal (and they show under the
+    //     member in admin). Case-insensitive match; only unlinked rows.
+    if (body.email) {
+      await admin
+        .from('bookings')
+        .update({ member_id: memberId, is_guest: false })
+        .is('member_id', null)
+        .ilike('guest_email', body.email)
+    }
+
     // 4. Tags
     if (body.tag_ids && body.tag_ids.length > 0) {
       // Clear any old tags first so the modal's selection is the source

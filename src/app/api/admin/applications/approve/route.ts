@@ -446,6 +446,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 5b. Connect any prior GUEST bookings made with this email to the new
+    //     member, so they appear in the member's portal + under the member
+    //     in admin instead of staying orphaned. Matched case-insensitively
+    //     on guest_email; only unlinked rows are touched.
+    if (app.email) {
+      await admin
+        .from('bookings')
+        .update({ member_id: memberId, is_guest: false })
+        .is('member_id', null)
+        .ilike('guest_email', app.email)
+    }
+
     // 6. Mark the application approved
     const { error: markErr } = await admin
       .from('membership_applications')

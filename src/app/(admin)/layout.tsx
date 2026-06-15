@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState, type ComponentType } from 'react'
+import { Suspense, useEffect, useState, type ComponentType } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
@@ -33,6 +33,54 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase/client'
+
+// ── Pending counters ──────────────────────────────────────
+// Counts of items needing admin attention, keyed by nav `to` so the
+// sidebar can show a badge. Light, head-only count queries; refreshed
+// on mount and when the route changes.
+function useNavCounts(pathname: string): Record<string, number> {
+  const [counts, setCounts] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const [apps, bookings, intros, overdue] = await Promise.all([
+        supabase
+          .from('membership_applications')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending'),
+        supabase
+          .from('bookings')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending'),
+        supabase
+          .from('introductions')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'suggested'),
+        supabase
+          .from('payments')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'overdue'),
+      ])
+      if (cancelled) return
+      setCounts({
+        '/dashboard/applications': apps.count ?? 0,
+        '/dashboard/bookings': bookings.count ?? 0,
+        '/dashboard/introductions': intros.count ?? 0,
+        '/dashboard/finance': overdue.count ?? 0,
+      })
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+    // Re-fetch when navigating (e.g. after approving an application the
+    // badge should drop) — pathname is the cheap trigger.
+  }, [pathname])
+
+  return counts
+}
 
 // ── Nav model ─────────────────────────────────────────────
 // Grouped into sections so the sidebar can render visible category labels
@@ -307,6 +355,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [query, setQuery] = useState('')
+  const navCounts = useNavCounts(pathname)
 
   const trimmedQuery = query.trim().toLowerCase()
   const filteredNav = trimmedQuery
@@ -394,6 +443,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     item.to === '/dashboard'
                       ? pathname === '/dashboard'
                       : pathname.startsWith(item.to)
+                  const count = navCounts[item.to]
                   return (
                     <NavLink
                       key={item.to}
@@ -401,6 +451,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                       label={item.label}
                       Icon={item.icon}
                       active={active}
+                      badge={count && count > 0 ? String(count) : undefined}
                     />
                   )
                 })}
@@ -425,6 +476,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                       item.to === '/dashboard'
                         ? pathname === '/dashboard'
                         : pathname.startsWith(item.to)
+                    const count = navCounts[item.to]
                     return (
                       <NavLink
                         key={item.to}
@@ -432,6 +484,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                         label={item.label}
                         Icon={item.icon}
                         active={active}
+                        badge={count && count > 0 ? String(count) : undefined}
                       />
                     )
                   })}
