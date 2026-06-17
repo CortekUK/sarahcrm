@@ -169,7 +169,9 @@ function formatGBP(pence: number) {
   }).format(pence / 100)
 }
 
-const COMPARISON: { label: string; cells: [boolean, boolean, boolean] }[] = [
+type ComparisonRow = { label: string; cells: [boolean, boolean, boolean] }
+
+const COMPARISON: ComparisonRow[] = [
   { label: 'Access to The Club network', cells: [true, true, true] },
   { label: 'Single membership for one individual', cells: [true, false, false] },
   { label: 'Up to 4 memberships', cells: [false, true, true] },
@@ -201,7 +203,16 @@ const COMPARISON: { label: string; cells: [boolean, boolean, boolean] }[] = [
 
 export default async function MembershipsPage() {
   const supabase = await createClient()
-  const [{ data: planRows }, { data: benefitRows }, hero] = await Promise.all([
+  // Public RLS restricts the read to is_active = true; order by
+  // display_order so rows line up with the admin-curated sequence.
+  const comparisonQuery = supabase
+    .from('membership_comparison')
+    .select('label, individual, business, corporate')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true })
+
+  const [{ data: planRows }, { data: benefitRows }, { data: comparisonRows }, hero] =
+    await Promise.all([
     supabase
       .from('membership_plans')
       .select('slug, name, lede, contract_terms, annual_price_pence, features, image_url')
@@ -217,6 +228,9 @@ export default async function MembershipsPage() {
       .select('position, numeral, title, body, image_url')
       .eq('is_visible', true)
       .order('position', { ascending: true }),
+    // CMS-managed comparison rows. Falls back to the hardcoded COMPARISON
+    // constant below if the table is empty/absent.
+    comparisonQuery,
     getPageHero('memberships', {
       page_slug: 'memberships',
       media_type: 'image',
@@ -255,6 +269,17 @@ export default async function MembershipsPage() {
           image: b.image_url ?? '/theclub-section.png',
         }))
       : BENEFITS
+
+  // Map DB → comparison rows. Falls back to the hardcoded COMPARISON
+  // constant if the table is empty/absent (migration not yet applied,
+  // RLS misconfigured, etc.) so the spec sheet never renders blank.
+  const comparison: ComparisonRow[] =
+    comparisonRows && comparisonRows.length > 0
+      ? comparisonRows.map((r) => ({
+          label: r.label,
+          cells: [r.individual, r.business, r.corporate] as [boolean, boolean, boolean],
+        }))
+      : COMPARISON
 
   return (
     <>
@@ -386,7 +411,7 @@ export default async function MembershipsPage() {
           </div>
 
           <Reveal type="up" delay={0}>
-            <ComparisonTable />
+            <ComparisonTable rows={comparison} />
           </Reveal>
         </div>
       </Chapter>
@@ -397,7 +422,7 @@ export default async function MembershipsPage() {
 
 // ─── Comparison table — editorial spec sheet ───────────────────────
 
-function ComparisonTable() {
+function ComparisonTable({ rows }: { rows: ComparisonRow[] }) {
   return (
     <div className="max-w-5xl mx-auto overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[720px]">
@@ -415,12 +440,12 @@ function ComparisonTable() {
           </tr>
         </thead>
         <tbody>
-          {COMPARISON.map((row, i) => (
+          {rows.map((row, i) => (
             <tr
               key={row.label}
               className={cn(
                 'border-t border-graphite-line/40 transition-colors duration-300 hover:bg-bronze/[0.04]',
-                i === COMPARISON.length - 1 && 'border-b',
+                i === rows.length - 1 && 'border-b',
               )}
             >
               <td className="py-6 pr-8 font-[family-name:var(--font-editorial)] text-[16px] leading-[1.6] text-ivory">

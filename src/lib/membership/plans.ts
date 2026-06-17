@@ -86,6 +86,32 @@ export function resolvePlan(input: string | null | undefined): PlanDef {
   return BY_TIER.tier_1
 }
 
+// DB-aware resolution. An admin can publish a plan in `membership_plans`
+// with a custom slug and assign it one of the three tiers via
+// `tier_classification`. The pure `resolvePlan` above only knows the three
+// canonical slugs, so an unrecognised slug would collapse to tier_1 — which
+// means a custom plan could be sold at its real price yet provisioned as
+// Individual. This consults the live plan row first and honours its tier,
+// falling back to the fuzzy resolver when there's no matching plan.
+export async function resolvePlanFromDb(
+  db: SupabaseClient,
+  input: string | null | undefined,
+): Promise<PlanDef> {
+  const slug = (input ?? '').trim()
+  if (slug) {
+    const { data } = await db
+      .from('membership_plans')
+      .select('tier_classification')
+      .eq('slug', slug)
+      .maybeSingle()
+    const tc = (data as { tier_classification?: string | null } | null)?.tier_classification
+    if (tc === 'tier_1' || tc === 'tier_2' || tc === 'tier_3') {
+      return planForTier(tc)
+    }
+  }
+  return resolvePlan(input)
+}
+
 /** Options for a single "Plan" <Select> — value is the tier (the source of truth). */
 export const PLAN_OPTIONS = PLANS.map((p) => ({ value: p.tier, label: p.name }))
 

@@ -341,7 +341,7 @@ async function scheduledIntroductions(admin: Admin, dryRun: boolean): Promise<Fl
   const { data } = await admin
     .from('introductions')
     .select(
-      'id, status, email_a_scheduled_at, email_b_scheduled_at, email_a_sent_at, email_b_sent_at, email_a_subject, email_a_body, email_b_subject, email_b_body, a:members!introductions_member_a_id_fkey(profiles(first_name, last_name, email)), b:members!introductions_member_b_id_fkey(profiles(first_name, last_name, email))',
+      'id, status, member_a_id, member_b_id, email_a_scheduled_at, email_b_scheduled_at, email_a_sent_at, email_b_sent_at, email_a_subject, email_a_body, email_b_subject, email_b_body, a:members!introductions_member_a_id_fkey(profiles(first_name, last_name, email)), b:members!introductions_member_b_id_fkey(profiles(first_name, last_name, email))',
     )
     .or(
       `and(email_a_scheduled_at.lte.${today},email_a_sent_at.is.null),and(email_b_scheduled_at.lte.${today},email_b_sent_at.is.null)`,
@@ -349,9 +349,18 @@ async function scheduledIntroductions(admin: Admin, dryRun: boolean): Promise<Fl
 
   const items: FlowItem[] = []
   const dueSides: { introId: string; side: 'a' | 'b' }[] = []
+  // Introductions that had never been sent before this run — used to count
+  // soft quota usage once, against both members, on first send.
+  const firstSend = new Map<string, { a: string; b: string }>()
 
   for (const intro of data ?? []) {
     const row = intro as Record<string, unknown>
+    if (!row.email_a_sent_at && !row.email_b_sent_at) {
+      firstSend.set(row.id as string, {
+        a: row.member_a_id as string,
+        b: row.member_b_id as string,
+      })
+    }
     const a = one((one(row.a as unknown) as { profiles?: unknown })?.profiles as {
       first_name?: string; last_name?: string; email?: string
     } | null)
@@ -417,10 +426,105 @@ async function scheduledIntroductions(admin: Admin, dryRun: boolean): Promise<Fl
         if (anySent) upd.sent_at = now
         await admin.from('introductions').update(upd).eq('id', id)
       }
+      // Soft quota: first time this intro is actually sent, count it
+      // against both members' monthly allowance (display-only).
+      const fs = firstSend.get(id)
+      if (fs && anySent) await bumpIntroUsage(admin, [fs.a, fs.b])
     }
   }
 
   return result
+}
+
+// Soft introduction quota — increment each member's monthly usage counter.
+// Display-only (the portal shows "X remaining"); never blocks a send.
+async function bumpIntroUsage(admin: Admin, memberIds: string[]): Promise<void> {
+  for (const id of memberIds) {
+    const { data: m } = await admin
+      .from('members')
+      .select('intros_used_this_month')
+      .eq('id', id)
+      .maybeSingle()
+    const used = ((m?.intros_used_this_month as number) ?? 0) + 1
+    await admin.from('members').update({ intros_used_this_month: used }).eq('id', id)
+  }
+}
+
+// ── 7. Pre-event reminders ────────────────────────────────────────────
+// A gentle nudge to confirmed attendees (members + guests) the day before
+// an event. ref_id is the booking id so each attendee is reminded once.
+async function eventReminders(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+  const { data: events } = await admin
+    .from('events')
+    .select('id, title, start_date, venue_name, venue_city')
+    .gte('start_date', daysAheadDate(1))
+    .lte('start_date', daysAheadDate(2))
+    .in('status', ['published', 'live'])
+
+  const items: FlowItem[] = []
+  for (const ev of events ?? []) {
+    const e = ev as { id: string; title: string; start_date: string; venue_name: string | null; venue_city: string | null }
+    const { data: bookings } = await admin
+      .from('bookings')
+      .select('id, is_guest, guest_name, guest_email, members(profiles(first_name, email))')
+      .eq('event_id', e.id)
+      .eq('status', 'confirmed')
+    for (const b of bookings ?? []) {
+      const bk = b as Record<string, unknown>
+      const member = one(bk.members as { profiles?: unknown } | null)
+      const prof = one(member?.profiles as { first_name?: string; email?: string } | null)
+      const to = bk.is_guest ? (bk.guest_email as string) : prof?.email
+      const name = (bk.is_guest ? (bk.guest_name as string) : prof?.first_name) || 'there'
+      const where = [e.venue_name, e.venue_city].filter(Boolean).join(', ')
+      items.push({
+        ref_id: String(bk.id),
+        to,
+        subject: `A reminder — ${e.title} is almost here`,
+        detail: `${e.title} — ${name}`,
+        html: renderClubEmail({
+          eyebrow: 'See you soon',
+          heading: `${e.title} is almost here.`,
+          paragraphs: [
+            `Hello ${name},`,
+            `Just a gentle reminder that <strong style="color:#F0EBE0;">${e.title}</strong> takes place on <strong style="color:#F0EBE0;">${fmtDate(e.start_date)}</strong>${where ? ` at ${where}` : ''}.`,
+            `We look forward to welcoming you.`,
+          ],
+        }),
+      })
+    }
+  }
+  return processFlow(admin, 'event_reminder', 'Pre-event reminders', dryRun, items)
+}
+
+// ── Maintenance: transition past-due pending payments to 'overdue' ─────
+// Nothing else in the app produces the `overdue` status, so the Finance
+// overdue card and the invoice-chasing flow would never fire. Run this
+// before the email flows so chasing picks up freshly-overdue invoices.
+async function markOverduePayments(admin: Admin): Promise<void> {
+  await admin
+    .from('payments')
+    .update({ status: 'overdue' })
+    .eq('status', 'pending')
+    .lt('due_date', todayDate())
+    .not('due_date', 'is', null)
+}
+
+// ── Maintenance: reset monthly introduction usage at the turn of a month ─
+// Tracks the last reset month in app_settings so it runs once per calendar
+// month regardless of how often the cron fires.
+async function resetMonthlyQuotasIfDue(admin: Admin): Promise<void> {
+  const month = new Date().toISOString().slice(0, 7) // YYYY-MM
+  const { data } = await admin
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'intros_reset_month')
+    .maybeSingle()
+  const last = (data?.value as string | null) ?? null
+  if (last === month) return
+  await admin.from('members').update({ intros_used_this_month: 0 }).gt('intros_used_this_month', 0)
+  await admin
+    .from('app_settings')
+    .upsert({ key: 'intros_reset_month', value: month }, { onConflict: 'key' })
 }
 
 export interface AutomationRunResult {
@@ -431,9 +535,16 @@ export interface AutomationRunResult {
 
 export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunResult> {
   const admin = adminClient()
+  // State maintenance runs only on a real run (not preview): age past-due
+  // invoices to 'overdue' and reset monthly intro counters at month-turn.
+  if (!dryRun) {
+    await markOverduePayments(admin)
+    await resetMonthlyQuotasIfDue(admin)
+  }
   const flows = [
     await renewalReminders(admin, dryRun),
     await failedPayments(admin, dryRun),
+    await eventReminders(admin, dryRun),
     await postEventFollowup(admin, dryRun),
     await guestNurture(admin, dryRun),
     await invoiceChasing(admin, dryRun),

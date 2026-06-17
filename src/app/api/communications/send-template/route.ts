@@ -247,6 +247,19 @@ export async function POST(req: NextRequest) {
       sent_at?: string
       resend_message_id?: string | null
     }> = []
+    // Mirror each send into email_log too, so campaign sends show up in the
+    // unified "Sent mail" log alongside automations/transactional mail. Same
+    // columns club-email's logEmail() writes (category = "campaign:<template>").
+    const emailLogRows: Array<{
+      to_email: string
+      subject: string
+      html: string
+      category: string
+      status: 'sent' | 'failed'
+      error: string | null
+      resend_message_id: string | null
+      member_id: string
+    }> = []
 
     for (const member of members) {
       const toEmail = member.profile?.email
@@ -303,6 +316,16 @@ export async function POST(req: NextRequest) {
             body_preview: bodyPreview,
             status: 'failed',
           })
+          emailLogRows.push({
+            to_email: toEmail,
+            subject: resolvedSubject,
+            html: resolvedHtml,
+            category: `campaign:${template.name}`,
+            status: 'failed',
+            error: msg,
+            resend_message_id: null,
+            member_id: member.id,
+          })
         } else {
           stats.sent += 1
           logRows.push({
@@ -314,6 +337,16 @@ export async function POST(req: NextRequest) {
             status: 'sent',
             sent_at: new Date().toISOString(),
             resend_message_id: result.data?.id ?? null,
+          })
+          emailLogRows.push({
+            to_email: toEmail,
+            subject: resolvedSubject,
+            html: resolvedHtml,
+            category: `campaign:${template.name}`,
+            status: 'sent',
+            error: null,
+            resend_message_id: result.data?.id ?? null,
+            member_id: member.id,
           })
         }
       } catch (err) {
@@ -327,6 +360,16 @@ export async function POST(req: NextRequest) {
           subject: resolvedSubject,
           body_preview: bodyPreview,
           status: 'failed',
+        })
+        emailLogRows.push({
+          to_email: toEmail,
+          subject: resolvedSubject,
+          html: resolvedHtml,
+          category: `campaign:${template.name}`,
+          status: 'failed',
+          error: msg,
+          resend_message_id: null,
+          member_id: member.id,
         })
       }
 
@@ -344,6 +387,15 @@ export async function POST(req: NextRequest) {
         .insert(logRows as any)
       if (logErr) {
         console.error('[send-template] failed to write communications log:', logErr)
+      }
+    }
+
+    // Mirror into the unified email_log so campaign sends appear in the
+    // "Sent mail" log alongside automations/transactional mail. Best-effort.
+    if (emailLogRows.length > 0) {
+      const { error: emailLogErr } = await adminDb.from('email_log').insert(emailLogRows)
+      if (emailLogErr) {
+        console.error('[send-template] failed to write email_log:', emailLogErr)
       }
     }
 

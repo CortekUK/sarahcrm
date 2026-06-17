@@ -3,7 +3,65 @@
 import { Suspense, use, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
+import { Check, ArrowUpRight, Download, Loader2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase/client'
+
+// Minimal slice of the event we need to build the calendar invite.
+interface IcsEvent {
+  id: string
+  title: string
+  start_date: string
+  end_date: string | null
+  description: string | null
+  venue_name: string | null
+  venue_address: string | null
+  venue_city: string | null
+  venue_postcode: string | null
+}
+
+// Build + download an .ics for the booked event — mirrors the portal
+// confirmation page. Uses the event's end_date when present, falling back
+// to +2h only when it's null.
+function downloadIcs(event: IcsEvent) {
+  const start = new Date(event.start_date)
+  const end = event.end_date
+    ? new Date(event.end_date)
+    : new Date(start.getTime() + 2 * 60 * 60 * 1000)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const formatIcsDate = (d: Date) =>
+    `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
+  const location = [event.venue_name, event.venue_address, event.venue_city, event.venue_postcode]
+    .filter(Boolean)
+    .join(', ')
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//The Club by Sarah Restrick//EN',
+    'BEGIN:VEVENT',
+    `DTSTART:${formatIcsDate(start)}`,
+    `DTEND:${formatIcsDate(end)}`,
+    `SUMMARY:${event.title}`,
+    location ? `LOCATION:${location}` : '',
+    event.description
+      ? `DESCRIPTION:${event.description.slice(0, 200).replace(/\n/g, '\\n')}`
+      : '',
+    `UID:${event.id}@theclub.sarahrestrick.com`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ]
+    .filter(Boolean)
+    .join('\r\n')
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${event.title
+    .replace(/[^a-zA-Z0-9 ]/g, '')
+    .replace(/\s+/g, '-')
+    .toLowerCase()}.ics`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 // Post-Stripe landing for event bookings. Stripe redirects here with
 // ?session_id=cs_… in the URL. We fire-and-forget POST to
@@ -36,6 +94,20 @@ function SuccessInner({ slug }: { slug: string }) {
   // True when the event isn't auto-confirm: the card was HELD, not charged,
   // and the booking awaits admin approval.
   const [held, setHeld] = useState(false)
+  // The booked event — fetched by slug so we can offer an .ics invite.
+  const [event, setEvent] = useState<IcsEvent | null>(null)
+
+  useEffect(() => {
+    supabase
+      .from('events')
+      .select('id, title, start_date, end_date, description, venue_name, venue_address, venue_city, venue_postcode')
+      .eq('slug', slug)
+      .in('status', ['published', 'live', 'completed'])
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setEvent(data as IcsEvent)
+      })
+  }, [slug])
 
   useEffect(() => {
     if (!sessionId) return
@@ -84,6 +156,17 @@ function SuccessInner({ slug }: { slug: string }) {
             <Loader2 size={11} className="animate-spin" />
             Recording payment…
           </p>
+        )}
+
+        {event && (
+          <button
+            type="button"
+            onClick={() => downloadIcs(event)}
+            className="mt-9 inline-flex items-center gap-2 px-6 py-3 border border-bronze/40 rounded-full font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ink hover:bg-bronze hover:border-bronze transition-colors duration-300"
+          >
+            <Download size={13} strokeWidth={1.5} />
+            Add to calendar
+          </button>
         )}
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-6">

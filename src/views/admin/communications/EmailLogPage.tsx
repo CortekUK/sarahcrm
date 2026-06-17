@@ -19,6 +19,8 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { formatDateTime, cn } from '@/lib/utils'
 import { Search, Loader2, Mail, Eye } from 'lucide-react'
 
+// Normalised shape covering BOTH sources: email_log (automations,
+// transactional, invites) and communications (template/campaign sends).
 interface EmailRow {
   id: string
   to_email: string
@@ -29,6 +31,13 @@ interface EmailRow {
   error: string | null
   resend_message_id: string | null
   created_at: string
+  opened_at: string | null
+  clicked_at: string | null
+  // Where the row came from, for the type label / preview fallback.
+  source: 'email_log' | 'communications'
+  // For communications rows there's no stored HTML — keep the text snippet so
+  // the preview pane has something to show.
+  body_preview: string | null
 }
 
 // Friendly label for a raw category slug.
@@ -38,7 +47,37 @@ function categoryLabel(c: string | null): string {
     const flow = c.split(':')[1] ?? ''
     return `Automation · ${flow.replace(/_/g, ' ')}`
   }
+  if (c.startsWith('campaign:')) {
+    const name = c.slice('campaign:'.length)
+    return `Campaign · ${name.replace(/_/g, ' ')}`
+  }
   return c.replace(/_/g, ' ')
+}
+
+// Collapse a raw category into a coarse filter bucket so the prefixed
+// automation:/campaign: slugs group under one chip each.
+function categoryBucket(c: string | null): string {
+  if (!c) return ''
+  if (c.startsWith('automation:')) return 'automation'
+  if (c.startsWith('campaign:')) return 'campaign'
+  return c
+}
+
+// Best-effort recipient label for a communications row. supabase-js types the
+// joined relations as arrays even on to-one joins, so we normalise both.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function recipientFromComm(c: any): string {
+  const member = Array.isArray(c.members) ? c.members[0] : c.members
+  const profile = member
+    ? Array.isArray(member.profiles)
+      ? member.profiles[0]
+      : member.profiles
+    : null
+  if (profile?.email) return profile.email
+  const name = `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim()
+  if (name) return name
+  if (c.member_id) return `member ${String(c.member_id).slice(0, 8)}…`
+  return '—'
 }
 
 export function EmailLogPage() {
@@ -54,19 +93,72 @@ export function EmailLogPage() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('email_log')
-      .select('id, to_email, subject, html, category, status, error, resend_message_id, created_at')
-      .order('created_at', { ascending: false })
-      .limit(300)
-    if (data) setRows(data as EmailRow[])
+    // Pull both mail sources in parallel, normalise to one shape, merge, and
+    // sort newest-first. email_log = automations/transactional/invites;
+    // communications = template/campaign sends.
+    const [logRes, commRes] = await Promise.all([
+      supabase
+        .from('email_log')
+        .select('id, to_email, subject, html, category, status, error, resend_message_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(300),
+      supabase
+        .from('communications')
+        .select(
+          `id, member_id, template_name, subject, body_preview, status, sent_at, opened_at, clicked_at, resend_message_id, created_at,
+           members(profiles(first_name, last_name, email))`,
+        )
+        .order('created_at', { ascending: false })
+        .limit(300),
+    ])
+
+    const logRows: EmailRow[] = (logRes.data ?? []).map((r) => ({
+      id: `log:${r.id}`,
+      to_email: r.to_email,
+      subject: r.subject,
+      html: r.html,
+      category: r.category,
+      status: r.status,
+      error: r.error,
+      resend_message_id: r.resend_message_id,
+      created_at: r.created_at,
+      opened_at: null,
+      clicked_at: null,
+      source: 'email_log',
+      body_preview: null,
+    }))
+
+    const commRows: EmailRow[] = (commRes.data ?? []).map((c) => ({
+      id: `comm:${c.id}`,
+      // communications has no recipient email column — pull the recipient's
+      // email (or name) from the joined member profile; fall back to a short
+      // member-id stub, then em dash, so the row is always identifiable.
+      to_email: recipientFromComm(c),
+      subject: c.subject,
+      html: null,
+      // Tag these as campaign sends so the type column/filter distinguishes them.
+      category: c.template_name ? `campaign:${c.template_name}` : 'campaign',
+      status: c.status,
+      error: null,
+      resend_message_id: c.resend_message_id,
+      created_at: c.sent_at ?? c.created_at,
+      opened_at: c.opened_at,
+      clicked_at: c.clicked_at,
+      source: 'communications',
+      body_preview: c.body_preview,
+    }))
+
+    const merged = [...logRows, ...commRows].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )
+    setRows(merged)
     setLoading(false)
   }
 
   const categories = useMemo(() => {
     const set = new Set<string>()
     rows.forEach((r) => {
-      if (r.category) set.add(r.category.startsWith('automation:') ? 'automation' : r.category)
+      if (r.category) set.add(categoryBucket(r.category))
     })
     return ['all', ...Array.from(set).sort()]
   }, [rows])
@@ -75,8 +167,7 @@ export function EmailLogPage() {
     const term = search.trim().toLowerCase()
     return rows.filter((r) => {
       if (categoryFilter !== 'all') {
-        const bucket = r.category?.startsWith('automation:') ? 'automation' : r.category ?? ''
-        if (bucket !== categoryFilter) return false
+        if (categoryBucket(r.category) !== categoryFilter) return false
       }
       if (!term) return true
       return (
@@ -174,8 +265,13 @@ export function EmailLogPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={r.status === 'failed' ? 'urgent' : 'info'} dot>
-                        {r.status}
+                      <Badge
+                        variant={
+                          r.status === 'failed' || r.status === 'bounced' ? 'urgent' : 'info'
+                        }
+                        dot
+                      >
+                        {r.clicked_at ? 'clicked' : r.opened_at ? 'opened' : r.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-text-muted text-xs whitespace-nowrap">
@@ -204,6 +300,12 @@ export function EmailLogPage() {
               <Meta label="Subject" value={viewing.subject ?? '—'} />
               <Meta label="Sent" value={formatDateTime(viewing.created_at)} />
               <Meta label="Status" value={viewing.status} />
+              {viewing.opened_at && (
+                <Meta label="Opened" value={formatDateTime(viewing.opened_at)} />
+              )}
+              {viewing.clicked_at && (
+                <Meta label="Clicked" value={formatDateTime(viewing.clicked_at)} />
+              )}
               {viewing.resend_message_id && (
                 <Meta label="Resend ID" value={viewing.resend_message_id} />
               )}
@@ -218,7 +320,12 @@ export function EmailLogPage() {
               <iframe
                 title="Email preview"
                 sandbox=""
-                srcDoc={viewing.html ?? '<p style="font-family:sans-serif;padding:24px;color:#888">No body stored.</p>'}
+                srcDoc={
+                  viewing.html ??
+                  (viewing.body_preview
+                    ? `<p style="font-family:sans-serif;padding:24px;color:#444;line-height:1.6">${viewing.body_preview}</p>`
+                    : '<p style="font-family:sans-serif;padding:24px;color:#888">No body stored.</p>')
+                }
                 className="w-full h-[55vh] bg-white"
               />
             </div>

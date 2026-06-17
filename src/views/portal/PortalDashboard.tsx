@@ -12,7 +12,6 @@ import {
   Crown,
   CreditCard,
   Handshake,
-  Inbox,
   Sparkles,
   TrendingUp,
   Users,
@@ -95,16 +94,6 @@ interface RecentMember {
   } | null
 }
 
-interface ConciergeRequest {
-  id: string
-  request_type: string
-  status: string
-  event_name: string | null
-  dates: string | null
-  location: string | null
-  created_at: string
-}
-
 interface NextPayment {
   amount_pence: number
   currency: string
@@ -140,31 +129,6 @@ const introVariant: Record<IntroStatus, PortalBadgeVariant> = {
   declined: 'urgent',
 }
 
-// Status strings we consider "still open" for concierge requests.
-// Anything not in this set (fulfilled / cancelled / declined / closed)
-// is treated as closed and hidden from the open list.
-const CLOSED_CONCIERGE_STATUSES = new Set([
-  'fulfilled',
-  'completed',
-  'cancelled',
-  'canceled',
-  'declined',
-  'closed',
-])
-
-function conciergeVariant(status: string): PortalBadgeVariant {
-  const s = status.toLowerCase()
-  if (s === 'open' || s === 'new' || s === 'submitted') return 'upcoming'
-  if (s === 'in_progress' || s === 'quoted' || s === 'reviewing') return 'info'
-  return 'draft'
-}
-
-function prettyConciergeStatus(status: string) {
-  return status
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
 function formatMoney(pence: number, currency: string) {
   try {
     return new Intl.NumberFormat('en-GB', {
@@ -191,7 +155,6 @@ export function PortalDashboard() {
   const [totalMembers, setTotalMembers] = useState(0)
   const [curatedEvents, setCuratedEvents] = useState<CuratedEvent[]>([])
   const [recentMembers, setRecentMembers] = useState<RecentMember[]>([])
-  const [openConcierge, setOpenConcierge] = useState<ConciergeRequest[]>([])
   const [nextPayment, setNextPayment] = useState<NextPayment | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -229,7 +192,6 @@ export function PortalDashboard() {
       upcomingEventsRes,
       bookedEventIdsRes,
       recentMembersRes,
-      conciergeRes,
       nextPaymentRes,
     ] = await Promise.all([
       supabase
@@ -291,12 +253,6 @@ export function PortalDashboard() {
         .neq('profile_id', profileId)
         .order('created_at', { ascending: false })
         .limit(4),
-      supabase
-        .from('concierge_requests')
-        .select('id, request_type, status, event_name, dates, location, created_at')
-        .eq('member_id', memberId)
-        .order('created_at', { ascending: false })
-        .limit(10),
       // Next billing: the soonest unpaid scheduled charge. We don't
       // assume Stripe vs GoCardless — both write rows here.
       supabase
@@ -372,12 +328,6 @@ export function PortalDashboard() {
         created_at: row.created_at,
         profile: row.profiles,
       })),
-    )
-
-    setOpenConcierge(
-      ((conciergeRes.data ?? []) as ConciergeRequest[]).filter(
-        (r) => !CLOSED_CONCIERGE_STATUSES.has(r.status.toLowerCase()),
-      ).slice(0, 4),
     )
 
     if (nextPaymentRes.data) {
@@ -704,53 +654,6 @@ export function PortalDashboard() {
             ))}
           </div>
         </div>
-      )}
-
-      {/* ── Open concierge requests ────────────────────────────────────
-          Only renders if the member has at least one open request.
-          Avoids cluttering the dashboard for members who never use it. */}
-      {openConcierge.length > 0 && (
-        <PortalCard className="mb-10 p-6 lg:p-7">
-          <div className="flex items-start justify-between gap-4 mb-6">
-            <PortalSectionTitle eyebrow="With the team" className="mb-0">
-              <span className="inline-flex items-center gap-2.5">
-                <Inbox size={14} strokeWidth={1.5} className="text-bronze-light" />
-                Open requests.
-              </span>
-            </PortalSectionTitle>
-            <Link
-              href="/portal/profile"
-              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
-            >
-              Make a request <ArrowUpRight size={11} strokeWidth={1.5} />
-            </Link>
-          </div>
-          <ul className="divide-y divide-graphite-line/40">
-            {openConcierge.map((req) => {
-              const subtitleBits = [req.event_name, req.location, req.dates].filter(Boolean)
-              return (
-                <li key={req.id} className="flex items-center gap-4 py-4 first:pt-0 last:pb-0">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight capitalize">
-                      {req.request_type.replace(/_/g, ' ')}
-                    </p>
-                    {subtitleBits.length > 0 && (
-                      <p className="mt-1 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] text-slate-haze truncate">
-                        {subtitleBits.join(' · ')}
-                      </p>
-                    )}
-                    <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[12px] text-ivory-soft/55">
-                      Submitted {formatDate(req.created_at)}
-                    </p>
-                  </div>
-                  <PortalBadge variant={conciergeVariant(req.status)} dot>
-                    {prettyConciergeStatus(req.status)}
-                  </PortalBadge>
-                </li>
-              )
-            })}
-          </ul>
-        </PortalCard>
       )}
 
       {/* Membership + Network */}

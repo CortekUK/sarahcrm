@@ -319,11 +319,11 @@ export function MemberMatchesPanel({
           </div>
           <CardTitle>Suggested introductions</CardTitle>
           <span className="ml-1 px-2 py-0.5 rounded-full bg-gold-muted text-gold border border-border-gold font-[family-name:var(--font-label)] text-[9px] font-semibold uppercase tracking-[0.18em]">
-            AI matched
+            Tag match
           </span>
         </div>
         <p className="text-sm text-text-muted mt-1">
-          AI surfaced these members as the strongest fits for {memberName}. Tap <span className="text-gold font-medium">Why?</span> to see the reasoning, then Approve to compose and send (or schedule) the introduction.
+          These members share the most tags with {memberName}. Tap <span className="text-gold font-medium">Why?</span> for an AI explanation of the fit, then Approve to compose and send (or schedule) the introduction.
         </p>
       </CardHeader>
       <CardContent>

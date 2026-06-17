@@ -71,6 +71,36 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // ── Capacity enforcement ───────────────────────────────────────
+    // "Taken" = bookings with status confirmed/pending (cancelled and
+    // refunded free their seat up). Same rule lives in /api/events/book.
+    if (event.capacity != null) {
+      const { count: takenCount } = await admin
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', event.id)
+        .in('status', ['confirmed', 'pending'])
+      if ((takenCount ?? 0) >= event.capacity) {
+        return NextResponse.json({ error: 'This event is fully booked.' }, { status: 400 })
+      }
+    }
+    // Guests have their own sub-cap (guest_ticket_capacity) on top of the
+    // overall capacity — enforce it separately for the guest path.
+    if (event.guest_ticket_capacity != null) {
+      const { count: guestCount } = await admin
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', event.id)
+        .eq('is_guest', true)
+        .in('status', ['confirmed', 'pending'])
+      if ((guestCount ?? 0) >= event.guest_ticket_capacity) {
+        return NextResponse.json(
+          { error: 'Guest places for this event are full.' },
+          { status: 400 },
+        )
+      }
+    }
+
     // Optional accommodation add-on — only when the event offers it.
     const accommodationPrice =
       event.accommodation_available && body.add_accommodation

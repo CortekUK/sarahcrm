@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 //   - Guest: short form (name + email + optional company / dietary /
 //     special requests) → POST /api/events/checkout → Stripe.
 //   - Member: link to /login (member portal handles the lower
-//     member-price flow with the existing /checkout edge function).
+//     member-price flow via POST /api/events/book).
 //
 // Sequence within the widget:
 //   1. Idle      — guest form visible, "Continue" CTA.

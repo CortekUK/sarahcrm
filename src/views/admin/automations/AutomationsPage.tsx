@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -31,23 +32,39 @@ interface RunResult {
 const FLOW_HELP: Record<string, string> = {
   renewal_reminder: 'Members whose membership renews within 7 days.',
   failed_payment: 'Members whose card payment failed — asks them to update it.',
+  event_reminder: 'Attendees of an event happening soon — a pre-event reminder.',
   post_event_followup: 'Attendees of an event that finished 1–3 days ago.',
   guest_nurture: 'Past guests who aren’t members yet — a gentle invitation.',
   invoice_chasing: 'Members with an overdue or past-due balance.',
-  intro_notification: 'Both members of an introduction marked “sent”.',
+  intro_scheduled: 'Both members of a scheduled introduction.',
 }
 
 export function AutomationsPage() {
   const confirm = useConfirm()
   const [busy, setBusy] = useState<null | 'preview' | 'run'>(null)
   const [result, setResult] = useState<RunResult | null>(null)
+  // The real send hour is the admin-configured `daily_send_hour` app_setting
+  // (Europe/London), default 07:00 — read it so the copy never lies.
+  const [sendHour, setSendHour] = useState<number>(7)
 
   // Load the preview automatically on open so the admin sees who's due
   // without clicking anything.
   useEffect(() => {
     call(true)
+    loadSendHour()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function loadSendHour() {
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'daily_send_hour')
+      .maybeSingle()
+    const v = data?.value
+    if (typeof v === 'number') setSendHour(v)
+    else if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) setSendHour(Number(v))
+  }
 
   async function call(dryRun: boolean) {
     setBusy(dryRun ? 'preview' : 'run')
@@ -117,7 +134,10 @@ export function AutomationsPage() {
           <div className="flex items-start gap-3 text-sm text-text-muted">
             <Clock size={16} className="text-gold flex-shrink-0 mt-0.5" />
             <p>
-              <span className="text-text font-medium">Runs daily at 08:00 (UK).</span> Use{' '}
+              <span className="text-text font-medium">
+                Runs daily at {String(sendHour).padStart(2, '0')}:00 (UK).
+              </span>{' '}
+              Use{' '}
               <span className="text-text">Preview</span> to see exactly who would be emailed without
               sending anything, then <span className="text-text">Run now</span> to send. Each person
               is only emailed once per situation — running again is always safe.

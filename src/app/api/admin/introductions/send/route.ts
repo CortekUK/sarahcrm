@@ -157,5 +157,28 @@ export async function POST(req: NextRequest) {
     await admin.from('introductions').update(update).eq('id', intro.id)
   }
 
-  return Response.json({ ok: true, results, status: update.status ?? null })
+  // Soft quota: the first time an introduction is actually sent, count it
+  // against BOTH members' monthly allowance. This is display-only — it
+  // never blocks a send (Sarah can always introduce). The counter is reset
+  // monthly by the automations cron.
+  let quotaWarning: string | null = null
+  if (update.sent_at) {
+    for (const memberId of [intro.member_a_id, intro.member_b_id]) {
+      const { data: m } = await admin
+        .from('members')
+        .select('intros_used_this_month, monthly_intro_quota, profiles(first_name)')
+        .eq('id', memberId)
+        .maybeSingle()
+      const used = ((m?.intros_used_this_month as number) ?? 0) + 1
+      await admin.from('members').update({ intros_used_this_month: used }).eq('id', memberId)
+      const quota = (m?.monthly_intro_quota as number) ?? 0
+      if (quota > 0 && used > quota) {
+        const nm =
+          (m?.profiles as { first_name?: string } | null)?.first_name || 'A member'
+        quotaWarning = `${nm} is now over their monthly introduction allowance (${used}/${quota}).`
+      }
+    }
+  }
+
+  return Response.json({ ok: true, results, status: update.status ?? null, quotaWarning })
 }

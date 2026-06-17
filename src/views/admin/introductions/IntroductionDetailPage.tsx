@@ -26,12 +26,17 @@ interface IntroDetail {
   approved_by: string | null
   sent_at: string | null
   accepted_at: string | null
+  followed_up_at: string | null
   outcome: string | null
   business_converted: boolean
   estimated_value_pence: number | null
   event_id: string | null
   member_a_id: string
   member_b_id: string
+  email_a_sent_at: string | null
+  email_b_sent_at: string | null
+  email_a_scheduled_at: string | null
+  email_b_scheduled_at: string | null
   member_a_response: Database['public']['Enums']['intro_response']
   member_b_response: Database['public']['Enums']['intro_response']
   member_a_response_note: string | null
@@ -98,7 +103,9 @@ function getTimestamp(intro: IntroDetail, step: IntroStatus): string | null {
     case 'approved': return intro.approved_at
     case 'sent': return intro.sent_at
     case 'accepted': return intro.accepted_at
-    case 'completed': return intro.status === 'completed' ? intro.accepted_at : null // no dedicated completed_at
+    // No dedicated `completed_at` column — completion is recorded on
+    // `followed_up_at` when the outcome is saved (see saveOutcome).
+    case 'completed': return intro.followed_up_at
     default: return null
   }
 }
@@ -162,25 +169,17 @@ export function IntroductionDetailPage() {
     setLoading(false)
   }
 
-  async function advanceStatus(newStatus: IntroStatus) {
+  // Sending is owned by the compose-and-send flow (which actually emails
+  // each side and stamps email_a/b_sent_at). The only status changes safe
+  // to make from here are the genuinely-manual ones: declining, and
+  // recording an outcome (which completes the intro).
+  async function decline() {
     if (!intro || !id) return
     setAdvancing(true)
-
-    const updates: Database['public']['Tables']['introductions']['Update'] = { status: newStatus }
-    const now = new Date().toISOString()
-
-    if (newStatus === 'approved') {
-      updates.approved_at = now
-      // approved_by would ideally be the current user, but we'll set it via auth
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) updates.approved_by = user.id
-    } else if (newStatus === 'sent') {
-      updates.sent_at = now
-    } else if (newStatus === 'accepted') {
-      updates.accepted_at = now
-    }
-
-    await supabase.from('introductions').update(updates).eq('id', id)
+    await supabase
+      .from('introductions')
+      .update({ status: 'declined' })
+      .eq('id', id)
     await fetchIntro(id)
     setAdvancing(false)
   }
@@ -189,10 +188,16 @@ export function IntroductionDetailPage() {
     if (!id) return
     setSavingOutcome(true)
 
+    // Recording an outcome completes the introduction. There is no
+    // dedicated completed_at column, so we stamp followed_up_at as the
+    // real completion time (matching the matches-panel flow) rather than
+    // reusing accepted_at.
     await supabase.from('introductions').update({
       outcome: outcomeText || null,
       business_converted: businessConverted,
       estimated_value_pence: estimatedValue ? Math.round(parseFloat(estimatedValue) * 100) : null,
+      status: 'completed',
+      followed_up_at: new Date().toISOString(),
     }).eq('id', id)
 
     await fetchIntro(id)
@@ -216,7 +221,23 @@ export function IntroductionDetailPage() {
   const companyB = intro.member_b?.company_name ?? intro.member_b?.profiles?.company_name
   const currentOrder = STATUS_ORDER[intro.status]
   const isDeclined = intro.status === 'declined'
-  const isTerminal = intro.status === 'completed' || isDeclined
+  const isCompleted = intro.status === 'completed'
+  const isTerminal = isCompleted || isDeclined
+
+  // Real send state, derived from the per-side columns the compose-and-send
+  // flow stamps — NOT from `status`. A member only ever sees their intro
+  // once THEIR side's email_X_sent_at is set, so this is the source of truth.
+  function sendStateLabel(sentAt: string | null, scheduledAt: string | null): { text: string; cls: string } {
+    if (sentAt) return { text: `Sent · ${formatDate(sentAt)}`, cls: 'text-accent' }
+    if (scheduledAt) return { text: `Scheduled · ${formatDate(scheduledAt)}`, cls: 'text-gold' }
+    return { text: 'Not sent', cls: 'text-text-dim' }
+  }
+  const sendA = sendStateLabel(intro.email_a_sent_at, intro.email_a_scheduled_at)
+  const sendB = sendStateLabel(intro.email_b_sent_at, intro.email_b_scheduled_at)
+  const eitherSent = Boolean(intro.email_a_sent_at || intro.email_b_sent_at)
+  // Both members accepted → ready to record the outcome.
+  const bothAccepted =
+    intro.member_a_response === 'accepted' && intro.member_b_response === 'accepted'
 
   return (
     <div className="p-8 max-w-4xl">
@@ -438,83 +459,89 @@ export function IntroductionDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Action buttons */}
+      {/* Sending — read-only. Status here is DERIVED from the per-side
+          email columns the compose-and-send flow stamps. Sending itself
+          happens in that flow (it emails each member individually and is
+          the only thing the member portal reacts to), so we never flip
+          "sent" from this page. */}
+      {!isTerminal && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Sending</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-text-dim">Email to {nameA}</p>
+                <p className={cn('text-sm font-medium', sendA.cls)}>{sendA.text}</p>
+              </div>
+              <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-text-dim">Email to {nameB}</p>
+                <p className={cn('text-sm font-medium', sendB.cls)}>{sendB.text}</p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-text-muted">
+              {eitherSent
+                ? 'Need to re-send, schedule the other side, or edit the message? Use the compose-and-send flow on either member’s profile.'
+                : 'This introduction hasn’t been sent yet. Open the compose-and-send flow on either member’s profile to email each side and (optionally) schedule it.'}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <Button
+                variant="secondary"
+                icon={<ArrowRight size={14} />}
+                onClick={() => router.push(`/dashboard/members/${intro.member_a_id}`)}
+              >
+                Open {nameA}&apos;s profile
+              </Button>
+              <Button
+                variant="ghost"
+                icon={<ArrowRight size={14} />}
+                onClick={() => router.push(`/dashboard/members/${intro.member_b_id}`)}
+              >
+                Open {nameB}&apos;s profile
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manual actions — declining is the only safe status flip from here. */}
       {!isTerminal && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-3">
-              {intro.status === 'suggested' && (
-                <Button
-                  onClick={() => advanceStatus('approved')}
-                  loading={advancing}
-                  icon={<Check size={14} />}
-                >
-                  Approve
-                </Button>
-              )}
-              {intro.status === 'approved' && (
-                <Button
-                  onClick={() => advanceStatus('sent')}
-                  loading={advancing}
-                  icon={<ArrowRight size={14} />}
-                >
-                  Mark as Sent
-                </Button>
-              )}
-              {intro.status === 'sent' && (
-                <>
-                  <Button
-                    onClick={() => advanceStatus('accepted')}
-                    loading={advancing}
-                    icon={<Check size={14} />}
-                  >
-                    Accepted
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => advanceStatus('declined')}
-                    loading={advancing}
-                    icon={<XIcon size={14} />}
-                  >
-                    Declined
-                  </Button>
-                </>
-              )}
-              {intro.status === 'accepted' && (
-                <Button
-                  onClick={() => advanceStatus('completed')}
-                  loading={advancing}
-                  icon={<Check size={14} />}
-                >
-                  Complete
-                </Button>
-              )}
-              {/* Decline from any non-terminal status */}
-              {intro.status !== 'sent' && (
-                <Button
-                  variant="ghost"
-                  onClick={() => advanceStatus('declined')}
-                  loading={advancing}
-                  icon={<XIcon size={14} />}
-                >
-                  Decline
-                </Button>
-              )}
-            </div>
+            {bothAccepted && (
+              <p className="mb-3 text-sm text-text-muted">
+                Both members accepted — record the outcome below once you&apos;ve connected them.
+              </p>
+            )}
+            <Button
+              variant="ghost"
+              onClick={decline}
+              loading={advancing}
+              icon={<XIcon size={14} />}
+            >
+              Decline introduction
+            </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Outcome section (when completed) */}
-      {intro.status === 'completed' && (
+      {/* Outcome — recordable once not declined; saving completes the intro
+          and stamps followed_up_at as the completion time. */}
+      {!isDeclined && (
         <Card>
           <CardHeader>
             <CardTitle>Outcome</CardTitle>
           </CardHeader>
           <CardContent>
+            {isCompleted && intro.followed_up_at && (
+              <p className="mb-4 text-xs text-text-dim">
+                Completed {formatDate(intro.followed_up_at)}.
+              </p>
+            )}
             <div className="space-y-4">
               <Textarea
                 label="Outcome Notes"
@@ -552,7 +579,7 @@ export function IntroductionDetailPage() {
                   loading={savingOutcome}
                   onClick={saveOutcome}
                 >
-                  Save Outcome
+                  {isCompleted ? 'Save Outcome' : 'Save Outcome & Complete'}
                 </Button>
               </div>
             </div>
