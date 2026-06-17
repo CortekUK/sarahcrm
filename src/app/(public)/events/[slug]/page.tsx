@@ -2,6 +2,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
@@ -100,10 +101,13 @@ function formatPriceLine(
 
 export default async function EventDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ s?: string }>
 }) {
   const { slug } = await params
+  const { s: sponsorToken } = await searchParams
   const supabase = await createClient()
 
   const { data: event } = await supabase
@@ -116,6 +120,47 @@ export default async function EventDetailPage({
   if (!event) notFound()
 
   const isPast = new Date(event.start_date) < new Date()
+
+  // ── Sponsor invite link (optional) ──────────────────────────────
+  // When the URL carries ?s=<token>, resolve it to the sponsorship so the
+  // booking widget can show that sponsor's negotiated price and pre-fill
+  // their details. Looked up with the service role (server-only) so we don't
+  // need a public RLS policy on `sponsorships`.
+  let sponsor: {
+    token: string
+    price_pence: number
+    package_name: string
+    name: string
+    email: string
+    company: string
+  } | null = null
+  if (sponsorToken && !isPast) {
+    const adminDb = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } },
+    )
+    const { data: sp } = await adminDb
+      .from('sponsorships')
+      .select(
+        'id, event_id, event_price_pence, package_name, status, sponsor_name, sponsor_email, sponsor_company',
+      )
+      .eq('booking_token', sponsorToken)
+      .maybeSingle()
+    if (sp && sp.event_id === event.id && sp.status !== 'declined') {
+      const price = sp.event_price_pence ?? event.sponsor_price_pence ?? 0
+      if (price > 0) {
+        sponsor = {
+          token: sponsorToken,
+          price_pence: price,
+          package_name: sp.package_name,
+          name: sp.sponsor_name ?? '',
+          email: sp.sponsor_email ?? '',
+          company: sp.sponsor_company ?? '',
+        }
+      }
+    }
+  }
   const agenda = parseJsonArray<AgendaItem>(event.agenda)
   const speakers = parseJsonArray<Speaker>(event.speakers).filter((s) => s.name)
 
@@ -366,6 +411,7 @@ export default async function EventDetailPage({
                       accommodation_price_pence: event.accommodation_price_pence,
                       auto_confirm: event.auto_confirm,
                     }}
+                    sponsor={sponsor}
                   />
                 </Reveal>
               )}

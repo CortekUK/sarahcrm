@@ -23,6 +23,9 @@ interface CheckoutBody {
   dietary_requirements?: string | null
   special_requests?: string | null
   add_accommodation?: boolean
+  // When booking through a sponsor's personalised link, the token that
+  // identifies which sponsorship (and therefore which negotiated price).
+  sponsor_token?: string | null
 }
 
 export async function POST(req: NextRequest) {
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
     const { data: event, error: eventErr } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence',
+        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, sponsor_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence',
       )
       .eq('id', body.event_id)
       .single()
@@ -64,7 +67,43 @@ export async function POST(req: NextRequest) {
     }
 
     const guestPrice = event.guest_price_pence ?? 0
-    if (guestPrice <= 0) {
+
+    // ── Sponsor invite (optional) ──────────────────────────────────
+    // A booking can arrive through a sponsor's personalised link. The
+    // sponsor pays their own negotiated ticket price (event_price_pence,
+    // falling back to the event-level sponsor rate), the booking is
+    // attributed to the sponsorship, and the guest sub-cap is skipped
+    // (they're invited, not a walk-up guest).
+    let sponsorship: { id: string; package_name: string; member_id: string | null } | null = null
+    let basePrice = guestPrice
+    if (body.sponsor_token) {
+      const { data: sp } = await admin
+        .from('sponsorships')
+        .select('id, event_id, event_price_pence, package_name, status, member_id')
+        .eq('booking_token', body.sponsor_token)
+        .maybeSingle()
+      if (!sp || sp.event_id !== event.id) {
+        return NextResponse.json(
+          { error: 'This sponsor link is not valid for this event.' },
+          { status: 400 },
+        )
+      }
+      if (sp.status === 'declined') {
+        return NextResponse.json(
+          { error: 'This sponsor invitation is no longer active.' },
+          { status: 400 },
+        )
+      }
+      const sponsorPrice = sp.event_price_pence ?? event.sponsor_price_pence ?? 0
+      if (sponsorPrice <= 0) {
+        return NextResponse.json(
+          { error: 'No sponsor rate has been set for this event.' },
+          { status: 400 },
+        )
+      }
+      sponsorship = { id: sp.id, package_name: sp.package_name, member_id: sp.member_id ?? null }
+      basePrice = sponsorPrice
+    } else if (guestPrice <= 0) {
       return NextResponse.json(
         { error: 'This event does not have a guest rate.' },
         { status: 400 },
@@ -85,8 +124,9 @@ export async function POST(req: NextRequest) {
       }
     }
     // Guests have their own sub-cap (guest_ticket_capacity) on top of the
-    // overall capacity — enforce it separately for the guest path.
-    if (event.guest_ticket_capacity != null) {
+    // overall capacity — enforce it separately for the guest path. Sponsor
+    // invites bypass this sub-cap (they're invited, not walk-up guests).
+    if (!sponsorship && event.guest_ticket_capacity != null) {
       const { count: guestCount } = await admin
         .from('bookings')
         .select('id', { count: 'exact', head: true })
@@ -107,12 +147,62 @@ export async function POST(req: NextRequest) {
         ? (event.accommodation_price_pence ?? 0)
         : 0
     const accommodationBooked = accommodationPrice > 0
-    const price = guestPrice + accommodationPrice
+    const price = basePrice + accommodationPrice
+
+    // If this is a sponsor booking AND the sponsor is (or matches) a member,
+    // attribute the booking to that member so it appears in their portal. The
+    // sponsorship is linked directly when the sponsor is a member; otherwise
+    // we match the booking email to a member's profile.
+    let linkedMemberId: string | null = null
+    if (sponsorship) {
+      if (sponsorship.member_id) {
+        linkedMemberId = sponsorship.member_id
+      } else if (body.guest_email) {
+        const { data: prof } = await admin
+          .from('profiles')
+          .select('id')
+          .ilike('email', body.guest_email)
+          .maybeSingle()
+        if (prof) {
+          const { data: m } = await admin
+            .from('members')
+            .select('id')
+            .eq('profile_id', prof.id)
+            .is('deleted_at', null)
+            .maybeSingle()
+          linkedMemberId = m?.id ?? null
+        }
+      }
+    }
 
     // When the event is NOT auto-confirm we HOLD the card (Stripe setup
     // mode) and charge only on admin approval — no money is taken now.
     // Auto-confirm events charge immediately.
     const holdOnly = event.auto_confirm === false
+
+    // ── Duplicate guard ────────────────────────────────────────────
+    // One active (confirmed/pending) booking per person per event — same
+    // rule the member route enforces. We dedupe on the booking email, and
+    // also on member_id when the booker resolves to a member (so a sponsor
+    // link can't double up on a seat the member already holds).
+    let dupQuery = admin
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', event.id)
+      .in('status', ['confirmed', 'pending'])
+    dupQuery = linkedMemberId
+      ? dupQuery.or(`guest_email.ilike.${body.guest_email},member_id.eq.${linkedMemberId}`)
+      : dupQuery.ilike('guest_email', body.guest_email)
+    const { count: dupCount } = await dupQuery
+    if ((dupCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'There is already a booking for this event under that email. Please check your inbox for the confirmation.',
+        },
+        { status: 409 },
+      )
+    }
 
     // ── Insert booking (pending — webhook flips to confirmed) ──────
     // payment_method is a postgres enum: stripe | gocardless | invoice
@@ -123,8 +213,8 @@ export async function POST(req: NextRequest) {
       .from('bookings')
       .insert({
         event_id: event.id,
-        member_id: null,
-        is_guest: true,
+        member_id: linkedMemberId,
+        is_guest: linkedMemberId ? false : true,
         guest_name: body.guest_name,
         guest_email: body.guest_email,
         guest_company: body.guest_company || null,
@@ -134,6 +224,8 @@ export async function POST(req: NextRequest) {
         amount_pence: price,
         status: 'pending',
         payment_method: 'stripe',
+        sponsorship_id: sponsorship?.id ?? null,
+        sponsor_package: sponsorship?.package_name ?? null,
       })
       .select('id')
       .single()
@@ -185,10 +277,14 @@ export async function POST(req: NextRequest) {
 
     // Tell the team a new guest booking has come in.
     await notifyAdmins(admin, {
-      subject: `New guest booking — ${event.title}`,
-      heading: 'A new guest booking has come in.',
+      subject: sponsorship
+        ? `New sponsor booking — ${event.title}`
+        : `New guest booking — ${event.title}`,
+      heading: sponsorship
+        ? 'A sponsor has booked through their invite link.'
+        : 'A new guest booking has come in.',
       paragraphs: [
-        `<strong style="color:#2C2825;">${body.guest_name}</strong> booked <strong style="color:#2C2825;">${event.title}</strong>${accommodationBooked ? ' (with accommodation)' : ''}.`,
+        `<strong style="color:#2C2825;">${body.guest_name}</strong> booked <strong style="color:#2C2825;">${event.title}</strong>${sponsorship ? ` (sponsor — ${sponsorship.package_name})` : ''}${accommodationBooked ? ' (with accommodation)' : ''}.`,
         holdOnly
           ? `Their card is held — approve the booking in the dashboard to charge it.`
           : `Payment is being taken now.`,

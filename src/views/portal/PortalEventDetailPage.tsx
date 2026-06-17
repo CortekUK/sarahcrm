@@ -80,6 +80,10 @@ export function PortalEventDetailPage() {
     id: string
     status: BookingStatus
   } | null>(null)
+  // Set when the logged-in member is a sponsor of this event — their ticket is
+  // priced at the negotiated sponsor rate rather than the standard member rate.
+  const [sponsorRate, setSponsorRate] = useState<number | null>(null)
+  const [sponsorPackage, setSponsorPackage] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [booking, setBooking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -124,6 +128,23 @@ export function PortalEventDetailPage() {
         .in('status', ['confirmed', 'pending'])
         .maybeSingle()
       if (bookingData) setExistingBooking(bookingData)
+
+      // Sponsor of this event? Use their negotiated rate. (RLS already lets a
+      // member read their own sponsorship rows.)
+      const { data: sp } = await supabase
+        .from('sponsorships')
+        .select('event_price_pence, package_name, status')
+        .eq('event_id', id!)
+        .eq('member_id', memberResult.data.id)
+        .neq('status', 'declined')
+        .maybeSingle()
+      if (sp) {
+        const rate = sp.event_price_pence ?? eventResult.data.sponsor_price_pence ?? 0
+        if (rate > 0) {
+          setSponsorRate(rate)
+          setSponsorPackage(sp.package_name)
+        }
+      }
     }
     setLoading(false)
   }
@@ -232,7 +253,10 @@ export function PortalEventDetailPage() {
   const bookingCount = (event.bookings as unknown as { count: number }[])?.[0]?.count ?? 0
   const spotsRemaining = event.capacity ? event.capacity - bookingCount : null
   const isFullyBooked = spotsRemaining !== null && spotsRemaining <= 0
-  const isComplimentary = event.member_price_pence === 0
+  // The member's ticket price — sponsor rate when they're a sponsor, otherwise
+  // the standard member price.
+  const ticketPrice = sponsorRate ?? event.member_price_pence
+  const isComplimentary = ticketPrice === 0
   const speakers = parseSpeakers(event.speakers)
   const agenda = parseAgenda(event.agenda)
 
@@ -244,7 +268,7 @@ export function PortalEventDetailPage() {
   const hasAddOns = guestAvailable || accommodationAvailable
   // Running total = member ticket + any selected add-ons.
   const bookingTotal =
-    event.member_price_pence +
+    ticketPrice +
     (bringGuest && guestAvailable ? guestPrice : 0) +
     (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
   // Route through paid checkout whenever there's anything to charge — even
@@ -340,12 +364,17 @@ export function PortalEventDetailPage() {
         <div className="lg:col-span-4">
           <PortalCard className="p-7">
             <div className="text-center mb-6 pb-6 border-b border-graphite-line/45">
+              {sponsorRate != null && (
+                <p className="mb-2 font-[family-name:var(--font-meta)] text-[9px] uppercase tracking-[0.3em] text-bronze-light">
+                  Sponsor{sponsorPackage ? ` · ${sponsorPackage}` : ''}
+                </p>
+              )}
               <p className="font-[family-name:var(--font-display)] text-[clamp(1.75rem,2.5vw,2.25rem)] text-bronze-light leading-none tabular-nums">
-                {isComplimentary ? 'Complimentary' : formatCurrency(event.member_price_pence)}
+                {isComplimentary ? 'Complimentary' : formatCurrency(ticketPrice)}
               </p>
               {!isComplimentary && (
                 <p className="mt-2 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-haze">
-                  Per member
+                  {sponsorRate != null ? 'Your sponsor rate' : 'Per member'}
                 </p>
               )}
             </div>

@@ -39,8 +39,21 @@ export interface EventForBooking {
   auto_confirm?: boolean | null
 }
 
+export interface SponsorBooking {
+  token: string
+  price_pence: number
+  package_name: string
+  name: string
+  email: string
+  company: string
+}
+
 interface BookingWidgetProps {
   event: EventForBooking
+  // Present when the page was opened via a sponsor's personalised link
+  // (?s=<token>). Switches the widget to the sponsor's negotiated price and
+  // pre-fills their contact details.
+  sponsor?: SponsorBooking | null
 }
 
 function formatGBP(pence: number | null | undefined) {
@@ -62,27 +75,31 @@ function formatDate(iso: string) {
   })
 }
 
-export function BookingWidget({ event }: BookingWidgetProps) {
+export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
+  const isSponsor = !!sponsor
   const [step, setStep] = useState<'idle' | 'receipt' | 'submitting'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [addAccommodation, setAddAccommodation] = useState(false)
   const [form, setForm] = useState({
-    guest_name: '',
-    guest_email: '',
-    guest_company: '',
+    guest_name: sponsor?.name ?? '',
+    guest_email: sponsor?.email ?? '',
+    guest_company: sponsor?.company ?? '',
     dietary_requirements: '',
     special_requests: '',
   })
 
   const guestPrice = event.guest_price_pence ?? 0
   const memberPrice = event.member_price_pence ?? 0
-  const bookable = guestPrice > 0
+  // Sponsors pay their own negotiated rate; the public guest path uses the
+  // event's guest price. The "seat" price the widget quotes follows suit.
+  const seatPrice = isSponsor ? sponsor!.price_pence : guestPrice
+  const bookable = seatPrice > 0
   const accommodationPrice = event.accommodation_price_pence ?? 0
   const accommodationAvailable = event.accommodation_available === true && accommodationPrice > 0
   // When the event isn't auto-confirm, the card is held (not charged) until
   // the team approves the booking.
   const holdOnly = event.auto_confirm === false
-  const total = guestPrice + (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
+  const total = seatPrice + (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
 
   function update<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -112,6 +129,7 @@ export function BookingWidget({ event }: BookingWidgetProps) {
           dietary_requirements: form.dietary_requirements.trim() || null,
           special_requests: form.special_requests.trim() || null,
           add_accommodation: addAccommodation && accommodationAvailable,
+          sponsor_token: sponsor?.token ?? null,
         }),
       })
       const json = (await res.json()) as { url?: string; error?: string }
@@ -151,17 +169,29 @@ export function BookingWidget({ event }: BookingWidgetProps) {
 
   return (
     <div className="border border-bronze/40 bg-graphite/50 backdrop-blur-sm rounded-2xl p-7 lg:p-8">
+      {/* Sponsor banner — only when opened via a sponsor invite link */}
+      {isSponsor && (
+        <div className="mb-6 -mt-1 px-4 py-3 rounded-xl border border-bronze/40 bg-bronze/10">
+          <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light">
+            Sponsor invitation
+          </p>
+          <p className="font-[family-name:var(--font-editorial)] text-[13.5px] text-ivory mt-1">
+            {sponsor!.package_name} — your reserved rate is shown below.
+          </p>
+        </div>
+      )}
+
       {/* Header — price + member rate hint */}
       <div className="flex items-baseline justify-between gap-4 pb-6 border-b border-graphite-line/50">
         <div>
           <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-            Per seat
+            {isSponsor ? 'Sponsor rate' : 'Per seat'}
           </p>
           <p className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,3vw,2.75rem)] leading-none text-ivory tabular-nums mt-3">
-            {formatGBP(guestPrice)}
+            {formatGBP(seatPrice)}
           </p>
         </div>
-        {memberPrice > 0 && memberPrice < guestPrice && (
+        {!isSponsor && memberPrice > 0 && memberPrice < guestPrice && (
           <div className="text-right">
             <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze">
               Members
@@ -247,19 +277,22 @@ export function BookingWidget({ event }: BookingWidgetProps) {
             </span>
           </button>
 
-          {/* Member sign-in pathway */}
-          <div className="pt-5 mt-2 border-t border-graphite-line/50 flex items-center justify-between gap-3">
-            <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/85">
-              Already a member?
-            </p>
-            <Link
-              href="/login"
-              className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
-            >
-              <Lock size={11} strokeWidth={1.5} />
-              Sign in to book
-            </Link>
-          </div>
+          {/* Member sign-in pathway — hidden on sponsor invites, which are a
+              dedicated external flow at a fixed rate. */}
+          {!isSponsor && (
+            <div className="pt-5 mt-2 border-t border-graphite-line/50 flex items-center justify-between gap-3">
+              <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/85">
+                Already a member?
+              </p>
+              <Link
+                href="/login"
+                className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
+              >
+                <Lock size={11} strokeWidth={1.5} />
+                Sign in to book
+              </Link>
+            </div>
+          )}
         </form>
       )}
 
@@ -281,7 +314,7 @@ export function BookingWidget({ event }: BookingWidgetProps) {
             )}
             <Row label="Name" value={form.guest_name} />
             <Row label="Email" value={form.guest_email} />
-            <Row label="Seat" value={formatGBP(guestPrice)} />
+            <Row label="Seat" value={formatGBP(seatPrice)} />
             {addAccommodation && accommodationAvailable && (
               <Row label="Accommodation" value={formatGBP(accommodationPrice)} />
             )}

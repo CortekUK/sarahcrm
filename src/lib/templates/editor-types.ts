@@ -375,6 +375,13 @@ export const templateVariables = [
   { label: 'Sender Phone', value: '{{sender_phone}}', description: 'Phone of the sender', category: 'sender' },
   { label: 'Booking Link', value: '{{booking_link}}', description: 'Booking / scheduling link', category: 'sender' },
 
+  // Sponsor fields — used by the per-sponsor event invite. The booking link
+  // resolves to that sponsor's personalised /events/<slug>?s=<token> URL.
+  { label: 'Sponsor Booking Link', value: '{{sponsor_booking_link}}', description: "This sponsor's personalised event booking link", category: 'sponsor' },
+  { label: 'Sponsor Name', value: '{{sponsor_name}}', description: 'Name of the sponsor / their contact', category: 'sponsor' },
+  { label: 'Sponsor Company', value: '{{sponsor_company}}', description: "The sponsor's company", category: 'sponsor' },
+  { label: 'Sponsor Price', value: '{{sponsor_price}}', description: "The sponsor's event ticket price", category: 'sponsor' },
+
   // Misc
   { label: 'Month Name', value: '{{month_name}}', description: 'Current month label (e.g. "March")', category: 'misc' },
 ]
@@ -384,6 +391,7 @@ export const templateVariableCategories = {
   event: 'Event',
   intro: 'Introduction',
   sender: 'Sender',
+  sponsor: 'Sponsor',
   misc: 'Other',
 } as const
 

@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     const { data: event } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, member_price_pence, guest_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm',
+        'id, slug, title, status, start_date, member_price_pence, guest_price_pence, sponsor_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm',
       )
       .eq('id', body.event_id)
       .single()
@@ -101,14 +101,31 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Amount = member ticket + optional guest + optional accommodation.
+    // Is this member a sponsor of this event? If so, their ticket is the
+    // negotiated sponsor rate (event_price_pence, falling back to the event's
+    // sponsor price) instead of the standard member rate, and the booking is
+    // attributed to the sponsorship.
+    const { data: sponsorship } = await admin
+      .from('sponsorships')
+      .select('id, event_price_pence, package_name, status')
+      .eq('event_id', event.id)
+      .eq('member_id', member.id)
+      .neq('status', 'declined')
+      .maybeSingle()
+    const sponsorRate = sponsorship
+      ? (sponsorship.event_price_pence ?? event.sponsor_price_pence ?? 0)
+      : 0
+    const ticketPrice =
+      sponsorship && sponsorRate > 0 ? sponsorRate : (event.member_price_pence ?? 0)
+
+    // Amount = ticket (member or sponsor) + optional guest + optional accommodation.
     const wantsGuest = body.bring_guest === true && (event.guest_price_pence ?? 0) > 0
     const wantsAccommodation =
       body.add_accommodation === true &&
       event.accommodation_available === true &&
       (event.accommodation_price_pence ?? 0) > 0
     const amount =
-      (event.member_price_pence ?? 0) +
+      ticketPrice +
       (wantsGuest ? (event.guest_price_pence ?? 0) : 0) +
       (wantsAccommodation ? (event.accommodation_price_pence ?? 0) : 0)
 
@@ -129,6 +146,8 @@ export async function POST(req: NextRequest) {
         guest_name: wantsGuest ? (body.guest_name?.trim() || null) : null,
         accommodation_booked: wantsAccommodation,
         stripe_customer_id: member.stripe_customer_id ?? null,
+        sponsorship_id: sponsorship?.id ?? null,
+        sponsor_package: sponsorship?.package_name ?? null,
       })
       .select('id')
       .single()

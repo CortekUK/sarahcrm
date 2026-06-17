@@ -177,6 +177,7 @@ export type Database = {
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           special_requests: string | null
           sponsor_package: string | null
+          sponsorship_id: string | null
           status: Database["public"]["Enums"]["booking_status"]
           stripe_customer_id: string | null
           stripe_payment_intent_id: string | null
@@ -204,6 +205,7 @@ export type Database = {
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           special_requests?: string | null
           sponsor_package?: string | null
+          sponsorship_id?: string | null
           status?: Database["public"]["Enums"]["booking_status"]
           stripe_customer_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -231,6 +233,7 @@ export type Database = {
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           special_requests?: string | null
           sponsor_package?: string | null
+          sponsorship_id?: string | null
           status?: Database["public"]["Enums"]["booking_status"]
           stripe_customer_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -2060,39 +2063,57 @@ export type Database = {
         Row: {
           amount_pence: number
           benefits: Json | null
+          booking_token: string
           brand_alignment: string | null
           created_at: string
           event_id: string
+          event_price_pence: number | null
           id: string
-          member_id: string
+          invite_sent_at: string | null
+          member_id: string | null
           package_name: string
           showcase_slot: string | null
+          sponsor_company: string | null
+          sponsor_email: string | null
+          sponsor_name: string | null
           status: string
           updated_at: string
         }
         Insert: {
           amount_pence: number
           benefits?: Json | null
+          booking_token?: string
           brand_alignment?: string | null
           created_at?: string
           event_id: string
+          event_price_pence?: number | null
           id?: string
-          member_id: string
+          invite_sent_at?: string | null
+          member_id?: string | null
           package_name: string
           showcase_slot?: string | null
+          sponsor_company?: string | null
+          sponsor_email?: string | null
+          sponsor_name?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
           amount_pence?: number
           benefits?: Json | null
+          booking_token?: string
           brand_alignment?: string | null
           created_at?: string
           event_id?: string
+          event_price_pence?: number | null
           id?: string
-          member_id?: string
+          invite_sent_at?: string | null
+          member_id?: string | null
           package_name?: string
           showcase_slot?: string | null
+          sponsor_company?: string | null
+          sponsor_email?: string | null
+          sponsor_name?: string | null
           status?: string
           updated_at?: string
         }

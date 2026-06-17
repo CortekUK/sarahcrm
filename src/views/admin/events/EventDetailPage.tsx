@@ -655,7 +655,12 @@ export function EventDetailPage() {
 
       {/* Sponsors — packages, members and committed revenue for this event */}
       <div className="mt-6">
-        <SponsorsPanel eventId={id} defaultAmountPence={event.sponsor_price_pence} />
+        <SponsorsPanel
+          eventId={id}
+          eventSlug={event.slug}
+          defaultAmountPence={event.sponsor_price_pence}
+          defaultTicketPence={event.sponsor_price_pence}
+        />
       </div>
     </div>
   )
