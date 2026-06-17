@@ -32,9 +32,8 @@ interface MemberBilling {
 }
 
 // What we show in the Subscription card. Resolved from the matched
-// membership_plan first (preferred — it's the public/admin source of
-// truth for what members are charged), then falls back to the
-// internal membership_tiers table if no plan matches.
+// membership_plan — the single source of truth for what members are
+// charged and which tier they're on.
 interface PlanDisplay {
   /** Plan name to display, e.g. "Business" or "Individual". */
   name: string

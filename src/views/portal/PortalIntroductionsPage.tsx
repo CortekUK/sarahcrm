@@ -8,15 +8,18 @@ import { formatDate } from '@/lib/utils'
 import { Handshake } from 'lucide-react'
 import {
   PortalBadge,
+  PortalButton,
   PortalCard,
   PortalEmptyState,
   PortalLoading,
   PortalPageHeader,
   type PortalBadgeVariant,
 } from '@/components/portal/PortalChrome'
+import { toast } from '@/lib/hooks/use-toast'
 import type { Database } from '@/types/database'
 
 type IntroStatus = Database['public']['Enums']['intro_status']
+type IntroResponse = Database['public']['Enums']['intro_response']
 
 interface IntroRow {
   id: string
@@ -26,6 +29,10 @@ interface IntroRow {
   outcome: string | null
   created_at: string
   other_member_id: string
+  mineRequest: boolean
+  mySent: boolean
+  myResponse: IntroResponse
+  otherResponse: IntroResponse
   other: {
     first_name: string | null
     last_name: string | null
@@ -36,10 +43,15 @@ interface IntroRow {
   tags: string[]
 }
 
+// A member sees an introduction once THEIR side's email was actually sent
+// (mySent) — so "sent to one, not the other" is respected — or it's their own
+// pending request. Pre-send team states (approved/scheduled) stay hidden.
+
 const introVariant: Record<IntroStatus, PortalBadgeVariant> = {
   suggested: 'draft',
   approved: 'upcoming',
   sent: 'info',
+  scheduled: 'upcoming',
   accepted: 'active',
   completed: 'active',
   declined: 'urgent',
@@ -49,6 +61,7 @@ const statusLabels: Record<IntroStatus, string> = {
   suggested: 'Suggested',
   approved: 'Approved',
   sent: 'Sent',
+  scheduled: 'Scheduled',
   accepted: 'Accepted',
   completed: 'Completed',
   declined: 'Declined',
@@ -58,10 +71,24 @@ export function PortalIntroductionsPage() {
   const { user } = useAuth()
   const [intros, setIntros] = useState<IntroRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'all' | 'requested' | 'active' | 'past'>('all')
 
   useEffect(() => {
     if (user?.id) fetchIntros(user.id)
   }, [user?.id])
+
+  async function respond(introId: string, response: IntroResponse, note: string) {
+    const res = await fetch('/api/portal/introductions/respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ introduction_id: introId, response, note: note || undefined }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(json.error || 'Could not save your response.')
+    }
+    if (user?.id) await fetchIntros(user.id)
+  }
 
   async function fetchIntros(userId: string) {
     const { data: memberData } = await supabase
@@ -80,14 +107,14 @@ export function PortalIntroductionsPage() {
       supabase
         .from('introductions')
         .select(
-          'id, status, match_score, match_reason, outcome, created_at, member_b_id, members!introductions_member_b_id_fkey(profiles(first_name, last_name, company_name, avatar_url, job_title))',
+          'id, status, match_score, match_reason, outcome, created_at, requested_by, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, member_b_id, members!introductions_member_b_id_fkey(profiles(first_name, last_name, company_name, avatar_url, job_title))',
         )
         .eq('member_a_id', memberId)
         .order('created_at', { ascending: false }),
       supabase
         .from('introductions')
         .select(
-          'id, status, match_score, match_reason, outcome, created_at, member_a_id, members!introductions_member_a_id_fkey(profiles(first_name, last_name, company_name, avatar_url, job_title))',
+          'id, status, match_score, match_reason, outcome, created_at, requested_by, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, member_a_id, members!introductions_member_a_id_fkey(profiles(first_name, last_name, company_name, avatar_url, job_title))',
         )
         .eq('member_b_id', memberId)
         .order('created_at', { ascending: false }),
@@ -110,6 +137,10 @@ export function PortalIntroductionsPage() {
         outcome: row.outcome as string | null,
         created_at: row.created_at as string,
         other_member_id: otherId,
+        mineRequest: (row.requested_by as string | null) === memberId,
+        mySent: Boolean(row.email_a_sent_at),
+        myResponse: (row.member_a_response as IntroResponse) ?? 'pending',
+        otherResponse: (row.member_b_response as IntroResponse) ?? 'pending',
         other: m
           ? m.profiles
           : { first_name: null, last_name: null, company_name: null, avatar_url: null, job_title: null },
@@ -130,6 +161,10 @@ export function PortalIntroductionsPage() {
         outcome: row.outcome as string | null,
         created_at: row.created_at as string,
         other_member_id: otherId,
+        mineRequest: (row.requested_by as string | null) === memberId,
+        mySent: Boolean(row.email_b_sent_at),
+        myResponse: (row.member_b_response as IntroResponse) ?? 'pending',
+        otherResponse: (row.member_a_response as IntroResponse) ?? 'pending',
         other: m
           ? m.profiles
           : { first_name: null, last_name: null, company_name: null, avatar_url: null, job_title: null },
@@ -159,16 +194,21 @@ export function PortalIntroductionsPage() {
     }
 
     allIntros.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    setIntros(allIntros)
+    // Visible if MY email was actually sent, or it's my own pending request.
+    setIntros(allIntros.filter((i) => i.mySent || (i.status === 'suggested' && i.mineRequest)))
     setLoading(false)
   }
 
-  const activeIntros = useMemo(
-    () => intros.filter((i) => !['completed', 'declined'].includes(i.status)),
+  const requestedIntros = useMemo(
+    () => intros.filter((i) => !i.mySent && i.status === 'suggested' && i.mineRequest),
     [intros],
   )
   const pastIntros = useMemo(
-    () => intros.filter((i) => ['completed', 'declined'].includes(i.status)),
+    () => intros.filter((i) => i.mySent && ['completed', 'declined'].includes(i.status)),
+    [intros],
+  )
+  const activeIntros = useMemo(
+    () => intros.filter((i) => i.mySent && !['completed', 'declined'].includes(i.status)),
     [intros],
   )
 
@@ -176,6 +216,67 @@ export function PortalIntroductionsPage() {
     return (
       <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12">
         <PortalLoading label="Loading introductions" />
+      </div>
+    )
+  }
+
+  function RespondBlock({ intro, otherFirst }: { intro: IntroRow; otherFirst: string }) {
+    const [note, setNote] = useState('')
+    const [submitting, setSubmitting] = useState<IntroResponse | null>(null)
+
+    async function handle(response: IntroResponse) {
+      setSubmitting(response)
+      try {
+        await respond(intro.id, response, note)
+        toast({
+          title: response === 'accepted' ? 'Introduction accepted' : 'Introduction declined',
+          description:
+            response === 'accepted'
+              ? `The Club will connect you with ${otherFirst} once you've both accepted.`
+              : 'Thanks for letting us know.',
+        })
+      } catch (e) {
+        toast({
+          title: 'Something went wrong',
+          description: e instanceof Error ? e.message : 'Please try again.',
+          variant: 'destructive',
+        })
+        setSubmitting(null)
+      }
+    }
+
+    return (
+      <div className="mt-4 px-4 py-4 border-l-2 border-bronze/55 bg-bronze/[0.06]">
+        <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-bronze-light mb-3">
+          Would you like us to introduce you to {otherFirst}?
+        </p>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="Add a private note for The Club (optional)…"
+          className="w-full px-3 py-2 bg-ink/40 text-ivory text-[13px] rounded-md border border-graphite-line/55 outline-none focus:border-bronze/55 resize-y mb-3"
+        />
+        <div className="flex gap-3">
+          <PortalButton
+            size="sm"
+            variant="primary"
+            loading={submitting === 'accepted'}
+            disabled={submitting !== null}
+            onClick={() => handle('accepted')}
+          >
+            Yes, introduce us
+          </PortalButton>
+          <PortalButton
+            size="sm"
+            variant="secondary"
+            loading={submitting === 'declined'}
+            disabled={submitting !== null}
+            onClick={() => handle('declined')}
+          >
+            No, thank you
+          </PortalButton>
+        </div>
       </div>
     )
   }
@@ -232,19 +333,48 @@ export function PortalIntroductionsPage() {
               </p>
             )}
 
-            {/* Status messages */}
-            {intro.status === 'accepted' && (
-              <div className="mt-4 px-4 py-3 border-l-2 border-emerald-500/60 bg-emerald-900/15">
-                <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-emerald-200">
-                  Introduction in progress — we&apos;ll follow up soon.
+            {/* My own pending request, awaiting The Club */}
+            {intro.status === 'suggested' && (
+              <div className="mt-4 px-4 py-3 border-l-2 border-bronze/55 bg-bronze/[0.06]">
+                <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-bronze-light">
+                  Requested — with The Club for review.
                 </p>
               </div>
             )}
-            {intro.status === 'sent' && (
-              <div className="mt-4 px-4 py-3 border-l-2 border-bronze/55 bg-bronze/[0.06]">
-                <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-bronze-light">
-                  Introduction sent — waiting for a response.
-                </p>
+
+            {/* Response — accept / decline once my email has been sent */}
+            {intro.status === 'suggested' ? null : intro.mySent &&
+              intro.myResponse === 'pending' ? (
+              <RespondBlock intro={intro} otherFirst={intro.other.first_name || 'this member'} />
+            ) : (
+              <div className="mt-4 space-y-2">
+                {intro.myResponse === 'accepted' && (
+                  <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-emerald-200">
+                    You accepted this introduction.
+                  </p>
+                )}
+                {intro.myResponse === 'declined' && (
+                  <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-rose-300/90">
+                    You declined this introduction.
+                  </p>
+                )}
+                {/* The other member's response — status only, never their note */}
+                {intro.myResponse === 'accepted' && intro.status !== 'completed' && (
+                  <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.24em] text-slate-haze">
+                    {intro.otherResponse === 'accepted'
+                      ? `${intro.other.first_name || 'They'} accepted too`
+                      : intro.otherResponse === 'declined'
+                        ? `${intro.other.first_name || 'They'} declined`
+                        : `Waiting for ${intro.other.first_name || 'them'} to respond`}
+                  </p>
+                )}
+                {intro.status === 'accepted' && (
+                  <div className="px-4 py-3 border-l-2 border-emerald-500/60 bg-emerald-900/15">
+                    <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-emerald-200">
+                      You both accepted — The Club will connect you shortly.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -270,17 +400,6 @@ export function PortalIntroductionsPage() {
     )
   }
 
-  function GroupHeading({ label, count }: { label: string; count: number }) {
-    return (
-      <div className="flex items-center gap-4 mb-5">
-        <h2 className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light">
-          {label} · {count}
-        </h2>
-        <span className="h-px flex-1 bg-bronze/20" />
-      </div>
-    )
-  }
-
   return (
     <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
       <PortalPageHeader
@@ -296,29 +415,56 @@ export function PortalIntroductionsPage() {
           description="We'll match you with members who share your interests and ambitions."
         />
       ) : (
-        <div className="space-y-12">
-          {activeIntros.length > 0 && (
-            <section>
-              <GroupHeading label="Active" count={activeIntros.length} />
-              <div className="space-y-4">
-                {activeIntros.map((intro) => (
-                  <IntroCard key={intro.id} intro={intro} />
-                ))}
-              </div>
-            </section>
-          )}
+        <>
+          {/* Filter chips */}
+          <div className="flex flex-wrap gap-2 mb-8">
+            {(
+              [
+                { key: 'all', label: 'All', count: intros.length },
+                { key: 'requested', label: 'Requested', count: requestedIntros.length },
+                { key: 'active', label: 'Active', count: activeIntros.length },
+                { key: 'past', label: 'Past', count: pastIntros.length },
+              ] as const
+            ).map((chip) => {
+              const selected = filter === chip.key
+              return (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => setFilter(chip.key)}
+                  className={
+                    selected
+                      ? 'px-4 py-1.5 rounded-full border border-bronze bg-bronze/15 text-bronze-light font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em]'
+                      : 'px-4 py-1.5 rounded-full border border-graphite-line/60 text-ivory/70 hover:text-bronze-light hover:border-bronze/50 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em]'
+                  }
+                >
+                  {chip.label} · {chip.count}
+                </button>
+              )
+            })}
+          </div>
 
-          {pastIntros.length > 0 && (
-            <section>
-              <GroupHeading label="Past" count={pastIntros.length} />
+          {(() => {
+            const list =
+              filter === 'requested'
+                ? requestedIntros
+                : filter === 'active'
+                  ? activeIntros
+                  : filter === 'past'
+                    ? pastIntros
+                    : intros
+            if (list.length === 0) {
+              return <p className="text-sm text-slate-haze italic">Nothing here yet.</p>
+            }
+            return (
               <div className="space-y-4">
-                {pastIntros.map((intro) => (
+                {list.map((intro) => (
                   <IntroCard key={intro.id} intro={intro} />
                 ))}
               </div>
-            </section>
-          )}
-        </div>
+            )
+          })()}
+        </>
       )}
     </div>
   )

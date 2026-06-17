@@ -39,13 +39,35 @@ interface DashboardStats {
   revenueLastMonthPence: number
 }
 
+type IntroResponse = 'pending' | 'accepted' | 'declined'
 interface RecentIntro {
   id: string
   status: IntroStatus
   match_score: number | null
   created_at: string
+  updated_at: string
+  member_a_id: string
+  member_b_id: string
+  requested_by: string | null
+  member_a_response: IntroResponse
+  member_b_response: IntroResponse
   member_a: { profiles: { first_name: string | null; last_name: string | null } }
   member_b: { profiles: { first_name: string | null; last_name: string | null } }
+}
+
+// Describe the latest event on an introduction for the dashboard feed.
+function introEvent(i: RecentIntro): { label: string; variant: 'active' | 'upcoming' | 'draft' | 'urgent' | 'info' } {
+  const a = i.member_a_response
+  const b = i.member_b_response
+  if (i.status === 'completed') return { label: 'Completed', variant: 'info' }
+  if (i.status === 'suggested') return { label: i.requested_by ? 'Requested' : 'Suggested', variant: 'draft' }
+  if (i.status === 'declined' || a === 'declined' || b === 'declined') return { label: 'Declined', variant: 'urgent' }
+  if (a === 'accepted' && b === 'accepted') return { label: 'Ready to connect', variant: 'active' }
+  if (a === 'accepted' || b === 'accepted') return { label: 'Accepted · 1 of 2', variant: 'active' }
+  if (i.status === 'scheduled') return { label: 'Scheduled', variant: 'upcoming' }
+  if (i.status === 'sent') return { label: 'Sent · awaiting reply', variant: 'info' }
+  if (i.status === 'approved') return { label: 'Approved', variant: 'upcoming' }
+  return { label: i.status, variant: 'draft' }
 }
 
 interface NewestMember {
@@ -62,15 +84,6 @@ const statusVariant: Record<EventStatus, 'active' | 'upcoming' | 'draft' | 'urge
   draft: 'draft',
   completed: 'info',
   cancelled: 'urgent',
-}
-
-const introStatusBadge: Record<IntroStatus, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
-  suggested: 'draft',
-  approved: 'upcoming',
-  sent: 'info',
-  accepted: 'active',
-  completed: 'active',
-  declined: 'urgent',
 }
 
 const tierLabels: Record<string, string> = {
@@ -182,16 +195,16 @@ export function DashboardPage() {
         .order('start_date', { ascending: true })
         .limit(6),
 
-      // Recent introductions (last 5)
+      // Recent introduction activity (most-recently-updated first)
       supabase
         .from('introductions')
         .select(`
-          id, status, match_score, created_at,
+          id, status, match_score, created_at, updated_at, member_a_id, member_b_id, requested_by, member_a_response, member_b_response,
           member_a:members!introductions_member_a_id_fkey(profiles(first_name, last_name)),
           member_b:members!introductions_member_b_id_fkey(profiles(first_name, last_name))
         `)
-        .order('created_at', { ascending: false })
-        .limit(5),
+        .order('updated_at', { ascending: false })
+        .limit(8),
 
       // Newest members (last 5)
       supabase
@@ -379,20 +392,13 @@ export function DashboardPage() {
 
       {/* Two column grid: Recent Intros + Newest Members */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Introductions */}
+        {/* Introductions activity feed */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Recent Introductions</CardTitle>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<ArrowRight size={14} />}
-                onClick={() => router.push('/dashboard/introductions')}
-              >
-                View All
-              </Button>
-            </div>
+            <CardTitle>Introductions</CardTitle>
+            <p className="text-sm text-text-muted mt-1">
+              Latest activity — requests, responses and outcomes. Open a member to manage.
+            </p>
           </CardHeader>
           <CardContent className="p-0">
             {recentIntros.length === 0 ? (
@@ -401,34 +407,28 @@ export function DashboardPage() {
               </div>
             ) : (
               <div className="divide-y divide-border">
-                {recentIntros.map((intro) => (
-                  <div
-                    key={intro.id}
-                    className="px-6 py-3.5 flex items-center justify-between hover:bg-surface-2 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/dashboard/introductions/${intro.id}`)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text truncate">
-                        {memberName(intro.member_a?.profiles)}{' '}
-                        <span className="text-text-dim font-normal">&amp;</span>{' '}
-                        {memberName(intro.member_b?.profiles)}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {intro.match_score != null && (
-                          <span className="text-xs text-gold font-medium">
-                            {Math.round(intro.match_score * 100)}% match
-                          </span>
-                        )}
-                        <span className="text-xs text-text-dim">
-                          {formatDate(intro.created_at)}
-                        </span>
+                {recentIntros.map((intro) => {
+                  const ev = introEvent(intro)
+                  return (
+                    <div
+                      key={intro.id}
+                      className="px-6 py-3.5 flex items-center justify-between gap-3 hover:bg-surface-2 transition-colors cursor-pointer"
+                      onClick={() => router.push(`/dashboard/members/${intro.member_a_id}`)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text truncate">
+                          {memberName(intro.member_a?.profiles)}{' '}
+                          <span className="text-text-dim font-normal">&amp;</span>{' '}
+                          {memberName(intro.member_b?.profiles)}
+                        </p>
+                        <span className="text-xs text-text-dim">{formatDate(intro.updated_at)}</span>
                       </div>
+                      <Badge variant={ev.variant} dot>
+                        {ev.label}
+                      </Badge>
                     </div>
-                    <Badge variant={introStatusBadge[intro.status]} dot>
-                      {intro.status}
-                    </Badge>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </CardContent>

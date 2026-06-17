@@ -15,6 +15,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { computeNextRenewal } from '@/lib/billing/renewal'
 import { sendInviteEmail } from '@/lib/email/invite'
+import { resolvePlan, planForTier, introQuotaForTier } from '@/lib/membership/plans'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,44 +52,6 @@ async function requireAdmin() {
     return { error: 'Admin only.', status: 403 as const }
   }
   return { admin: profile }
-}
-
-// Map the free-text `preferred_tier` value on an application to a real
-// membership_tier enum. Free-text is whatever the form submitted —
-// 'individual', 'business', 'corporate', 'tier_1', etc. The mapping
-// mirrors what's seeded in `membership_plans.tier_classification`:
-//
-//   individual  → tier_1
-//   business    → tier_2
-//   corporate   → tier_3
-//
-// Plus the looser aliases (tier_1/2/3, platinum, gold, three, two) so
-// admin-added members + legacy data still resolve sanely.
-function resolveTier(input: string | null | undefined): 'tier_1' | 'tier_2' | 'tier_3' {
-  const v = (input ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  if (
-    v.includes('tier3') ||
-    v.includes('three') ||
-    v.includes('platinum') ||
-    v.includes('corporate')
-  )
-    return 'tier_3'
-  if (
-    v.includes('tier2') ||
-    v.includes('two') ||
-    v.includes('gold') ||
-    v.includes('business')
-  )
-    return 'tier_2'
-  return 'tier_1'
-}
-
-// Business membership_type covers both "Business" and "Corporate" plans
-// (Corporate is essentially the top-end business tier in our public
-// offering — same payee model, larger seat count + sponsorship slot).
-function isBusiness(input: string | null | undefined): boolean {
-  const v = (input ?? '').toLowerCase()
-  return v.includes('business') || v.includes('corporate')
 }
 
 export async function POST(req: NextRequest) {
@@ -132,8 +95,14 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Application has no email — cannot create account.' }, { status: 400 })
     }
 
-    const tier = body.tier ?? resolveTier(app.preferred_tier)
-    const membership_type = isBusiness(app.preferred_tier) ? 'business' : 'individual'
+    // Resolve the plan once — tier and membership_type always come from the
+    // same canonical plan so they can't drift. An explicit body.tier (admin
+    // override on the approve dialog) wins over the application's free-text
+    // preferred_tier. The monthly intro quota is read live from the plan.
+    const plan = body.tier ? planForTier(body.tier) : resolvePlan(app.preferred_tier)
+    const tier = plan.tier
+    const membership_type = plan.membershipType
+    const monthly_intro_quota = await introQuotaForTier(admin, tier)
 
     // ── Charge the saved card (pending-charge flow) ──────────────────
     // The applicant saved a card at application time (a SetupIntent) but
@@ -173,11 +142,11 @@ export async function POST(req: NextRequest) {
 
       // Recurring price line — name it after the plan so the Stripe
       // invoice + customer portal read sensibly.
-      let tierLabel = 'The Club Membership'
+      let tierLabel = `${plan.name} Membership`
       const { data: planRow } = await admin
         .from('membership_plans')
         .select('name')
-        .eq('slug', appAny.preferred_tier)
+        .eq('slug', plan.slug)
         .maybeSingle()
       if (planRow?.name) tierLabel = `${planRow.name} Membership`
 
@@ -374,6 +343,7 @@ export async function POST(req: NextRequest) {
           membership_status: 'active',
           membership_tier: tier,
           membership_type,
+          monthly_intro_quota,
           membership_start_date: new Date().toISOString().slice(0, 10),
           company_name: app.company ?? null,
           source: app.referral_source ?? null,
@@ -402,6 +372,7 @@ export async function POST(req: NextRequest) {
           profile_id: userId,
           membership_type,
           membership_tier: tier,
+          monthly_intro_quota,
           membership_status: 'active',
           membership_start_date: new Date().toISOString().slice(0, 10),
           company_name: app.company ?? null,

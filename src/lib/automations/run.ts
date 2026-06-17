@@ -8,6 +8,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { renderIntroEmail } from '@/lib/introductions/intro-email'
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL || process.env.SITE_URL || 'https://sarahcrm.vercel.app'
@@ -330,60 +331,96 @@ async function invoiceChasing(admin: Admin, dryRun: boolean): Promise<FlowResult
   return processFlow(admin, 'invoice_chasing', 'Invoice chasing', dryRun, items)
 }
 
-// ── 6. Introduction notifications ─────────────────────────────────────
-async function introNotifications(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+// ── 6. Scheduled introductions ────────────────────────────────────────
+// Each side of an introduction can be scheduled INDEPENDENTLY. When a side's
+// date arrives, send the exact email Sarah composed for that recipient (about
+// the other member), stamp email_X_sent_at, clear its schedule, and recompute
+// the overall status. Immediate "send now" is handled inline by the admin API.
+async function scheduledIntroductions(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+  const today = todayDate()
   const { data } = await admin
     .from('introductions')
     .select(
-      'id, status, a:members!introductions_member_a_id_fkey(profiles(first_name, last_name, email, company_name)), b:members!introductions_member_b_id_fkey(profiles(first_name, last_name, email, company_name))',
+      'id, status, email_a_scheduled_at, email_b_scheduled_at, email_a_sent_at, email_b_sent_at, email_a_subject, email_a_body, email_b_subject, email_b_body, a:members!introductions_member_a_id_fkey(profiles(first_name, last_name, email)), b:members!introductions_member_b_id_fkey(profiles(first_name, last_name, email))',
     )
-    .eq('status', 'sent')
+    .or(
+      `and(email_a_scheduled_at.lte.${today},email_a_sent_at.is.null),and(email_b_scheduled_at.lte.${today},email_b_sent_at.is.null)`,
+    )
 
   const items: FlowItem[] = []
+  const dueSides: { introId: string; side: 'a' | 'b' }[] = []
+
   for (const intro of data ?? []) {
     const row = intro as Record<string, unknown>
     const a = one((one(row.a as unknown) as { profiles?: unknown })?.profiles as {
-      first_name?: string
-      last_name?: string
-      email?: string
-      company_name?: string
+      first_name?: string; last_name?: string; email?: string
     } | null)
     const b = one((one(row.b as unknown) as { profiles?: unknown })?.profiles as {
-      first_name?: string
-      last_name?: string
-      email?: string
-      company_name?: string
+      first_name?: string; last_name?: string; email?: string
     } | null)
     const nameOf = (p: typeof a) =>
       `${p?.first_name ?? ''} ${p?.last_name ?? ''}`.trim() || 'a fellow member'
-    const desc = (p: typeof a) =>
-      p?.company_name ? `${nameOf(p)} (${p.company_name})` : nameOf(p)
 
-    const mk = (
-      self: typeof a,
-      other: typeof a,
-      suffix: 'a' | 'b',
-    ): FlowItem => ({
-      ref_id: `${row.id}:sent:${suffix}`,
-      to: self?.email,
-      subject: 'An introduction from The Club',
-      detail: `${nameOf(self)} ↔ ${nameOf(other)}`,
-      html: renderClubEmail({
-        eyebrow: 'Introduction',
-        heading: `We'd like to introduce you to ${nameOf(other)}.`,
-        paragraphs: [
-          `Hello ${self?.first_name || 'there'},`,
-          `We think there's good reason for you and <strong style="color:#F0EBE0;">${desc(other)}</strong> to connect.`,
-          `You can reply to this email to be put in direct contact, or view it in your members area.`,
-        ],
-        cta: { label: 'View in your portal', url: `${APP_URL}/portal/introductions` },
-      }),
-    })
+    const aDue =
+      row.email_a_scheduled_at && (row.email_a_scheduled_at as string) <= today && !row.email_a_sent_at
+    const bDue =
+      row.email_b_scheduled_at && (row.email_b_scheduled_at as string) <= today && !row.email_b_sent_at
 
-    items.push(mk(a, b, 'a'))
-    items.push(mk(b, a, 'b'))
+    if (aDue && a?.email) {
+      const subj = (row.email_a_subject as string) || 'An introduction from The Club'
+      items.push({
+        ref_id: `${row.id}:sched:a`,
+        to: a.email,
+        subject: subj,
+        detail: `${nameOf(a)} ↔ ${nameOf(b)}`,
+        html: renderIntroEmail(nameOf(b), { subject: subj, body: (row.email_a_body as string) || '' }),
+      })
+      dueSides.push({ introId: row.id as string, side: 'a' })
+    }
+    if (bDue && b?.email) {
+      const subj = (row.email_b_subject as string) || 'An introduction from The Club'
+      items.push({
+        ref_id: `${row.id}:sched:b`,
+        to: b.email,
+        subject: subj,
+        detail: `${nameOf(b)} ↔ ${nameOf(a)}`,
+        html: renderIntroEmail(nameOf(a), { subject: subj, body: (row.email_b_body as string) || '' }),
+      })
+      dueSides.push({ introId: row.id as string, side: 'b' })
+    }
   }
-  return processFlow(admin, 'intro_notification', 'Introduction notifications', dryRun, items)
+
+  const result = await processFlow(admin, 'intro_scheduled', 'Scheduled introductions', dryRun, items)
+
+  if (!dryRun && dueSides.length > 0) {
+    const now = new Date().toISOString()
+    // Stamp each sent side + clear its schedule.
+    for (const d of dueSides) {
+      await admin
+        .from('introductions')
+        .update({ [`email_${d.side}_sent_at`]: now, [`email_${d.side}_scheduled_at`]: null })
+        .eq('id', d.introId)
+    }
+    // Recompute overall status for each affected introduction.
+    for (const id of [...new Set(dueSides.map((d) => d.introId))]) {
+      const { data: r } = await admin
+        .from('introductions')
+        .select('email_a_scheduled_at, email_b_scheduled_at, email_a_sent_at, email_b_sent_at, status')
+        .eq('id', id)
+        .single()
+      if (!r) continue
+      const stillScheduled = r.email_a_scheduled_at || r.email_b_scheduled_at
+      const anySent = r.email_a_sent_at || r.email_b_sent_at
+      const terminal = ['accepted', 'completed', 'declined'].includes(r.status as string)
+      if (!terminal) {
+        const upd: Record<string, unknown> = { status: stillScheduled ? 'scheduled' : anySent ? 'sent' : r.status }
+        if (anySent) upd.sent_at = now
+        await admin.from('introductions').update(upd).eq('id', id)
+      }
+    }
+  }
+
+  return result
 }
 
 export interface AutomationRunResult {
@@ -400,7 +437,7 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
     await postEventFollowup(admin, dryRun),
     await guestNurture(admin, dryRun),
     await invoiceChasing(admin, dryRun),
-    await introNotifications(admin, dryRun),
+    await scheduledIntroductions(admin, dryRun),
   ]
   const totals = flows.reduce(
     (acc, f) => ({

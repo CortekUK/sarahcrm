@@ -54,6 +54,8 @@ const schema = z.object({
     .default([]),
   image_url: z.string().optional(),
   tier_classification: z.string().optional(),
+  // Monthly introduction allowance for members on this plan. -1 = unlimited.
+  intro_quota: z.coerce.number().int().min(-1),
   display_order: z.coerce.number().int().min(0),
   is_active: z.boolean(),
   is_featured: z.boolean(),
@@ -95,6 +97,7 @@ export function MembershipPlansPage() {
       features: [],
       image_url: '',
       tier_classification: '',
+      intro_quota: 3,
       display_order: 0,
       is_active: true,
       is_featured: false,
@@ -140,6 +143,7 @@ export function MembershipPlansPage() {
         features: (editing.features ?? []).map((f) => ({ value: f })),
         image_url: editing.image_url ?? '',
         tier_classification: editing.tier_classification ?? '',
+        intro_quota: editing.intro_quota ?? 3,
         display_order: editing.display_order,
         is_active: editing.is_active,
         is_featured: editing.is_featured,
@@ -155,6 +159,7 @@ export function MembershipPlansPage() {
         features: [],
         image_url: '',
         tier_classification: '',
+        intro_quota: 3,
         display_order: plans.length,
         is_active: true,
         is_featured: false,
@@ -176,6 +181,7 @@ export function MembershipPlansPage() {
       features: data.features.map((f) => f.value).filter(Boolean),
       image_url: data.image_url || null,
       tier_classification: data.tier_classification || null,
+      intro_quota: data.intro_quota,
       display_order: data.display_order,
       is_active: data.is_active,
       is_featured: data.is_featured,
@@ -530,12 +536,19 @@ export function MembershipPlansPage() {
             hint="Portrait orientation works best — used as the full-bleed background of each tier card. Falls back to a flat graphite tile if blank."
           />
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Select
               label="Internal tier classification"
               options={TIER_OPTIONS}
-              hint="Determines benefits + intro quota for members on this plan."
+              hint="The membership tier members on this plan get. Drives benefits + type."
               {...form.register('tier_classification')}
+            />
+            <Input
+              label="Monthly intro quota"
+              type="number"
+              hint="Introductions a member gets per month. Use -1 for unlimited."
+              error={form.formState.errors.intro_quota?.message}
+              {...form.register('intro_quota', { valueAsNumber: true })}
             />
             <Input
               label="Display order"

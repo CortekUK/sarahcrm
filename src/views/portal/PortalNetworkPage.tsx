@@ -68,6 +68,10 @@ export function PortalNetworkPage() {
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [toastVisible, setToastVisible] = useState(false)
+  const [requesting, setRequesting] = useState(false)
+  const [requestError, setRequestError] = useState<string | null>(null)
+  // Members this session has already requested an intro to (for button state).
+  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchNetwork()
@@ -136,6 +140,7 @@ export function PortalNetworkPage() {
     setSelectedMemberId(id)
     setProfileData(null)
     setProfileLoading(true)
+    setRequestError(null)
 
     const [memberRes, tagsRes, bookingsRes, introsARes, introsBRes] = await Promise.all([
       supabase
@@ -193,9 +198,31 @@ export function PortalNetworkPage() {
     setProfileData(null)
   }
 
-  function handleRequestIntroduction() {
-    setToastVisible(true)
-    setTimeout(() => setToastVisible(false), 3000)
+  async function handleRequestIntroduction() {
+    if (!selectedMemberId || requesting) return
+    setRequesting(true)
+    try {
+      const res = await fetch('/api/portal/introductions/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_member_id: selectedMemberId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRequestError(json.error || 'Could not send your request.')
+        return
+      }
+      // Already in progress (not completed/declined) → no new request created.
+      if (json.already) {
+        setRequestError(json.message || 'An introduction with this member is already in progress.')
+        return
+      }
+      setRequestedIds((prev) => new Set(prev).add(selectedMemberId))
+      setToastVisible(true)
+      setTimeout(() => setToastVisible(false), 3000)
+    } finally {
+      setRequesting(false)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -444,13 +471,23 @@ export function PortalNetworkPage() {
             )}
 
             <div className="pt-2">
-              <PortalButton
-                className="w-full justify-center"
-                icon={<Handshake size={14} strokeWidth={1.5} />}
-                onClick={handleRequestIntroduction}
-              >
-                Request introduction
-              </PortalButton>
+              {selectedMemberId && requestedIds.has(selectedMemberId) ? (
+                <p className="text-center font-[family-name:var(--font-editorial)] italic text-[13px] text-bronze-light">
+                  Requested — with The Club for review.
+                </p>
+              ) : (
+                <PortalButton
+                  className="w-full justify-center"
+                  icon={<Handshake size={14} strokeWidth={1.5} />}
+                  onClick={handleRequestIntroduction}
+                  loading={requesting}
+                >
+                  Request introduction
+                </PortalButton>
+              )}
+              {requestError && (
+                <p className="mt-2 text-center text-[12px] text-rose-300/90">{requestError}</p>
+              )}
             </div>
           </div>
         ) : null}

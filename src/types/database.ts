@@ -39,6 +39,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          key: string
+          value: Json
+          updated_at: string
+        }
+        Insert: {
+          key: string
+          value: Json
+          updated_at?: string
+        }
+        Update: {
+          key?: string
+          value?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       audience_members: {
         Row: {
           added_at: string
@@ -1013,7 +1031,22 @@ export type Database = {
           match_score: number | null
           matching_tags: string[] | null
           member_a_id: string
+          member_a_responded_at: string | null
+          member_a_response: Database["public"]["Enums"]["intro_response"]
+          member_a_response_note: string | null
           member_b_id: string
+          member_b_responded_at: string | null
+          member_b_response: Database["public"]["Enums"]["intro_response"]
+          member_b_response_note: string | null
+          email_a_subject: string | null
+          email_a_body: string | null
+          email_b_subject: string | null
+          email_b_body: string | null
+          email_a_scheduled_at: string | null
+          email_b_scheduled_at: string | null
+          email_a_sent_at: string | null
+          email_b_sent_at: string | null
+          scheduled_send_at: string | null
           outcome: string | null
           requested_by: string | null
           sent_at: string | null
@@ -1035,7 +1068,22 @@ export type Database = {
           match_score?: number | null
           matching_tags?: string[] | null
           member_a_id: string
+          member_a_responded_at?: string | null
+          member_a_response?: Database["public"]["Enums"]["intro_response"]
+          member_a_response_note?: string | null
           member_b_id: string
+          member_b_responded_at?: string | null
+          member_b_response?: Database["public"]["Enums"]["intro_response"]
+          member_b_response_note?: string | null
+          email_a_subject?: string | null
+          email_a_body?: string | null
+          email_b_subject?: string | null
+          email_b_body?: string | null
+          email_a_scheduled_at?: string | null
+          email_b_scheduled_at?: string | null
+          email_a_sent_at?: string | null
+          email_b_sent_at?: string | null
+          scheduled_send_at?: string | null
           outcome?: string | null
           requested_by?: string | null
           sent_at?: string | null
@@ -1057,7 +1105,22 @@ export type Database = {
           match_score?: number | null
           matching_tags?: string[] | null
           member_a_id?: string
+          member_a_responded_at?: string | null
+          member_a_response?: Database["public"]["Enums"]["intro_response"]
+          member_a_response_note?: string | null
           member_b_id?: string
+          member_b_responded_at?: string | null
+          member_b_response?: Database["public"]["Enums"]["intro_response"]
+          member_b_response_note?: string | null
+          email_a_subject?: string | null
+          email_a_body?: string | null
+          email_b_subject?: string | null
+          email_b_body?: string | null
+          email_a_scheduled_at?: string | null
+          email_b_scheduled_at?: string | null
+          email_a_sent_at?: string | null
+          email_b_sent_at?: string | null
+          scheduled_send_at?: string | null
           outcome?: string | null
           requested_by?: string | null
           sent_at?: string | null
@@ -1691,6 +1754,7 @@ export type Database = {
           image_url: string | null
           is_active: boolean
           is_featured: boolean
+          intro_quota: number
           lede: string | null
           monthly_price_pence: number
           name: string
@@ -1708,6 +1772,7 @@ export type Database = {
           image_url?: string | null
           is_active?: boolean
           is_featured?: boolean
+          intro_quota?: number
           lede?: string | null
           monthly_price_pence?: number
           name: string
@@ -1725,56 +1790,12 @@ export type Database = {
           image_url?: string | null
           is_active?: boolean
           is_featured?: boolean
+          intro_quota?: number
           lede?: string | null
           monthly_price_pence?: number
           name?: string
           slug?: string
           tier_classification?: string | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      membership_tiers: {
-        Row: {
-          billing_interval: string
-          created_at: string
-          id: string
-          intro_quota: number
-          is_active: boolean
-          membership_type: Database["public"]["Enums"]["membership_type"]
-          name: string
-          price_pence: number
-          stripe_price_id: string | null
-          stripe_product_id: string | null
-          tier: Database["public"]["Enums"]["membership_tier"]
-          updated_at: string
-        }
-        Insert: {
-          billing_interval?: string
-          created_at?: string
-          id?: string
-          intro_quota?: number
-          is_active?: boolean
-          membership_type: Database["public"]["Enums"]["membership_type"]
-          name: string
-          price_pence: number
-          stripe_price_id?: string | null
-          stripe_product_id?: string | null
-          tier: Database["public"]["Enums"]["membership_tier"]
-          updated_at?: string
-        }
-        Update: {
-          billing_interval?: string
-          created_at?: string
-          id?: string
-          intro_quota?: number
-          is_active?: boolean
-          membership_type?: Database["public"]["Enums"]["membership_type"]
-          name?: string
-          price_pence?: number
-          stripe_price_id?: string | null
-          stripe_product_id?: string | null
-          tier?: Database["public"]["Enums"]["membership_tier"]
           updated_at?: string
         }
         Relationships: []
@@ -2240,10 +2261,12 @@ export type Database = {
       booking_status: "confirmed" | "pending" | "cancelled" | "refunded"
       event_status: "draft" | "published" | "live" | "completed" | "cancelled"
       event_type: "member_event" | "curated_luxury" | "retreat"
+      intro_response: "pending" | "accepted" | "declined"
       intro_status:
         | "suggested"
         | "approved"
         | "sent"
+        | "scheduled"
         | "accepted"
         | "completed"
         | "declined"
@@ -2254,7 +2277,7 @@ export type Database = {
         | "cancelled"
         | "paused"
       membership_tier: "tier_1" | "tier_2" | "tier_3"
-      membership_type: "individual" | "business" | "partner"
+      membership_type: "individual" | "business"
       payment_method: "stripe" | "gocardless" | "invoice" | "manual"
       payment_status: "paid" | "pending" | "overdue" | "refunded" | "failed"
       tag_category: "industry" | "interest" | "need" | "service"
@@ -2408,7 +2431,7 @@ export const Constants = {
         "paused",
       ],
       membership_tier: ["tier_1", "tier_2", "tier_3"],
-      membership_type: ["individual", "business", "partner"],
+      membership_type: ["individual", "business"],
       payment_method: ["stripe", "gocardless", "invoice", "manual"],
       payment_status: ["paid", "pending", "overdue", "refunded", "failed"],
       tag_category: ["industry", "interest", "need", "service"],

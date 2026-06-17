@@ -134,6 +134,7 @@ const introVariant: Record<IntroStatus, PortalBadgeVariant> = {
   suggested: 'draft',
   approved: 'upcoming',
   sent: 'info',
+  scheduled: 'upcoming',
   accepted: 'active',
   completed: 'active',
   declined: 'urgent',

@@ -33,6 +33,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail } from '@/lib/email/invite'
+import { planForTier, introQuotaForTier } from '@/lib/membership/plans'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -145,6 +146,14 @@ export async function POST(req: NextRequest) {
     const admin = getAdminDb()
     const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
 
+    // Resolve the live intro quota for each tier once (not per row) so a
+    // 1000-row import doesn't make 1000 extra round-trips.
+    const quotaByTier: Record<Tier, number> = {
+      tier_1: await introQuotaForTier(admin, 'tier_1'),
+      tier_2: await introQuotaForTier(admin, 'tier_2'),
+      tier_3: await introQuotaForTier(admin, 'tier_3'),
+    }
+
     const results: RowResult[] = []
     let created = 0
     let reused = 0
@@ -233,10 +242,13 @@ export async function POST(req: NextRequest) {
           .eq('profile_id', userId)
           .maybeSingle()
 
+        // membership_type and the intro quota follow from the tier (the
+        // plan) — never hardcoded. tier_1 → individual, tier_2/3 → business.
         const memberPayload = {
           profile_id: userId,
-          membership_type: 'individual' as const,
+          membership_type: planForTier(tier).membershipType,
           membership_tier: tier,
+          monthly_intro_quota: quotaByTier[tier],
           membership_status: status,
           company_name: r.company_name?.trim() || null,
           membership_start_date: new Date().toISOString().slice(0, 10),

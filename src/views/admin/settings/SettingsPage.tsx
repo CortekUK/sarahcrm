@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase/client'
+import { planForSlug } from '@/lib/membership/plans'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
@@ -15,16 +17,29 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { Avatar } from '@/components/ui/Avatar'
-import { Building2, CreditCard, Landmark, Mail, Pencil, UserPlus } from 'lucide-react'
+import { Building2, CreditCard, Landmark, Mail, UserPlus } from 'lucide-react'
+import { TagsManager } from './TagsManager'
+import { AutomationTimeSettings } from './AutomationTimeSettings'
 
-const TIERS = [
-  { name: 'Individual Tier 1', type: 'Individual', price: '£375', intros: '3', status: 'Active' },
-  { name: 'Individual Tier 2', type: 'Individual', price: '£500', intros: '5', status: 'Active' },
-  { name: 'Individual Tier 3', type: 'Individual', price: '£750', intros: '10', status: 'Active' },
-  { name: 'Business Tier 1', type: 'Business', price: '£600', intros: '5', status: 'Active' },
-  { name: 'Business Tier 2', type: 'Business', price: '£900', intros: '10', status: 'Active', note: 'Showcase enabled' },
-  { name: 'Business Tier 3', type: 'Business', price: '£1,500', intros: 'Unlimited', status: 'Active', note: 'Sponsor aligned' },
-]
+// A row in the read-only "Membership plans" summary table. Sourced live
+// from the `membership_plans` table (the single source of truth) — editing
+// happens on the Website → Membership plans page, not here.
+interface PlanRow {
+  id: string
+  name: string
+  type: string
+  price: string
+  intros: string
+  active: boolean
+}
+
+function gbp(pence: number) {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: pence % 100 === 0 ? 0 : 2,
+  }).format(pence / 100)
+}
 
 const INTEGRATIONS = [
   {
@@ -68,6 +83,42 @@ export function SettingsPage() {
   )
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [plans, setPlans] = useState<PlanRow[]>([])
+  const [plansLoading, setPlansLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const { data } = await supabase
+        .from('membership_plans')
+        .select('id, name, slug, monthly_price_pence, intro_quota, is_active')
+        .order('display_order', { ascending: true })
+      if (!active) return
+      setPlans(
+        (data ?? []).map((p) => {
+          const def = planForSlug(p.slug)
+          const quota =
+            typeof p.intro_quota === 'number'
+              ? p.intro_quota < 0
+                ? 'Unlimited'
+                : String(p.intro_quota)
+              : '—'
+          return {
+            id: p.id,
+            name: p.name,
+            type: def ? def.membershipType[0].toUpperCase() + def.membershipType.slice(1) : '—',
+            price: gbp(p.monthly_price_pence),
+            intros: quota,
+            active: p.is_active,
+          }
+        }),
+      )
+      setPlansLoading(false)
+    })()
+    return () => {
+      active = false
+    }
+  }, [])
 
   function handleSave() {
     setSaving(true)
@@ -140,52 +191,67 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Membership Tiers */}
+      {/* Membership Plans — read-only summary of the live plans. Each plan
+          IS a tier; edit them on Website → Membership plans. */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Membership Tiers</CardTitle>
+          <CardTitle>Membership Plans</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Tier Name</TableHead>
+                <TableHead>Plan</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Monthly Price</TableHead>
                 <TableHead>Monthly Intros</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-[1%]" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {TIERS.map((tier) => (
-                <TableRow key={tier.name}>
-                  <TableCell>
-                    <span className="font-medium text-text">{tier.name}</span>
-                    {tier.note && (
-                      <span className="block text-xs text-text-dim mt-0.5">{tier.note}</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{tier.type}</TableCell>
-                  <TableCell className="font-[family-name:var(--font-mono)] text-sm">
-                    {tier.price}/mo
-                  </TableCell>
-                  <TableCell>{tier.intros}</TableCell>
-                  <TableCell>
-                    <Badge variant="active" dot>{tier.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <button className="flex items-center gap-1.5 text-xs text-text-muted hover:text-gold transition-colors">
-                      <Pencil size={13} strokeWidth={1.5} />
-                      Edit
-                    </button>
+              {plansLoading ? (
+                <TableRow>
+                  <TableCell className="text-sm text-text-muted">Loading plans…</TableCell>
+                </TableRow>
+              ) : plans.length === 0 ? (
+                <TableRow>
+                  <TableCell className="text-sm text-text-muted">
+                    No plans yet — add them on Website → Membership plans.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                plans.map((plan) => (
+                  <TableRow key={plan.id}>
+                    <TableCell>
+                      <span className="font-medium text-text">{plan.name}</span>
+                    </TableCell>
+                    <TableCell>{plan.type}</TableCell>
+                    <TableCell className="font-[family-name:var(--font-mono)] text-sm">
+                      {plan.price}/mo
+                    </TableCell>
+                    <TableCell>{plan.intros}</TableCell>
+                    <TableCell>
+                      <Badge variant={plan.active ? 'active' : 'draft'} dot>
+                        {plan.active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
+          <p className="px-6 py-3 text-xs text-text-dim border-t border-border">
+            Each plan is a membership tier. Prices, intro quotas, and benefits are
+            edited on Website → Membership plans.
+          </p>
         </CardContent>
       </Card>
+
+      {/* Tags */}
+      <TagsManager />
+
+      {/* Automation send time */}
+      <AutomationTimeSettings />
 
       {/* Integrations */}
       <Card className="mb-6">

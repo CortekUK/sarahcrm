@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   Users,
   CalendarDays,
-  Handshake,
   Mail,
   Inbox,
   MailPlus,
@@ -32,6 +31,7 @@ import {
   Search,
   Zap,
   Tags,
+  Handshake,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -46,7 +46,7 @@ function useNavCounts(pathname: string): Record<string, number> {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [apps, bookings, intros, overdue] = await Promise.all([
+      const [apps, bookings, overdue] = await Promise.all([
         supabase
           .from('membership_applications')
           .select('id', { count: 'exact', head: true })
@@ -56,10 +56,6 @@ function useNavCounts(pathname: string): Record<string, number> {
           .select('id', { count: 'exact', head: true })
           .eq('status', 'pending'),
         supabase
-          .from('introductions')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'suggested'),
-        supabase
           .from('payments')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'overdue'),
@@ -68,7 +64,6 @@ function useNavCounts(pathname: string): Record<string, number> {
       setCounts({
         '/dashboard/applications': apps.count ?? 0,
         '/dashboard/bookings': bookings.count ?? 0,
-        '/dashboard/introductions': intros.count ?? 0,
         '/dashboard/finance': overdue.count ?? 0,
       })
     }

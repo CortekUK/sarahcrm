@@ -29,6 +29,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail } from '@/lib/email/invite'
+import { planForTier, introQuotaForTier } from '@/lib/membership/plans'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,7 +43,8 @@ interface RequestBody {
   company_name?: string
   company_description?: string
   company_website?: string
-  membership_type?: 'individual' | 'business'
+  // membership_type is derived from the tier (the plan) — not accepted from
+  // the client. The chosen plan is the tier.
   membership_tier?: 'tier_1' | 'tier_2' | 'tier_3'
   status?: 'active' | 'pending'
   send_invite?: boolean
@@ -165,10 +167,14 @@ export async function POST(req: NextRequest) {
       .eq('profile_id', userId)
       .maybeSingle()
 
+    // The plan (tier) is the source of truth — membership_type and the
+    // monthly intro quota are derived from it so they can never mismatch.
+    const tier = body.membership_tier ?? 'tier_1'
     const memberPayload = {
       profile_id: userId,
-      membership_type: body.membership_type ?? 'individual',
-      membership_tier: body.membership_tier ?? 'tier_1',
+      membership_type: planForTier(tier).membershipType,
+      membership_tier: tier,
+      monthly_intro_quota: await introQuotaForTier(admin, tier),
       membership_status: body.status ?? 'pending',
       company_name: body.company_name ?? null,
       company_description: body.company_description ?? null,

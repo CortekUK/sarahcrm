@@ -58,32 +58,44 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Look up the matching tier pricing
-    const { data: tier, error: tierError } = await supabaseAdmin
-      .from('membership_tiers')
-      .select('id, name, price_pence, stripe_price_id')
-      .eq('tier', member.membership_tier)
-      .eq('membership_type', member.membership_type)
-      .eq('billing_interval', 'month')
+    // Look up the plan for this member's tier. membership_plans is the
+    // single source of truth for pricing — the plan IS the tier, matched on
+    // tier_classification. (The old membership_tiers table is gone.)
+    const { data: plan, error: planError } = await supabaseAdmin
+      .from('membership_plans')
+      .select('id, name, monthly_price_pence, is_active')
+      .eq('tier_classification', member.membership_tier)
       .eq('is_active', true)
-      .single()
+      .order('display_order', { ascending: true })
+      .limit(1)
+      .maybeSingle()
 
-    if (tierError || !tier) {
+    if (planError || !plan) {
       return new Response(
-        JSON.stringify({ error: 'No pricing found for your membership tier' }),
+        JSON.stringify({ error: 'No active plan found for your membership tier' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    if (!tier.stripe_price_id) {
+    if (!plan.monthly_price_pence || plan.monthly_price_pence <= 0) {
       return new Response(
-        JSON.stringify({ error: 'Stripe pricing not configured for this tier. Please contact support.' }),
+        JSON.stringify({ error: 'Monthly pricing not configured for this plan. Please contact support.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
       apiVersion: '2024-12-18.acacia',
+    })
+
+    // Create the recurring price on the fly from the plan's live monthly
+    // amount, so checkout always charges what membership_plans says (no
+    // stale pre-stored price IDs to drift out of sync).
+    const price = await stripe.prices.create({
+      currency: 'gbp',
+      unit_amount: plan.monthly_price_pence,
+      recurring: { interval: 'month' },
+      product_data: { name: `${plan.name} Membership` },
     })
 
     // Create or reuse Stripe Customer
@@ -107,15 +119,15 @@ Deno.serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
-      line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
+      line_items: [{ price: price.id, quantity: 1 }],
       metadata: {
         member_id: member.id,
-        tier_id: tier.id,
+        plan_id: plan.id,
       },
       subscription_data: {
         metadata: {
           member_id: member.id,
-          tier_id: tier.id,
+          plan_id: plan.id,
         },
       },
       success_url: `${siteUrl}/portal/billing?session_id={CHECKOUT_SESSION_ID}&status=success`,

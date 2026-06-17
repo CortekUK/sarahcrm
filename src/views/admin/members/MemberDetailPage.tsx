@@ -27,6 +27,13 @@ import {
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDate, formatCurrency, cn } from '@/lib/utils'
+import { MemberMatchesPanel } from './MemberMatchesPanel'
+import {
+  PLAN_OPTIONS,
+  planForTier,
+  introQuotaForTier,
+  type MemberTier as PlanTier,
+} from '@/lib/membership/plans'
 import {
   ArrowLeft,
   Pencil,
@@ -52,6 +59,8 @@ import {
   User as UserIcon,
   Tag as TagIcon,
   Sparkles,
+  Plus,
+  Check,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -163,7 +172,7 @@ const editSchema = z.object({
   company_name: z.string().optional(),
   company_description: z.string().optional(),
   company_website: z.string().optional(),
-  membership_type: z.enum(['individual', 'business', 'partner']),
+  // The plan IS the tier; membership_type is derived from it on save.
   membership_tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
   membership_status: z.enum(['active', 'pending', 'expired', 'cancelled', 'paused']),
   notes: z.string().optional(),
@@ -242,6 +251,7 @@ const introStatusBadge: Record<IntroStatus, 'active' | 'upcoming' | 'draft' | 'u
   suggested: 'draft',
   approved: 'upcoming',
   sent: 'info',
+  scheduled: 'upcoming',
   accepted: 'active',
   completed: 'active',
   declined: 'urgent',
@@ -277,16 +287,6 @@ const CATEGORY_STYLES: Record<string, string> = {
   interest: 'bg-[rgba(90,123,150,0.1)] text-[#5A7B96] border border-[rgba(90,123,150,0.25)]',
   need: 'bg-[rgba(111,143,122,0.1)] text-[#5C8A6B] border border-[rgba(111,143,122,0.3)]',
 }
-const typeOptions = [
-  { value: 'individual', label: 'Individual' },
-  { value: 'business', label: 'Business' },
-  { value: 'partner', label: 'Partner' },
-]
-const tierOptions = [
-  { value: 'tier_1', label: 'Tier 1' },
-  { value: 'tier_2', label: 'Tier 2' },
-  { value: 'tier_3', label: 'Tier 3' },
-]
 const statusOptions = [
   { value: 'active', label: 'Active' },
   { value: 'paused', label: 'Paused' },
@@ -315,8 +315,21 @@ export function MemberDetailPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'intros' | 'events' | 'payments'>('intros')
+  const [activeTab, setActiveTab] = useState<'events' | 'payments'>('events')
   const [actionPending, setActionPending] = useState<'cancel' | 'delete' | null>(null)
+  // Bumped after a save so the suggested-introductions panel recomputes
+  // against the freshly-saved tags.
+  const [refreshKey, setRefreshKey] = useState(0)
+  // AI tag suggestions (existing tags only, each with a reason).
+  const [aiSuggestions, setAiSuggestions] = useState<
+    { tag_id: string; name: string; category: string; reason: string }[]
+  >([])
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiRan, setAiRan] = useState(false)
+  // Inline quick-add of a brand-new tag.
+  const [newTagName, setNewTagName] = useState('')
+  const [newTagCategory, setNewTagCategory] = useState('industry')
+  const [addingTag, setAddingTag] = useState(false)
 
   const form = useForm<EditFormData>({ resolver: zodResolver(editSchema) })
 
@@ -442,7 +455,6 @@ export function MemberDetailPage() {
       company_name: member.company_name ?? '',
       company_description: member.company_description ?? '',
       company_website: member.company_website ?? '',
-      membership_type: member.membership_type as 'individual' | 'business' | 'partner',
       membership_tier: member.membership_tier,
       membership_status: member.membership_status,
       notes: member.notes ?? '',
@@ -485,11 +497,22 @@ export function MemberDetailPage() {
       })
       .eq('id', member.profile_id)
 
+    // If the plan (tier) changed, reset the monthly intro quota to that
+    // plan's allowance. Only on change, so a manual per-member override
+    // isn't clobbered every time the form is saved.
+    const tierChanged = data.membership_tier !== member.membership_tier
+    const quotaUpdate = tierChanged
+      ? { monthly_intro_quota: await introQuotaForTier(supabase, data.membership_tier as PlanTier) }
+      : {}
+
     await supabase
       .from('members')
       .update({
-        membership_type: data.membership_type,
+        // membership_type follows the tier (the plan) — kept in lock-step
+        // so the two columns can't drift apart.
+        membership_type: planForTier(data.membership_tier as PlanTier).membershipType,
         membership_tier: data.membership_tier,
+        ...quotaUpdate,
         membership_status: data.membership_status,
         company_name: data.company_name || null,
         company_description: data.company_description || null,
@@ -515,22 +538,73 @@ export function MemberDetailPage() {
       })
       .eq('id', id)
 
-    await supabase.from('member_tags').delete().eq('member_id', id)
-    if (memberTagIds.length > 0) {
-      await supabase
-        .from('member_tags')
-        .insert(memberTagIds.map((tagId) => ({ member_id: id, tag_id: tagId })))
-    }
+    // NOTE: tags are managed independently (persist instantly via toggleTag /
+    // addQuickTag), so the profile/member Save no longer writes member_tags.
 
     setSaving(false)
     setEditing(false)
+    setRefreshKey((k) => k + 1)
     fetchAll(id)
   }
 
-  function toggleTag(tagId: string) {
-    setMemberTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((i) => i !== tagId) : [...prev, tagId],
-    )
+  // Tags persist immediately (the Tags card is always editable, not gated
+  // behind the Edit form), and bump refreshKey so matches recompute live.
+  async function toggleTag(tagId: string) {
+    if (!id) return
+    const has = memberTagIds.includes(tagId)
+    setMemberTagIds((prev) => (has ? prev.filter((i) => i !== tagId) : [...prev, tagId]))
+    if (has) {
+      await supabase.from('member_tags').delete().eq('member_id', id).eq('tag_id', tagId)
+    } else {
+      await supabase.from('member_tags').insert({ member_id: id, tag_id: tagId })
+    }
+    setRefreshKey((k) => k + 1)
+  }
+
+  async function runAiSuggestions() {
+    setAiLoading(true)
+    setAiRan(true)
+    try {
+      const res = await fetch(`/api/admin/members/${id}/suggest-tags`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        toast({ title: 'AI suggestion failed', description: json.error, variant: 'destructive' })
+        setAiSuggestions([])
+        return
+      }
+      setAiSuggestions(json.suggestions ?? [])
+      if ((json.suggestions ?? []).length === 0 && json.note) {
+        toast({ title: 'No suggestions', description: json.note })
+      }
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  async function addQuickTag() {
+    const name = newTagName.trim()
+    if (!name) return
+    setAddingTag(true)
+    const { data, error } = await supabase
+      .from('tags')
+      .insert({ name, category: newTagCategory as Tag['category'] })
+      .select('*')
+      .single()
+    setAddingTag(false)
+    if (error || !data) {
+      toast({
+        title: 'Could not add tag',
+        description: error?.code === '23505' ? 'That tag already exists.' : error?.message,
+        variant: 'destructive',
+      })
+      return
+    }
+    setAllTags((prev) => [...prev, data as Tag])
+    setMemberTagIds((prev) => [...prev, (data as Tag).id])
+    if (id) await supabase.from('member_tags').insert({ member_id: id, tag_id: (data as Tag).id })
+    setNewTagName('')
+    setRefreshKey((k) => k + 1)
+    toast({ title: 'Tag created', description: `"${name}" added and applied.` })
   }
 
   async function handleCancelMembership() {
@@ -627,7 +701,6 @@ export function MemberDetailPage() {
   }, {})
 
   const tabs = [
-    { key: 'intros' as const, label: 'Introductions', count: intros.length },
     { key: 'events' as const, label: 'Event history', count: bookings.length },
     { key: 'payments' as const, label: 'Payments', count: payments.length },
   ]
@@ -665,9 +738,11 @@ export function MemberDetailPage() {
       : []
 
   const isCancelled = member.membership_status === 'cancelled'
+  const memberFullName =
+    `${member.profiles.first_name ?? ''} ${member.profiles.last_name ?? ''}`.trim() || 'this member'
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl">
+    <div className="p-4 md:p-8 max-w-7xl">
       {/* Back + actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <button
@@ -821,7 +896,8 @@ export function MemberDetailPage() {
                 )}
                 <div className="flex flex-wrap gap-x-6 gap-y-1 mt-4 text-xs text-text-dim">
                   <span>
-                    <span className="text-text-muted">Type:</span> {member.membership_type}
+                    <span className="text-text-muted">Plan:</span>{' '}
+                    {planForTier(member.membership_tier).name}
                   </span>
                   <span>
                     <span className="text-text-muted">Intros:</span> {member.intros_used_this_month}
@@ -875,9 +951,8 @@ export function MemberDetailPage() {
                 rows={2}
                 {...form.register('company_description')}
               />
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <Select label="Type" options={typeOptions} {...form.register('membership_type')} />
-                <Select label="Tier" options={tierOptions} {...form.register('membership_tier')} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select label="Plan" options={PLAN_OPTIONS} {...form.register('membership_tier')} />
                 <Select
                   label="Status"
                   options={statusOptions}
@@ -945,10 +1020,11 @@ export function MemberDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Representatives — business / partner accounts that hold the
-          membership (not themselves a rep under another account). */}
+      {/* Representatives — business accounts (Business + Corporate plans)
+          that hold the membership (not themselves a rep under another
+          account). */}
       {!editing &&
-        (member.membership_type === 'business' || member.membership_type === 'partner') &&
+        member.membership_type === 'business' &&
         !member.parent_member_id && (
           <div className="mb-6">
             <RepsPanel parentMemberId={member.id} companyName={member.company_name} />
@@ -1218,39 +1294,150 @@ export function MemberDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <div className="space-y-3">
-              {(() => {
-                const memberTags = allTags.filter((t) => memberTagIds.includes(t.id))
-                if (memberTags.length === 0) {
-                  return <span className="text-sm text-text-dim">No tags assigned</span>
-                }
-                const grouped: Record<string, Tag[]> = {}
-                for (const tag of memberTags) {
-                  if (!grouped[tag.category]) grouped[tag.category] = []
-                  grouped[tag.category].push(tag)
-                }
-                return CATEGORY_ORDER.filter((cat) => grouped[cat]?.length > 0).map((category) => (
-                  <div key={category}>
-                    <p className="text-xs font-medium text-text-muted mb-1.5">
-                      {CATEGORY_LABELS[category] ?? category} ({grouped[category].length})
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {grouped[category].map((tag) => (
-                        <span
-                          key={tag.id}
-                          className={`px-2.5 py-1 text-xs rounded-full ${CATEGORY_STYLES[category] ?? 'bg-gold-muted text-gold border border-border-gold'}`}
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
+          <div className="space-y-4">
+              {/* AI suggestions — polished panel */}
+              <div className="relative overflow-hidden rounded-[var(--radius-lg)] border border-border-gold bg-gradient-to-br from-gold-muted/70 via-surface to-surface p-4">
+                {/* soft decorative glow */}
+                <div className="pointer-events-none absolute -top-12 -right-10 h-32 w-32 rounded-full bg-gold/10 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-12 -left-8 h-24 w-24 rounded-full bg-gold-light/10 blur-3xl" />
+
+                <div className="relative flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-light to-gold text-white shadow-[0_4px_14px_rgba(184,151,90,0.4)]">
+                      <Sparkles size={16} strokeWidth={1.75} className={cn(aiLoading && 'animate-pulse')} />
+                    </div>
+                    <div>
+                      <p className="font-[family-name:var(--font-label)] text-[10px] font-semibold uppercase tracking-[0.22em] text-gold">
+                        AI Suggestions
+                      </p>
+                      <p className="text-sm font-medium text-text leading-tight">Tags from this profile</p>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Smart picks from their bio, sector &amp; goals — each with a reason.
+                      </p>
                     </div>
                   </div>
-                ))
-              })()}
-            </div>
-          ) : (
-            <div className="space-y-3">
+                  <Button
+                    size="sm"
+                    icon={<Sparkles size={14} />}
+                    onClick={runAiSuggestions}
+                    loading={aiLoading}
+                    className="shrink-0"
+                  >
+                    {aiRan ? 'Refresh' : 'Suggest'}
+                  </Button>
+                </div>
+
+                {/* loading shimmer */}
+                {aiLoading && (
+                  <div className="relative mt-4 space-y-2">
+                    {[0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="h-[52px] rounded-[var(--radius-md)] border border-border bg-surface-2/70 animate-pulse"
+                      />
+                    ))}
+                    <p className="flex items-center gap-1.5 text-xs text-gold mt-1">
+                      <Sparkles size={12} className="animate-pulse" /> Reading the profile…
+                    </p>
+                  </div>
+                )}
+
+                {aiRan && !aiLoading && aiSuggestions.length === 0 && (
+                  <p className="relative mt-3 text-xs text-text-dim italic">
+                    No confident picks yet — add more profile detail, or choose tags below.
+                  </p>
+                )}
+
+                {aiRan && !aiLoading && aiSuggestions.length > 0 && (
+                  <div className="relative mt-4 space-y-2">
+                    {aiSuggestions.map((s) => {
+                      const selected = memberTagIds.includes(s.tag_id)
+                      return (
+                        <div
+                          key={s.tag_id}
+                          className="group flex items-start justify-between gap-3 rounded-[var(--radius-md)] bg-surface border border-border p-3 transition-shadow hover:shadow-[0_6px_18px_rgba(44,40,37,0.07)]"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium text-text">{s.name}</span>
+                              <span
+                                className={cn(
+                                  'px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] rounded-full',
+                                  CATEGORY_STYLES[s.category] ??
+                                    'bg-gold-muted text-gold border border-border-gold',
+                                )}
+                              >
+                                {CATEGORY_LABELS[s.category] ?? s.category}
+                              </span>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">{s.reason}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => !selected && toggleTag(s.tag_id)}
+                            disabled={selected}
+                            className={cn(
+                              'shrink-0 inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border font-medium transition-all',
+                              selected
+                                ? 'bg-gold text-white border-gold cursor-default'
+                                : 'bg-surface text-gold border-border-gold hover:bg-gold hover:text-white hover:shadow-[0_3px_12px_rgba(184,151,90,0.35)]',
+                            )}
+                          >
+                            {selected ? (
+                              <>
+                                <Check size={12} /> Added
+                              </>
+                            ) : (
+                              <>
+                                <Plus size={12} /> Add
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Quick-add a brand-new tag */}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addQuickTag()
+                    }
+                  }}
+                  placeholder="Create a new tag…"
+                  className="flex-1 px-3 py-2 bg-surface text-text text-sm rounded-[var(--radius-md)] border border-border outline-none focus:border-gold"
+                />
+                <div className="sm:w-40">
+                  <Select
+                    options={[
+                      { value: 'industry', label: 'Industry' },
+                      { value: 'interest', label: 'Interest' },
+                      { value: 'need', label: 'Looking For' },
+                      { value: 'service', label: 'Service' },
+                    ]}
+                    value={newTagCategory}
+                    onChange={(e) => setNewTagCategory(e.target.value)}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Plus size={14} />}
+                  onClick={addQuickTag}
+                  loading={addingTag}
+                  disabled={!newTagName.trim()}
+                >
+                  Add
+                </Button>
+              </div>
+
               {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
                 <div key={category}>
                   <p className="text-xs font-medium text-text-muted mb-1.5">
@@ -1279,9 +1466,11 @@ export function MemberDetailPage() {
                 </div>
               ))}
             </div>
-          )}
         </CardContent>
       </Card>
+
+      {/* Suggested introductions (tag-matched) */}
+      <MemberMatchesPanel memberId={id} memberName={memberFullName} refreshKey={refreshKey} />
 
       {/* History tabs */}
       <Card>
@@ -1310,56 +1499,6 @@ export function MemberDetailPage() {
           </div>
         </CardHeader>
         <div className="border-t border-border overflow-x-auto">
-          {activeTab === 'intros' &&
-            (intros.length === 0 ? (
-              <div className="px-6 py-10 text-center text-sm text-text-dim">
-                No introductions yet
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Connected with</TableHead>
-                    <TableHead>Match score</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {intros.map((intro) => (
-                    <TableRow key={intro.id}>
-                      <TableCell className="font-medium">
-                        {`${intro.other_member.profiles.first_name ?? ''} ${intro.other_member.profiles.last_name ?? ''}`.trim() ||
-                          '—'}
-                        {intro.other_member.profiles.company_name && (
-                          <span className="text-text-dim ml-1 font-normal">
-                            ({intro.other_member.profiles.company_name})
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {intro.match_score != null
-                          ? `${Math.round(intro.match_score * 100)}%`
-                          : '—'}
-                      </TableCell>
-                      <TableCell className="text-text-muted max-w-[200px] truncate">
-                        {intro.match_reason || '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={introStatusBadge[intro.status]} dot>
-                          {intro.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-text-muted">
-                        {formatDate(intro.created_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ))}
-
           {activeTab === 'events' &&
             (bookings.length === 0 ? (
               <div className="px-6 py-10 text-center text-sm text-text-dim">

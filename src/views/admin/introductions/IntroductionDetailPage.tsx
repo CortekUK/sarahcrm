@@ -32,6 +32,10 @@ interface IntroDetail {
   event_id: string | null
   member_a_id: string
   member_b_id: string
+  member_a_response: Database['public']['Enums']['intro_response']
+  member_b_response: Database['public']['Enums']['intro_response']
+  member_a_response_note: string | null
+  member_b_response_note: string | null
   member_a: {
     id: string
     company_name: string | null
@@ -59,6 +63,7 @@ const introStatusBadge: Record<IntroStatus, 'active' | 'upcoming' | 'draft' | 'u
   suggested: 'draft',
   approved: 'upcoming',
   sent: 'info',
+  scheduled: 'upcoming',
   accepted: 'active',
   completed: 'active',
   declined: 'urgent',
@@ -75,6 +80,7 @@ const LIFECYCLE_STEPS: { key: IntroStatus; label: string }[] = [
 const STATUS_ORDER: Record<IntroStatus, number> = {
   suggested: 0,
   approved: 1,
+  scheduled: 1,
   sent: 2,
   accepted: 3,
   completed: 4,
@@ -274,6 +280,53 @@ export function IntroductionDetailPage() {
             <div className="mt-4 pt-4 border-t border-border">
               <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Match Reason</p>
               <p className="text-sm text-text">{intro.match_reason}</p>
+            </div>
+          )}
+
+          {/* Member responses (notes are for The Club only) */}
+          {(intro.status === 'sent' ||
+            intro.status === 'accepted' ||
+            intro.status === 'declined' ||
+            intro.status === 'completed') && (
+            <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(
+                [
+                  { m: intro.member_a, resp: intro.member_a_response, note: intro.member_a_response_note },
+                  { m: intro.member_b, resp: intro.member_b_response, note: intro.member_b_response_note },
+                ] as const
+              ).map((side, i) => {
+                const name =
+                  `${side.m?.profiles?.first_name ?? ''} ${side.m?.profiles?.last_name ?? ''}`.trim() ||
+                  'Member'
+                return (
+                  <div key={i} className="rounded-[var(--radius-md)] border border-border bg-surface-2 p-3">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-sm font-medium text-text">{name}</p>
+                      <Badge
+                        variant={
+                          side.resp === 'accepted'
+                            ? 'active'
+                            : side.resp === 'declined'
+                              ? 'urgent'
+                              : 'draft'
+                        }
+                        dot
+                      >
+                        {side.resp === 'accepted'
+                          ? 'Accepted'
+                          : side.resp === 'declined'
+                            ? 'Declined'
+                            : 'Awaiting reply'}
+                      </Badge>
+                    </div>
+                    {side.note ? (
+                      <p className="text-sm text-text-muted italic">“{side.note}”</p>
+                    ) : (
+                      <p className="text-xs text-text-dim">No note left.</p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 

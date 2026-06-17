@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { toast } from '@/lib/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { PLAN_OPTIONS } from '@/lib/membership/plans'
 import type { Database } from '@/types/database'
 
 type Tag = Database['public']['Tables']['tags']['Row']
@@ -25,7 +26,8 @@ const addMemberSchema = z.object({
   company_description: z.string().optional(),
   company_website: z.string().optional(),
   job_title: z.string().optional(),
-  membership_type: z.enum(['individual', 'business']),
+  // The plan IS the tier — a single choice. membership_type is derived
+  // server-side from the tier, so it isn't part of this form.
   membership_tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
   status: z.enum(['active', 'pending']),
   send_invite: z.boolean(),
@@ -40,15 +42,6 @@ interface AddMemberModalProps {
   onSuccess: () => void
 }
 
-const typeOptions = [
-  { value: 'individual', label: 'Individual' },
-  { value: 'business', label: 'Business' },
-]
-const tierOptions = [
-  { value: 'tier_1', label: 'Tier 1' },
-  { value: 'tier_2', label: 'Tier 2' },
-  { value: 'tier_3', label: 'Tier 3' },
-]
 const statusOptions = [
   { value: 'pending', label: 'Pending — awaiting them' },
   { value: 'active', label: 'Active — portal access immediately' },
@@ -74,7 +67,6 @@ export function AddMemberModal({ open, onClose, onSuccess }: AddMemberModalProps
   } = useForm<AddMemberFormData>({
     resolver: zodResolver(addMemberSchema),
     defaultValues: {
-      membership_type: 'individual',
       membership_tier: 'tier_1',
       status: 'pending',
       send_invite: true,
@@ -201,9 +193,8 @@ export function AddMemberModal({ open, onClose, onSuccess }: AddMemberModalProps
           <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-3">
             Membership
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Select label="Type" options={typeOptions} {...register('membership_type')} />
-            <Select label="Tier" options={tierOptions} {...register('membership_tier')} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select label="Plan" options={PLAN_OPTIONS} {...register('membership_tier')} />
             <Select label="Status" options={statusOptions} {...register('status')} />
           </div>
           <label className="mt-3 flex items-center gap-3 cursor-pointer">

@@ -7,9 +7,11 @@ import {
   endOfMonth,
   endOfWeek,
   format,
+  isBefore,
   isSameDay,
   isSameMonth,
   parse,
+  startOfDay,
   startOfMonth,
   startOfWeek,
 } from 'date-fns'
@@ -22,10 +24,11 @@ import { cn } from '@/lib/utils'
 // format the event form already reads), or '' when empty.
 
 const VALUE_FORMAT = "yyyy-MM-dd'T'HH:mm"
+const DATE_FORMAT = 'yyyy-MM-dd'
 
-function parseValue(value: string | undefined | null): Date | null {
+function parseValue(value: string | undefined | null, fmt: string): Date | null {
   if (!value) return null
-  const d = parse(value, VALUE_FORMAT, new Date())
+  const d = parse(value, fmt, new Date())
   return isNaN(d.getTime()) ? null : d
 }
 
@@ -39,7 +42,9 @@ export function DateTimeField({
   onChange,
   error,
   hint,
-  placeholder = 'Select date & time',
+  placeholder,
+  dateOnly = false,
+  min,
 }: {
   label?: string
   value: string
@@ -47,9 +52,18 @@ export function DateTimeField({
   error?: string
   hint?: string
   placeholder?: string
+  // Date-only mode: no time row, value is "yyyy-MM-dd", picking a day closes.
+  dateOnly?: boolean
+  // Disable days before this date.
+  min?: Date
 }) {
-  const selected = useMemo(() => parseValue(value), [value])
+  const fmt = dateOnly ? DATE_FORMAT : VALUE_FORMAT
+  const ph = placeholder ?? (dateOnly ? 'Select date' : 'Select date & time')
+  const minDay = useMemo(() => (min ? startOfDay(min) : null), [min])
+  const selected = useMemo(() => parseValue(value, fmt), [value, fmt])
   const [open, setOpen] = useState(false)
+  // Flip the popover above the field when there isn't room below it.
+  const [dropUp, setDropUp] = useState(false)
   // The month currently shown in the calendar grid.
   const [viewMonth, setViewMonth] = useState<Date>(selected ?? new Date())
   const ref = useRef<HTMLDivElement>(null)
@@ -80,10 +94,16 @@ export function DateTimeField({
   const minute = selected ? Math.round(selected.getMinutes() / 5) * 5 : 0
 
   function emit(next: Date) {
-    onChange(format(next, VALUE_FORMAT))
+    onChange(format(next, fmt))
   }
 
   function pickDay(day: Date) {
+    if (minDay && isBefore(startOfDay(day), minDay)) return
+    if (dateOnly) {
+      emit(startOfDay(day))
+      setOpen(false)
+      return
+    }
     const base = selected ?? new Date()
     const next = new Date(day)
     next.setHours(selected ? base.getHours() : 9, selected ? base.getMinutes() : 0, 0, 0)
@@ -114,7 +134,16 @@ export function DateTimeField({
       )}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => {
+            if (!v && ref.current) {
+              const rect = ref.current.getBoundingClientRect()
+              // ~360px popover; open upward if not enough space below.
+              setDropUp(window.innerHeight - rect.bottom < 360)
+            }
+            return !v
+          })
+        }}
         className={cn(
           'w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-surface text-sm rounded-[var(--radius-md)] border text-left transition-colors',
           error ? 'border-accent-warm' : 'border-border hover:border-border-hover',
@@ -123,7 +152,7 @@ export function DateTimeField({
       >
         <Calendar size={15} className="shrink-0 text-gold" />
         <span className={cn('flex-1 truncate', selected ? 'text-text' : 'text-text-dim')}>
-          {selected ? format(selected, 'EEE d MMM yyyy · HH:mm') : placeholder}
+          {selected ? format(selected, dateOnly ? 'EEE d MMM yyyy' : 'EEE d MMM yyyy · HH:mm') : ph}
         </span>
         {selected && (
           <span
@@ -146,7 +175,10 @@ export function DateTimeField({
 
       {open && (
         <div
-          className="absolute z-50 mt-2 w-[300px] rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-lg)] p-3.5"
+          className={cn(
+            'absolute z-50 w-[300px] rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-lg)] p-3.5',
+            dropUp ? 'bottom-full mb-2' : 'top-full mt-2',
+          )}
           style={{ background: 'var(--color-surface)' }}
         >
           {/* Month header */}
@@ -190,19 +222,23 @@ export function DateTimeField({
               const isSelected = selected && isSameDay(day, selected)
               const inMonth = isSameMonth(day, viewMonth)
               const isToday = isSameDay(day, today)
+              const disabled = minDay ? isBefore(startOfDay(day), minDay) : false
               return (
                 <button
                   key={day.toISOString()}
                   type="button"
+                  disabled={disabled}
                   onClick={() => pickDay(day)}
                   className={cn(
                     'h-8 rounded-[var(--radius-md)] text-[12.5px] transition-colors',
-                    isSelected
-                      ? 'bg-gold text-white font-medium'
-                      : inMonth
-                        ? 'text-text hover:bg-gold-muted'
-                        : 'text-text-dim/60 hover:bg-surface-2',
-                    !isSelected && isToday && 'ring-1 ring-gold/50',
+                    disabled
+                      ? 'text-text-dim/30 cursor-not-allowed'
+                      : isSelected
+                        ? 'bg-gold text-white font-medium'
+                        : inMonth
+                          ? 'text-text hover:bg-gold-muted'
+                          : 'text-text-dim/60 hover:bg-surface-2',
+                    !isSelected && isToday && !disabled && 'ring-1 ring-gold/50',
                   )}
                 >
                   {format(day, 'd')}
@@ -212,6 +248,7 @@ export function DateTimeField({
           </div>
 
           {/* Time row */}
+          {!dateOnly && (
           <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
             <Clock size={14} className="text-gold shrink-0" />
             <select
@@ -245,6 +282,7 @@ export function DateTimeField({
               Done
             </button>
           </div>
+          )}
         </div>
       )}
     </div>

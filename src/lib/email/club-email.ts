@@ -7,6 +7,8 @@ interface ClubEmailParts {
   heading: string
   paragraphs: string[]
   cta?: { label: string; url: string }
+  // Where the CTA button sits: after this many paragraphs. Omit = after all.
+  ctaAfterIndex?: number
   signoff?: string
 }
 
@@ -18,17 +20,23 @@ export function renderClubEmail(parts: ClubEmailParts): string {
   const eyebrow = parts.eyebrow
     ? `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#B8975A;font-weight:600;">${parts.eyebrow}</p>`
     : ''
-  const body = parts.paragraphs
-    .map(
-      (p) =>
-        `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:15px;line-height:1.7;color:#3A3530;">${p}</p>`,
-    )
-    .join('')
+  const paraHtml = parts.paragraphs.map(
+    (p) =>
+      `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:15px;line-height:1.7;color:#3A3530;">${p}</p>`,
+  )
   const cta = parts.cta
     ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 6px 0;"><tr><td style="background:#B8975A;border-radius:999px;">
          <a href="${parts.cta.url}" style="display:inline-block;padding:13px 30px;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#FFFFFF;text-decoration:none;font-weight:600;">${parts.cta.label}</a>
        </td></tr></table>`
     : ''
+  // Place the CTA after `ctaAfterIndex` paragraphs, or after all of them.
+  const body =
+    parts.cta && typeof parts.ctaAfterIndex === 'number'
+      ? (() => {
+          const idx = Math.max(0, Math.min(parts.ctaAfterIndex, paraHtml.length))
+          return [...paraHtml.slice(0, idx), cta, ...paraHtml.slice(idx)].join('')
+        })()
+      : paraHtml.join('') + cta
   const signoff = parts.signoff ?? 'Sarah Restrick &amp; the team'
   return `
 <!DOCTYPE html>
@@ -49,7 +57,6 @@ export function renderClubEmail(parts: ClubEmailParts): string {
           ${eyebrow}
           <h1 style="margin:0 0 22px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:#2C2825;font-weight:500;letter-spacing:-0.01em;">${parts.heading}</h1>
           ${body}
-          ${cta}
         </td></tr>
         <tr><td style="padding:22px 40px 40px 40px;">
           <p style="margin:0 0 6px 0;font-style:italic;font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#6B6560;">With warmth,</p>
