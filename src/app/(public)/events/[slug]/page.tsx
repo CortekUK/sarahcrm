@@ -7,7 +7,7 @@ import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { BookingWidget } from '@/components/website/night/events/BookingWidget'
-import { ArrowLeft, Calendar, Clock, MapPin, Tag, Users } from 'lucide-react'
+import { ArrowLeft, Calendar, Clock, MapPin, Plane, Tag, Users } from 'lucide-react'
 
 export const revalidate = 60
 
@@ -25,6 +25,13 @@ interface AgendaItem {
   time?: string
   title?: string
   description?: string
+}
+
+interface Speaker {
+  name?: string
+  title?: string
+  company?: string
+  bio?: string
 }
 
 function parseJsonArray<T>(value: unknown): T[] {
@@ -110,6 +117,7 @@ export default async function EventDetailPage({
 
   const isPast = new Date(event.start_date) < new Date()
   const agenda = parseJsonArray<AgendaItem>(event.agenda)
+  const speakers = parseJsonArray<Speaker>(event.speakers).filter((s) => s.name)
 
   return (
     <>
@@ -247,6 +255,9 @@ export default async function EventDetailPage({
                       value={`${event.capacity} seats`}
                     />
                   )}
+                  {event.travel_included && (
+                    <Detail icon={Plane} label="Travel" value="Included" />
+                  )}
                   {/* Price spans both columns at the bottom — the
                      "Complimentary Members · £X + VAT Guests" line is
                      too long for a single column. */}
@@ -299,6 +310,36 @@ export default async function EventDetailPage({
                       </li>
                     ))}
                   </ol>
+                </div>
+              </Reveal>
+            )}
+
+            {/* Speakers — also shown to members in the portal */}
+            {speakers.length > 0 && (
+              <Reveal type="up" delay={350}>
+                <div>
+                  <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
+                    In the Room
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-9 border-t border-graphite-line/50 pt-8">
+                    {speakers.map((speaker, i) => (
+                      <div key={i}>
+                        <p className="font-[family-name:var(--font-display)] text-[clamp(1.25rem,1.6vw,1.5rem)] text-ivory leading-tight">
+                          {speaker.name}
+                        </p>
+                        {(speaker.title || speaker.company) && (
+                          <p className="mt-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light">
+                            {[speaker.title, speaker.company].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                        {speaker.bio && (
+                          <p className="mt-4 font-[family-name:var(--font-editorial)] italic text-[15px] leading-[1.7] text-ivory-soft">
+                            {speaker.bio}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </Reveal>
             )}

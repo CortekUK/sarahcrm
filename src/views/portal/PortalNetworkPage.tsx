@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/providers/AuthProvider'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 import { CalendarDays, Handshake, Search, Users } from 'lucide-react'
@@ -57,6 +58,7 @@ interface ProfileData {
 }
 
 export function PortalNetworkPage() {
+  const { profile } = useAuth()
   const [members, setMembers] = useState<NetworkMember[]>([])
   const [allIndustryTags, setAllIndustryTags] = useState<string[]>([])
   const [allNeedTags, setAllNeedTags] = useState<string[]>([])
@@ -74,15 +76,22 @@ export function PortalNetworkPage() {
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    fetchNetwork()
-  }, [])
+    if (profile?.id) fetchNetwork(profile.id)
+  }, [profile?.id])
 
-  async function fetchNetwork() {
+  async function fetchNetwork(viewerProfileId: string) {
+    // Privacy: only members who opted into the showcase are listed
+    // (matches the dashboard "Recently joined" behaviour). The viewer
+    // can always browse others regardless of their own flag — we never
+    // gate the viewer on their own showcase_enabled. We also exclude the
+    // viewer's own card so they can't request an introduction to self.
     const { data: membersData } = await supabase
       .from('members')
       .select('id, company_name, profiles(first_name, last_name, avatar_url, job_title)')
       .eq('membership_status', 'active')
       .is('deleted_at', null)
+      .eq('showcase_enabled', true)
+      .neq('profile_id', viewerProfileId)
       .order('created_at', { ascending: true })
 
     if (!membersData) {

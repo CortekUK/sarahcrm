@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     const { data: event } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, member_price_pence, guest_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm, bookings(count)',
+        'id, slug, title, status, start_date, member_price_pence, guest_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm',
       )
       .eq('id', body.event_id)
       .single()
@@ -75,9 +75,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Capacity + existing-booking guards.
-    const bookingCount = (event.bookings as unknown as { count: number }[])?.[0]?.count ?? 0
-    if (event.capacity && bookingCount >= event.capacity) {
-      return NextResponse.json({ error: 'This event is fully booked.' }, { status: 400 })
+    // "Taken" = bookings with status confirmed/pending (cancelled and
+    // refunded free their seat up). Same rule lives in /api/events/checkout.
+    if (event.capacity != null) {
+      const { count: takenCount } = await admin
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', event.id)
+        .in('status', ['confirmed', 'pending'])
+      if ((takenCount ?? 0) >= event.capacity) {
+        return NextResponse.json({ error: 'This event is fully booked.' }, { status: 400 })
+      }
     }
     const { data: existing } = await admin
       .from('bookings')

@@ -171,6 +171,16 @@ const HEADCOUNT = ['1', '2 – 10', '11 – 50', '51 – 250', '251 – 1,000', 
 // seeking investment are routed to PITCH rather than standard membership.
 const STAGES = ['Established business', 'Early-stage, seeking investment'] as const
 
+// "How did you hear about us?" — populates members.source on approval.
+const REFERRAL_SOURCES = [
+  'Referral from a member',
+  'Online search',
+  'Social media',
+  'Press',
+  'Event',
+  'Other',
+] as const
+
 // Plan card shape used by the picker UI. Built from the DB-driven
 // `membership_plans` rows below; the FALLBACK_TIERS array kicks in when
 // the table is empty / unreachable so the form is never blank.
@@ -282,6 +292,7 @@ const schema = z.object({
   work_email: z.string().email('Please enter a valid work email').optional().or(z.literal('')),
   annual_turnover: z.string().optional(),
   employees: z.string().optional(),
+  referral_source: z.string().optional(),
   referral_name: z.string().optional(),
   // Due-diligence / introduction strategy (Spec §2/§3). Optional so they
   // never block submission, but they're the key matchmaking inputs.
@@ -313,7 +324,6 @@ const FIELDS_BY_STEP: (keyof FormData)[][] = [
 
 export default function MembershipApplicationPage() {
   const [step, setStep] = useState(0)
-  const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const formScrollRef = useRef<HTMLDivElement>(null)
   // Pending-charge card capture. When the applicant reaches the final
@@ -624,12 +634,10 @@ export default function MembershipApplicationPage() {
         <Aurora variant="soft" />
 
         <div ref={formScrollRef} className="relative z-10 max-w-6xl mx-auto">
-          {submitted ? (
-            <SuccessPanel />
-          ) : (
-            <>
-              {/* Diamond step indicator with inline glowing progress line */}
-              <StepIndicator step={step} />
+          {/* Submission never lands here — confirmSetup redirects to
+              /membership-application/success — so the form is always shown. */}
+          {/* Diamond step indicator with inline glowing progress line */}
+          <StepIndicator step={step} />
 
               {/* Step head — title + italic descriptor, centred. */}
               <div key={`head-${step}`} className="text-center mb-14">
@@ -773,8 +781,6 @@ export default function MembershipApplicationPage() {
                   ) : null}
                 </div>
               </form>
-            </>
-          )}
         </div>
       </Chapter>
     </>
@@ -1410,6 +1416,18 @@ function BusinessStep({
           placeholder="Products, services, investment, partnerships, mentoring, sponsorship…"
           {...register('what_they_can_offer')}
         />
+        <Controller
+          name="referral_source"
+          control={control}
+          render={({ field }) => (
+            <EditorialSelect
+              label="How did you hear about us? (optional)"
+              options={REFERRAL_SOURCES as unknown as string[]}
+              value={field.value ?? ''}
+              onChange={field.onChange}
+            />
+          )}
+        />
         <Field
           label="Member who can recommend you (optional)"
           placeholder="If you know an existing Member, add their name"
@@ -1658,33 +1676,6 @@ function PaymentStep({
       {error && (
         <p className="mt-6 text-[12px] text-bronze-light italic text-center">{error}</p>
       )}
-    </Reveal>
-  )
-}
-
-// ─── Success Panel ───────────────────────────────────────────────────
-
-function SuccessPanel() {
-  return (
-    <Reveal type="up" delay={0}>
-      <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16 text-center day:bg-white day:shadow-lg">
-        <div className="w-16 h-16 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-7">
-          <Check size={28} strokeWidth={1.5} className="text-bronze-light" />
-        </div>
-        <p className="eyebrow mb-6">Received with thanks</p>
-        <h2 className="display-md mb-6">Your application has reached us.</h2>
-        <p className="body-prose max-w-md mx-auto">
-          The team will review it personally. If your application reads, we&apos;ll write back to
-          arrange a short conversation — usually within seven days.
-        </p>
-        <Link
-          href="/"
-          className="mt-10 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
-        >
-          Return to the homepage
-          <ArrowUpRight size={13} strokeWidth={1.5} />
-        </Link>
-      </div>
     </Reveal>
   )
 }

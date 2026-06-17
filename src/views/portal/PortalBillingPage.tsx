@@ -29,6 +29,9 @@ interface MemberBilling {
   renewal_date: string | null
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+  // Set when this row is a rep under an organisation's primary account.
+  // Reps don't carry their own Stripe fields — billing is the parent's.
+  parent_member_id: string | null
 }
 
 // What we show in the Subscription card. Resolved from the matched
@@ -84,7 +87,7 @@ export function PortalBillingPage() {
     const { data: memberData } = await supabase
       .from('members')
       .select(
-        'id, membership_tier, membership_type, membership_status, renewal_date, stripe_customer_id, stripe_subscription_id',
+        'id, membership_tier, membership_type, membership_status, renewal_date, stripe_customer_id, stripe_subscription_id, parent_member_id',
       )
       .eq('profile_id', profileId)
       .single()
@@ -262,6 +265,15 @@ export function PortalBillingPage() {
   }
 
   const hasSubscription = !!member.stripe_subscription_id
+  // Reps sit under an organisation's primary account — the parent pays,
+  // so reps must not see subscribe / manage-billing controls (those would
+  // create or alter a duplicate subscription for an already-paid account).
+  const isRep = !!member.parent_member_id
+  // Members are charged net + 20% VAT (stored quoted_amount_pence = net*1.2).
+  // The plan tables hold the NET price, so we gross it up for display.
+  const planAmountInclVat = planDisplay
+    ? Math.round(planDisplay.amount_pence * 1.2)
+    : null
 
   return (
     <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
@@ -321,10 +333,15 @@ export function PortalBillingPage() {
               {planDisplay?.cadence === 'annual' ? 'Annually' : 'Monthly'}
             </dt>
             <dd className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight tabular-nums">
-              {planDisplay ? formatCurrency(planDisplay.amount_pence) : '—'}
+              {planAmountInclVat != null ? formatCurrency(planAmountInclVat) : '—'}
               <span className="text-slate-haze font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] ml-1">
                 / {planDisplay?.cadence === 'annual' ? 'year' : 'month'}
               </span>
+              {planAmountInclVat != null && (
+                <span className="block mt-0.5 text-slate-haze font-[family-name:var(--font-meta)] text-[9px] uppercase tracking-[0.22em] normal-case">
+                  incl. VAT
+                </span>
+              )}
             </dd>
           </div>
           <div>
@@ -337,26 +354,33 @@ export function PortalBillingPage() {
           </div>
         </dl>
 
-        <div className="mt-7 flex gap-3">
-          {hasSubscription ? (
-            <PortalButton
-              variant="secondary"
-              icon={<ExternalLink size={13} strokeWidth={1.5} />}
-              loading={actionLoading === 'portal'}
-              onClick={handleManageBilling}
-            >
-              Manage billing
-            </PortalButton>
-          ) : (
-            <PortalButton
-              icon={<CreditCard size={13} strokeWidth={1.5} />}
-              loading={actionLoading === 'subscribe'}
-              onClick={handleSetupSubscription}
-            >
-              Set up subscription
-            </PortalButton>
-          )}
-        </div>
+        {isRep ? (
+          <p className="mt-7 font-[family-name:var(--font-editorial)] italic text-[13.5px] leading-[1.7] text-ivory-soft/85">
+            Billing for your membership is handled by your organisation&apos;s
+            primary account.
+          </p>
+        ) : (
+          <div className="mt-7 flex gap-3">
+            {hasSubscription ? (
+              <PortalButton
+                variant="secondary"
+                icon={<ExternalLink size={13} strokeWidth={1.5} />}
+                loading={actionLoading === 'portal'}
+                onClick={handleManageBilling}
+              >
+                Manage billing
+              </PortalButton>
+            ) : (
+              <PortalButton
+                icon={<CreditCard size={13} strokeWidth={1.5} />}
+                loading={actionLoading === 'subscribe'}
+                onClick={handleSetupSubscription}
+              >
+                Set up subscription
+              </PortalButton>
+            )}
+          </div>
+        )}
       </PortalCard>
 
       {/* Payment history */}

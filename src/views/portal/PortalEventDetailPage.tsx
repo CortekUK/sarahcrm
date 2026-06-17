@@ -104,6 +104,14 @@ export function PortalEventDetailPage() {
       setLoading(false)
       return
     }
+    // Status gate: the fetch above has no status filter, so a direct link
+    // could otherwise open a draft/cancelled event. Only published / live /
+    // completed events are visible to members — anything else 404s.
+    if (!['published', 'live', 'completed'].includes(eventResult.data.status)) {
+      setError('Event not found')
+      setLoading(false)
+      return
+    }
     setEvent(eventResult.data as unknown as EventWithCount)
 
     if (memberResult.data) {
@@ -163,16 +171,21 @@ export function PortalEventDetailPage() {
   }
 
   async function handleBookComplimentary() {
-    if (!memberId) return
+    if (!memberId || !event) return
     setBooking(true)
     setError(null)
     try {
+      // Honour the event's auto_confirm: when it's off, the booking must go
+      // through admin approval (pending) just like the paid hold flow —
+      // otherwise it confirms immediately. (No charge either way; this is a
+      // £0 ticket.)
+      const status: BookingStatus = event.auto_confirm === false ? 'pending' : 'confirmed'
       const { data: newBooking, error: bookingError } = await supabase
         .from('bookings')
         .insert({
           event_id: id!,
           member_id: memberId,
-          status: 'confirmed',
+          status,
           amount_pence: 0,
         })
         .select('id')

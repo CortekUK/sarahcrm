@@ -1707,6 +1707,42 @@ export type Database = {
         }
         Relationships: []
       }
+      membership_comparison: {
+        Row: {
+          business: boolean
+          corporate: boolean
+          created_at: string | null
+          display_order: number
+          id: string
+          individual: boolean
+          is_active: boolean
+          label: string
+          updated_at: string | null
+        }
+        Insert: {
+          business?: boolean
+          corporate?: boolean
+          created_at?: string | null
+          display_order?: number
+          id?: string
+          individual?: boolean
+          is_active?: boolean
+          label: string
+          updated_at?: string | null
+        }
+        Update: {
+          business?: boolean
+          corporate?: boolean
+          created_at?: string | null
+          display_order?: number
+          id?: string
+          individual?: boolean
+          is_active?: boolean
+          label?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       membership_benefits: {
         Row: {
           body: string

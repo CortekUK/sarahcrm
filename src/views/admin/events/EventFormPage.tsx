@@ -584,7 +584,7 @@ export function EventFormPage() {
             <div>
               <CardTitle>Speakers</CardTitle>
               <p className="text-[11.5px] text-text-dim mt-1">
-                Internal reference for the team — not currently rendered on the public site.
+                Shown to members on the event page in the portal.
               </p>
             </div>
             <Button

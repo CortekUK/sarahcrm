@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
       work_email: (body.work_email as string) || null,
       annual_turnover: (body.annual_turnover as string) || null,
       employees: (body.employees as string) || null,
+      referral_source: (body.referral_source as string) || null,
       referral_name: (body.referral_name as string) || null,
       applicant_stage: (body.applicant_stage as string) || null,
       looking_for: (body.looking_for as string) || null,
