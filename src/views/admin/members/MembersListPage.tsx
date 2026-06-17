@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Avatar } from '@/components/ui/Avatar'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import {
   Table,
   TableHeader,
@@ -325,17 +326,34 @@ export function MembersListPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4">
-        <div className="relative flex-1 md:max-w-sm">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, company, role…"
-            className="pl-9"
-          />
+      <div className="space-y-3 mb-5">
+        {/* Row 1 — search + tag filter share a line, aligned heights */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="relative flex-1 sm:max-w-sm">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim z-10" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, email, company, role…"
+              className="pl-9"
+            />
+          </div>
+          {tags.length > 0 && (
+            <div className="sm:w-56 shrink-0">
+              <Select
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                options={[
+                  { value: 'all', label: 'All tags' },
+                  ...tags.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+              />
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
+
+        {/* Row 2 — status + tier pills, wrap instead of overflowing */}
+        <div className="flex flex-wrap items-center gap-1.5">
           {STATUS_OPTIONS.map((opt) => {
             const count =
               opt.value === 'all'
@@ -357,8 +375,9 @@ export function MembersListPage() {
               </button>
             )
           })}
-        </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
+
+          <span className="mx-1 hidden sm:block h-5 w-px bg-border self-center" aria-hidden />
+
           {TIER_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -374,23 +393,6 @@ export function MembersListPage() {
             </button>
           ))}
         </div>
-        {tags.length > 0 && (
-          <select
-            value={tagFilter}
-            onChange={(e) => setTagFilter(e.target.value)}
-            className={cn(
-              'px-3 py-1.5 text-xs rounded-full border transition-colors bg-[var(--color-surface)] text-text-muted border-border hover:border-border-hover cursor-pointer',
-              tagFilter !== 'all' && 'bg-gold text-white border-gold',
-            )}
-          >
-            <option value="all">All tags</option>
-            {tags.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
       {filtered.length === 0 ? (
