@@ -175,6 +175,7 @@ const editSchema = z.object({
   // The plan IS the tier; membership_type is derived from it on save.
   membership_tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
   membership_status: z.enum(['active', 'pending', 'expired', 'cancelled', 'paused']),
+  showcase_enabled: z.boolean(),
   notes: z.string().optional(),
   // ── Relationship intelligence (Spec §4) — curated high-value fields ──
   sector: z.string().optional(),
@@ -457,6 +458,7 @@ export function MemberDetailPage() {
       company_website: member.company_website ?? '',
       membership_tier: member.membership_tier,
       membership_status: member.membership_status,
+      showcase_enabled: member.showcase_enabled,
       notes: member.notes ?? '',
       // Relationship intelligence
       sector: member.sector ?? '',
@@ -514,6 +516,7 @@ export function MemberDetailPage() {
         membership_tier: data.membership_tier,
         ...quotaUpdate,
         membership_status: data.membership_status,
+        showcase_enabled: data.showcase_enabled,
         company_name: data.company_name || null,
         company_description: data.company_description || null,
         company_website: data.company_website || null,
@@ -903,6 +906,10 @@ export function MemberDetailPage() {
                     <span className="text-text-muted">Intros:</span> {member.intros_used_this_month}
                     /{member.monthly_intro_quota}
                   </span>
+                  <span>
+                    <span className="text-text-muted">Directory:</span>{' '}
+                    {member.showcase_enabled ? 'Visible' : 'Hidden'}
+                  </span>
                   {member.membership_start_date && (
                     <span>
                       <span className="text-text-muted">Joined:</span>{' '}
@@ -959,6 +966,19 @@ export function MemberDetailPage() {
                   {...form.register('membership_status')}
                 />
               </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border-border text-gold accent-gold"
+                  {...form.register('showcase_enabled')}
+                />
+                <span className="text-sm text-text">
+                  Show in member directory
+                  <span className="text-text-dim font-normal ml-1">
+                    (visible to other members in the portal Network)
+                  </span>
+                </span>
+              </label>
               <Textarea label="Notes" rows={2} {...form.register('notes')} />
             </div>
           )}

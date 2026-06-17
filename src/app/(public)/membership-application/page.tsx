@@ -107,6 +107,12 @@ const STEPS = [
     title: 'Annual or monthly.',
     note: "How you'd like to honour the contract — the team will confirm by email.",
   },
+  {
+    n: 'IX',
+    label: 'Payment Details',
+    title: 'Your card.',
+    note: 'Saved securely — nothing is charged until your application is approved.',
+  },
 ] as const
 
 const LOCATIONS = [
@@ -320,6 +326,7 @@ const FIELDS_BY_STEP: (keyof FormData)[][] = [
   ['company', 'industry', 'position'],
   ['preferred_tier'],
   ['payment_preference'],
+  [], // payment details — card handled by Stripe Elements, no RHF fields
 ]
 
 export default function MembershipApplicationPage() {
@@ -534,7 +541,9 @@ export default function MembershipApplicationPage() {
   // cadence updates the same row instead of creating duplicates.
   async function createSetup() {
     setError(null)
-    const valid = await trigger(FIELDS_BY_STEP[STEPS.length - 1])
+    // Validate the cadence choice (the Select Payment step) — the final
+    // card step has no RHF fields of its own.
+    const valid = await trigger(['payment_preference'])
     if (!valid) return
     setSettingUp(true)
     try {
@@ -554,6 +563,11 @@ export default function MembershipApplicationPage() {
       }
       setApplicationId(json.applicationId)
       setClientSecret(json.clientSecret)
+      // Advance to the dedicated card page (final step) — the card field
+      // now lives on its own screen rather than stacked under the cadence
+      // choice.
+      setStep(STEPS.length - 1)
+      scrollToFormTop()
     } catch (err) {
       console.error(err)
       setError('Something went wrong. Please try again, or email us directly.')
@@ -726,10 +740,11 @@ export default function MembershipApplicationPage() {
                       )}
                     />
                   )}
-                  {/* Card capture — appears once "Continue to payment" has
-                      created the SetupIntent. Saves the card without
+                  {/* Card capture — its own final page (step IX). Reached
+                      after "Continue to payment" creates the SetupIntent on
+                      the Select Payment step. Saves the card without
                       charging; charge happens only on approval. */}
-                  {step === 7 && clientSecret && applicationId && (
+                  {step === STEPS.length - 1 && clientSecret && applicationId && (
                     <CardStep
                       clientSecret={clientSecret}
                       applicationId={applicationId}
@@ -759,7 +774,7 @@ export default function MembershipApplicationPage() {
                     )}
                   </div>
 
-                  {step < STEPS.length - 1 ? (
+                  {step < STEPS.length - 2 ? (
                     <PremiumPillButton
                       type="button"
                       onClick={next}
@@ -767,10 +782,13 @@ export default function MembershipApplicationPage() {
                     >
                       {checkingEmail ? 'Checking…' : 'Continue'}
                     </PremiumPillButton>
-                  ) : !clientSecret ? (
-                    // Final step, before the card panel: create the
-                    // SetupIntent. Once it exists, CardStep renders its own
-                    // "Submit application" button, so this slot goes quiet.
+                  ) : step === STEPS.length - 2 || !clientSecret ? (
+                    // Select Payment step (always), or the card page if it
+                    // was somehow reached without a SetupIntent: create the
+                    // SetupIntent, then advance to the dedicated card page
+                    // (handled in createSetup). Idempotent on the application
+                    // id. Once the secret exists, the card page shows
+                    // CardStep's own "Submit application" button instead.
                     <PremiumPillButton
                       type="button"
                       onClick={createSetup}
@@ -779,6 +797,8 @@ export default function MembershipApplicationPage() {
                       {settingUp ? 'Preparing…' : 'Continue to payment'}
                     </PremiumPillButton>
                   ) : null}
+                  {/* Final card page (step IX) with a secret has no footer
+                      CTA — CardStep renders its own "Submit application". */}
                 </div>
               </form>
         </div>
