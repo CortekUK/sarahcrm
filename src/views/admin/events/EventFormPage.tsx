@@ -73,7 +73,6 @@ const eventSchema = z.object({
   guest_ticket_capacity: z.coerce.number().int().min(0).optional().or(z.literal(0)),
   member_price: z.coerce.number().min(0),
   guest_price: z.coerce.number().min(0),
-  sponsor_price: z.coerce.number().min(0),
   travel_included: z.boolean(),
   accommodation_available: z.boolean(),
   accommodation_price: z.coerce.number().min(0),
@@ -109,7 +108,6 @@ export function EventFormPage() {
       event_type: 'member_event',
       member_price: 0,
       guest_price: 0,
-      sponsor_price: 0,
       accommodation_price: 0,
       travel_included: false,
       accommodation_available: false,
@@ -160,7 +158,6 @@ export function EventFormPage() {
               guest_ticket_capacity: data.guest_ticket_capacity ?? 0,
               member_price: data.member_price_pence / 100,
               guest_price: data.guest_price_pence / 100,
-              sponsor_price: data.sponsor_price_pence / 100,
               travel_included: data.travel_included,
               accommodation_available: data.accommodation_available,
               accommodation_price: (data.accommodation_price_pence ?? 0) / 100,
@@ -199,7 +196,6 @@ export function EventFormPage() {
       guest_ticket_capacity: data.guest_ticket_capacity ? Number(data.guest_ticket_capacity) : 0,
       member_price_pence: Math.round(data.member_price * 100),
       guest_price_pence: Math.round(data.guest_price * 100),
-      sponsor_price_pence: Math.round(data.sponsor_price * 100),
       travel_included: data.travel_included,
       accommodation_available: data.accommodation_available,
       accommodation_price_pence: Math.round(data.accommodation_price * 100),
@@ -420,7 +416,7 @@ export function EventFormPage() {
                 {...form.register('guest_ticket_capacity')}
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
               <Input
                 label="Member price"
                 type="number"
@@ -437,15 +433,12 @@ export function EventFormPage() {
                 hint="0 → “Complimentary” for guests."
                 {...form.register('guest_price', { valueAsNumber: true })}
               />
-              <Input
-                label="Sponsor price"
-                type="number"
-                step="0.01"
-                prefix="£"
-                hint="Internal — not shown on the public site."
-                {...form.register('sponsor_price', { valueAsNumber: true })}
-              />
             </div>
+            <p className="mt-3 text-[11.5px] text-text-dim">
+              Sponsor ticket prices are set per sponsor in the{' '}
+              <span className="text-text-muted">Sponsors</span> section after you save the event —
+              each sponsor gets their own reserved rate and booking link.
+            </p>
           </CardContent>
         </Card>
 

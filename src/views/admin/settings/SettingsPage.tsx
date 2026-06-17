@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
 import { planForSlug } from '@/lib/membership/plans'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -17,7 +18,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { Avatar } from '@/components/ui/Avatar'
-import { Building2, CreditCard, Landmark, Mail, UserPlus } from 'lucide-react'
+import { Building2, CreditCard, Landmark, Mail, SlidersHorizontal, UserPlus } from 'lucide-react'
 import { TagsManager } from './TagsManager'
 import { AutomationTimeSettings } from './AutomationTimeSettings'
 
@@ -194,8 +195,13 @@ export function SettingsPage() {
       {/* Membership Plans — read-only summary of the live plans. Each plan
           IS a tier; edit them on Website → Membership plans. */}
       <Card className="mb-6">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle>Membership Plans</CardTitle>
+          <Link href="/dashboard/website/memberships">
+            <Button size="sm" variant="secondary" icon={<SlidersHorizontal size={14} />}>
+              Manage plans
+            </Button>
+          </Link>
         </CardHeader>
         <CardContent className="p-0">
           <Table>

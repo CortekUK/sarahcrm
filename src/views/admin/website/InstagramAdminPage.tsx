@@ -398,7 +398,11 @@ export function InstagramAdminPage() {
         </CardContent>
       </Card>
 
-      {/* ── Tiles ────────────────────────────────────────────── */}
+      {/* ── Tiles (hidden per request) ───────────────────────────
+          Wrapped in `false` so the whole section is hidden without
+          deleting it — flip to `true` to bring it back. */}
+      {false && (
+      <>
       <div className="flex items-center justify-between mb-3">
         <div>
           <h2 className="font-[family-name:var(--font-heading)] text-lg font-semibold text-text">
@@ -507,6 +511,8 @@ export function InstagramAdminPage() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* ── Tile modal ───────────────────────────────────────── */}
       <Modal

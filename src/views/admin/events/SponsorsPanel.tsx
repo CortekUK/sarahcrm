@@ -206,8 +206,16 @@ export function SponsorsPanel({
       toast({ title: 'Add a package name', description: 'e.g. Headline, Drinks reception.', variant: 'destructive' })
       return
     }
+    if (!(parseFloat(ticket) > 0)) {
+      toast({
+        title: 'Set their ticket price',
+        description: 'The reserved rate on their booking link must be more than £0.',
+        variant: 'destructive',
+      })
+      return
+    }
     const amountPence = Math.round((parseFloat(amount) || 0) * 100)
-    const ticketPence = ticket.trim() === '' ? null : Math.round((parseFloat(ticket) || 0) * 100)
+    const ticketPence = Math.round((parseFloat(ticket) || 0) * 100)
     setSaving(true)
     const { error } = await supabase.from('sponsorships').insert({
       event_id: eventId,
@@ -504,7 +512,7 @@ export function SponsorsPanel({
               type="number"
               min={0}
               step="0.01"
-              hint="Reserved rate on their booking link. Blank → event sponsor price."
+              hint="What they pay to attend — the rate on their personalised booking link."
               value={ticket}
               onChange={(e) => setTicket(e.target.value)}
             />
