@@ -18,7 +18,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { Avatar } from '@/components/ui/Avatar'
-import { Building2, CreditCard, Landmark, Mail, SlidersHorizontal, UserPlus } from 'lucide-react'
+import { Building2, CreditCard, ExternalLink, Landmark, Mail, SlidersHorizontal, UserPlus } from 'lucide-react'
 import { TagsManager } from './TagsManager'
 import { AutomationTimeSettings } from './AutomationTimeSettings'
 
@@ -42,32 +42,48 @@ function gbp(pence: number) {
   }).format(pence / 100)
 }
 
-const INTEGRATIONS = [
+// Static metadata for each integration card. Connection status is fetched
+// live from /api/admin/integrations/status (real env presence), not hardcoded.
+type IntegrationKey = 'stripe' | 'gocardless' | 'xero' | 'resend'
+
+const INTEGRATIONS: {
+  key: IntegrationKey
+  name: string
+  description: string
+  icon: typeof CreditCard
+  dashboardUrl: string
+}[] = [
   {
+    key: 'stripe',
     name: 'Stripe',
     description: 'Payment processing for event tickets and one-off charges',
     icon: CreditCard,
-    connected: true,
+    dashboardUrl: 'https://dashboard.stripe.com',
   },
   {
+    key: 'gocardless',
     name: 'GoCardless',
     description: 'Direct debit collection for recurring membership fees',
     icon: Landmark,
-    connected: true,
+    dashboardUrl: 'https://manage.gocardless.com',
   },
   {
+    key: 'xero',
     name: 'Xero',
     description: 'Accounting sync for invoices, payments, and reconciliation',
     icon: Building2,
-    connected: true,
+    dashboardUrl: 'https://go.xero.com',
   },
   {
+    key: 'resend',
     name: 'Resend',
     description: 'Transactional email delivery for introductions and communications',
     icon: Mail,
-    connected: true,
+    dashboardUrl: 'https://resend.com/overview',
   },
 ]
+
+type IntegrationState = Record<IntegrationKey, { connected: boolean; detail: string | null }>
 
 const TEAM = [
   { name: 'Sarah Restrick', email: 'admin@sarahrestrick.com', role: 'Admin', initials: 'SR' },
@@ -86,6 +102,26 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
+  const [integrations, setIntegrations] = useState<IntegrationState | null>(null)
+
+  // Real integration connection status — reflects whether each provider's
+  // credentials are actually configured in this environment.
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/integrations/status')
+        if (!res.ok) return
+        const json = (await res.json()) as IntegrationState
+        if (active) setIntegrations(json)
+      } catch {
+        /* leave null → cards show "Checking…" then nothing actionable */
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -259,34 +295,60 @@ export function SettingsPage() {
       {/* Automation send time */}
       <AutomationTimeSettings />
 
-      {/* Integrations */}
+      {/* Integrations — connection status is live (real env config), not mocked */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Integrations</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {INTEGRATIONS.map((integration) => (
-              <div
-                key={integration.name}
-                className="flex items-start gap-4 p-4 border border-border rounded-[var(--radius-lg)] bg-surface"
-              >
-                <div className="p-2.5 rounded-[var(--radius-md)] bg-surface-2 text-text-muted shrink-0">
-                  <integration.icon size={20} strokeWidth={1.5} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <p className="font-medium text-sm text-text">{integration.name}</p>
-                    <Badge variant="active" dot>Connected</Badge>
+            {INTEGRATIONS.map((integration) => {
+              const checking = integrations === null
+              const status = integrations?.[integration.key]
+              const connected = status?.connected ?? false
+              return (
+                <div
+                  key={integration.key}
+                  className="flex items-start gap-4 p-4 border border-border rounded-[var(--radius-lg)] bg-surface"
+                >
+                  <div className="p-2.5 rounded-[var(--radius-md)] bg-surface-2 text-text-muted shrink-0">
+                    <integration.icon size={20} strokeWidth={1.5} />
                   </div>
-                  <p className="text-xs text-text-dim leading-relaxed">{integration.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="font-medium text-sm text-text">{integration.name}</p>
+                      {checking ? (
+                        <span className="text-[10px] uppercase tracking-[0.15em] text-text-dim">
+                          Checking…
+                        </span>
+                      ) : connected ? (
+                        <Badge variant="active" dot>Connected</Badge>
+                      ) : (
+                        <Badge variant="draft" dot>Not connected</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-dim leading-relaxed">{integration.description}</p>
+                    {connected && status?.detail && (
+                      <p className="text-[11px] text-text-muted mt-1">{status.detail}</p>
+                    )}
+                  </div>
+                  <a
+                    href={integration.dashboardUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 inline-flex items-center gap-1 text-xs text-text-muted hover:text-gold transition-colors"
+                  >
+                    {connected ? 'Manage' : 'Set up'}
+                    <ExternalLink size={12} />
+                  </a>
                 </div>
-                <Button size="sm" variant="ghost" className="shrink-0">
-                  Configure
-                </Button>
-              </div>
-            ))}
+              )
+            })}
           </div>
+          <p className="mt-4 text-xs text-text-dim">
+            Status reflects whether each provider’s credentials are configured in this
+            environment. “Manage / Set up” opens the provider’s dashboard.
+          </p>
         </CardContent>
       </Card>
 
