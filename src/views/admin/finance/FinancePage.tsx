@@ -154,7 +154,7 @@ export function FinancePage() {
       supabase
         .from('payments')
         .select(`
-          id, payment_type, amount_pence, status, payment_method, due_date, paid_at, description, created_at,
+          id, payment_type, amount_pence, status, payment_method, due_date, paid_at, description, created_at, reference_id,
           members(company_name, profiles(first_name, last_name))
         `)
         .order('created_at', { ascending: false })
@@ -274,13 +274,40 @@ export function FinancePage() {
     )
     setActiveSubscriptions(subsRes.count ?? 0)
 
-    // Synthesise guest bookings + refunded applications into the
-    // PaymentRow shape and merge with real payments, then sort by
-    // created_at desc and trim to 15.
     // Guest event-booking payments now live in `payments` (member_id null)
-    // and arrive via recentRes like any other payment — no separate
-    // synthesis needed.
-    const memberPaymentRows = (recentRes.data ?? []) as unknown as PaymentRow[]
+    // and arrive via recentRes like any other payment. Their joined member
+    // is empty, so look up the guest's name from the originating booking
+    // (payments.reference_id = bookings.id) and show that instead of
+    // "Unknown".
+    const rawRecent = (recentRes.data ?? []) as unknown as (PaymentRow & {
+      reference_id: string | null
+    })[]
+    const guestRefIds = rawRecent
+      .filter((p) => !p.members && p.reference_id)
+      .map((p) => p.reference_id as string)
+    const guestBookingById = new Map<
+      string,
+      { guest_name: string | null; guest_company: string | null }
+    >()
+    if (guestRefIds.length) {
+      const { data: gb } = await supabase
+        .from('bookings')
+        .select('id, guest_name, guest_company')
+        .in('id', guestRefIds)
+      for (const b of gb ?? [])
+        guestBookingById.set(b.id, { guest_name: b.guest_name, guest_company: b.guest_company })
+    }
+    const memberPaymentRows = rawRecent.map((p) => {
+      if (p.members) return p
+      const gb = p.reference_id ? guestBookingById.get(p.reference_id) : null
+      return {
+        ...p,
+        members: {
+          company_name: gb?.guest_company ?? null,
+          profiles: { first_name: gb?.guest_name ?? 'Guest', last_name: '' },
+        },
+      }
+    })
     // Pending-paid invoice rows — applicants whose money is captured
     // by Stripe but not yet promoted into a `payments` row by the
     // approve flow. Surfaces them as 'pending' (yellow badge) in the
