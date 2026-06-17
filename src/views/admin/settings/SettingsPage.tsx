@@ -18,7 +18,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { Avatar } from '@/components/ui/Avatar'
-import { Building2, CreditCard, ExternalLink, Landmark, Mail, SlidersHorizontal, UserPlus } from 'lucide-react'
+import { Building2, CreditCard, Landmark, Mail, SlidersHorizontal, UserPlus } from 'lucide-react'
 import { TagsManager } from './TagsManager'
 import { AutomationTimeSettings } from './AutomationTimeSettings'
 
@@ -51,35 +51,30 @@ const INTEGRATIONS: {
   name: string
   description: string
   icon: typeof CreditCard
-  dashboardUrl: string
 }[] = [
   {
     key: 'stripe',
     name: 'Stripe',
     description: 'Payment processing for event tickets and one-off charges',
     icon: CreditCard,
-    dashboardUrl: 'https://dashboard.stripe.com',
   },
   {
     key: 'gocardless',
     name: 'GoCardless',
     description: 'Direct debit collection for recurring membership fees',
     icon: Landmark,
-    dashboardUrl: 'https://manage.gocardless.com',
   },
   {
     key: 'xero',
     name: 'Xero',
     description: 'Accounting sync for invoices, payments, and reconciliation',
     icon: Building2,
-    dashboardUrl: 'https://go.xero.com',
   },
   {
     key: 'resend',
     name: 'Resend',
     description: 'Transactional email delivery for introductions and communications',
     icon: Mail,
-    dashboardUrl: 'https://resend.com/overview',
   },
 ]
 
@@ -332,22 +327,13 @@ export function SettingsPage() {
                       <p className="text-[11px] text-text-muted mt-1">{status.detail}</p>
                     )}
                   </div>
-                  <a
-                    href={integration.dashboardUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 inline-flex items-center gap-1 text-xs text-text-muted hover:text-gold transition-colors"
-                  >
-                    {connected ? 'Manage' : 'Set up'}
-                    <ExternalLink size={12} />
-                  </a>
                 </div>
               )
             })}
           </div>
           <p className="mt-4 text-xs text-text-dim">
             Status reflects whether each provider’s credentials are configured in this
-            environment. “Manage / Set up” opens the provider’s dashboard.
+            environment.
           </p>
         </CardContent>
       </Card>
