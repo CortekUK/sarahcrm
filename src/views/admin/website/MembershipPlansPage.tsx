@@ -271,7 +271,7 @@ export function MembershipPlansPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Membership plans"
         description="The plans visible on /memberships and inside the public application form. Every field on a plan card here maps to a slot on the public site — leave any field empty to hide it. Existing members keep their tier no matter what you change."

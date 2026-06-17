@@ -373,7 +373,7 @@ export function HeroSlidesPage() {
   ).length
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Page heroes"
         description="The cinematic top section on each public page — image or video, with eyebrow + headline + lede + optional CTAs. The page list is fixed (one hero per page); edit any row to change what visitors see. Pages without a custom hero render their built-in defaults."

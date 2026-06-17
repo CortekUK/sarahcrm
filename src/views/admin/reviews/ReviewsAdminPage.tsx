@@ -217,7 +217,7 @@ export function ReviewsAdminPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Reviews"
         description="Member and guest reviews submitted via /share-your-experience. Approve to publish to the public /reviews page. The active toggle hides an approved review without rejecting it (e.g. while you ask the reviewer about a photo or detail)."

@@ -176,7 +176,7 @@ export function ExperiencesPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Curated experiences"
         description="The cards on the Private Event Services page. Each links to an external partner site or a deeper page."

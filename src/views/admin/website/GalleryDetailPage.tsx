@@ -186,7 +186,7 @@ export function GalleryDetailPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-8">
       <AdminPageHeader
         title={gallery.title}
         description={

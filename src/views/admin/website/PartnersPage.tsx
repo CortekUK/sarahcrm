@@ -152,7 +152,7 @@ export function PartnersPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Partners"
         description="Sponsor and partner logos shown on the homepage 'Trusted by' strip. Drag to reorder; toggle to show or hide a logo without deleting it."

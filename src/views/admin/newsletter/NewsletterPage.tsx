@@ -20,7 +20,7 @@ export function NewsletterPage() {
   const [tab, setTab] = useState<Tab>('subscribers')
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Newsletter"
         description="Subscribers, custom audience lists, and campaigns. Build a list of newsletter subscribers and approved members together, then send any campaign-type template from /communications to that list."

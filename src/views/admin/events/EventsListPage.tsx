@@ -181,7 +181,7 @@ export function EventsListPage() {
   const isPrivateTab = activeTab === 'private_events'
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Events"
         description="Member nights, curated luxury, retreats — and a separate Private Events tab for the showcase cards on the Private Events page (external-link commissions, not bookable here)."

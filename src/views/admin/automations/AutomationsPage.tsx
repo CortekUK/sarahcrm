@@ -104,7 +104,7 @@ export function AutomationsPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Automations"
         description="Scheduled lifecycle emails — renewal reminders, failed-payment notices, post-event follow-ups, guest nurture, invoice chasing and introduction notifications. These run automatically every day; you can preview or run them here anytime."

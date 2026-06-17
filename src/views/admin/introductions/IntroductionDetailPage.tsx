@@ -240,7 +240,7 @@ export function IntroductionDetailPage() {
     intro.member_a_response === 'accepted' && intro.member_b_response === 'accepted'
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-8">
       {/* Back */}
       <div className="flex items-center justify-between mb-6">
         <button

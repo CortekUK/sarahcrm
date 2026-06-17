@@ -285,7 +285,7 @@ export function InstagramAdminPage() {
   const activeCount = posts.filter((p) => p.is_active).length
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Instagram"
         description="The Instagram chapter shown on the homepage and the About page. Set the profile bits (handle, name, bio, avatar, follower count) then add up to nine tiles — the chapter renders the first six. Drag to reorder; toggle inactive to hide without deleting."

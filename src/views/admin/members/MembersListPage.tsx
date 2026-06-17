@@ -292,7 +292,7 @@ export function MembersListPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Members"
         description="The active membership of The Club. Approved applications appear here automatically. Cancelling a member ends their portal access immediately — they keep their paid time on Stripe."

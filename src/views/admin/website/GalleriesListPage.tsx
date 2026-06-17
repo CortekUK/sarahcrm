@@ -80,7 +80,7 @@ export function GalleriesListPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Galleries"
         description="Curated event galleries shown on the public Gallery page and homepage strip. Each gallery has a cover image and any number of photos."

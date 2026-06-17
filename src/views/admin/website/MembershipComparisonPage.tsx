@@ -250,7 +250,7 @@ export function MembershipComparisonPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Membership comparison"
         description="The 'at a glance' comparison table on /memberships. Each row is one feature with an Included tick per tier. Drag to reorder, toggle to hide a row, or add new rows as the offering changes. The public site falls back to a hidden hardcoded set until you add the first row here."

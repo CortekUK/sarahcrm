@@ -195,7 +195,7 @@ export function EnquiriesListPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Enquiries"
         description="Notes from the public contact form. Read the brief, reply from your own email client — the row is marked replied automatically — and keep a private note for context."

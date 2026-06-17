@@ -168,7 +168,7 @@ export function DocumentsPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Documents"
         description="Brochures, PDFs, and any file resources members can download. Each upload becomes a public URL you can link to from any page."

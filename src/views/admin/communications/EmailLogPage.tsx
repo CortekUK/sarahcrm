@@ -188,7 +188,7 @@ export function EmailLogPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Sent mail"
         description="Every email the platform has sent — automations, booking and application emails, rejections, invites and admin alerts. Open any one to read exactly what went out."

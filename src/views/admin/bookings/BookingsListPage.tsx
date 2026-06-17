@@ -185,7 +185,7 @@ export function BookingsListPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Bookings"
         description="Every event booking across the club — confirmed, pending, cancelled, and refunded. Click a row to open the event the booking belongs to."

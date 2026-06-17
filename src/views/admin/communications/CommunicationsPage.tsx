@@ -165,7 +165,7 @@ export function CommunicationsPage() {
   }
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl">
+    <div className="p-8 space-y-6">
       {/* ── Header ──────────────────────────────────────── */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>

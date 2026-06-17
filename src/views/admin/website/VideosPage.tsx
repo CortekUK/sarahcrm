@@ -199,7 +199,7 @@ export function VideosPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Video gallery"
         description="YouTube videos embedded on the About and Private Event Services pages. Drag to reorder within a page."

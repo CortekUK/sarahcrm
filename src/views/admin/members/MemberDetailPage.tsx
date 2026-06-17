@@ -745,7 +745,7 @@ export function MemberDetailPage() {
     `${member.profiles.first_name ?? ''} ${member.profiles.last_name ?? ''}`.trim() || 'this member'
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       {/* Back + actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <button

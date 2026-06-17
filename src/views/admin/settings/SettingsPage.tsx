@@ -131,7 +131,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-8">
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
           Settings

@@ -197,7 +197,7 @@ export function TestimonialsPage() {
   }
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Testimonials"
         description="Member quotes shown on the homepage In Their Own Words carousel. Drag to reorder; toggle inactive to hide without deleting. When all testimonials are removed or inactive, the homepage section is hidden entirely — no placeholder quotes are ever shown to the public."

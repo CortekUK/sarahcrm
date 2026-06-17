@@ -316,7 +316,7 @@ export function ApplicationsListPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Membership applications"
         description="Prospective members who've submitted the public application form. Review their full profile — every field they filled in on the widget is captured here — then shortlist, reject, or approve. Approving provisions the auth account, sends an invitation email, and adds them to Members."

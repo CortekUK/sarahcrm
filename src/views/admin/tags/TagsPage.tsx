@@ -123,7 +123,7 @@ export function TagsPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-8">
       <AdminPageHeader
         title="Tags"
         description="The vocabulary that powers matchmaking. Members are tagged by Industry (what they do), Looking for (what they want) and Interest. The matcher pairs one member’s “Looking for” with another’s “Industry”."

@@ -182,7 +182,7 @@ export function MembershipBenefitsPage() {
   const visibleCount = items.filter((i) => i.is_visible).length
 
   return (
-    <div className="max-w-5xl mx-auto px-6 lg:px-10 py-8 lg:py-10 space-y-7">
+    <div className="px-6 lg:px-10 py-8 lg:py-10 space-y-7">
       <AdminPageHeader
         title="Membership benefits"
         description={`Edit copy and imagery for the bento on /memberships. ${visibleCount} of ${items.length} cards visible. The set is locked at nine — toggle visibility to hide a card from the public page.`}
