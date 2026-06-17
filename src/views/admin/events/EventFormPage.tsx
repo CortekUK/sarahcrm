@@ -245,7 +245,7 @@ export function EventFormPage() {
   const accomOn = form.watch('accommodation_available')
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl">
+    <div className="p-4 md:p-8">
       <AdminPageHeader
         title={isEdit ? 'Edit event' : 'Create event'}
         description={
