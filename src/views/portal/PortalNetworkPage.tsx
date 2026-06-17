@@ -30,9 +30,11 @@ const CATEGORY_ORDER = ['industry', 'interest', 'need']
 // language so the page reads as one editorial set rather than three
 // separately-coloured columns.
 const CATEGORY_STYLES: Record<string, string> = {
-  industry: 'border-bronze/45 bg-bronze/10 text-bronze-light',
-  interest: 'border-graphite-line/55 bg-graphite/45 text-ivory-soft',
-  need: 'border-emerald-700/45 bg-emerald-900/15 text-emerald-200',
+  industry:
+    'border-bronze/45 bg-bronze/10 text-bronze-light day:border-bronze/55 day:bg-bronze/15 day:text-bronze-dark',
+  interest:
+    'border-graphite-line/55 bg-graphite/45 text-ivory-soft day:border-stone-300 day:bg-stone-100 day:text-stone-700',
+  need: 'border-emerald-700/45 bg-emerald-900/15 text-emerald-200 day:border-emerald-700/40 day:bg-emerald-700/10 day:text-emerald-800',
 }
 
 interface NetworkMember {
@@ -538,8 +540,8 @@ function FilterChip({
       className={cn(
         'px-3.5 py-1.5 text-[10px] font-[family-name:var(--font-meta)] uppercase tracking-[0.22em] rounded-full border transition-all duration-300',
         active
-          ? 'border-bronze bg-bronze/15 text-bronze-light'
-          : 'border-graphite-line/55 bg-graphite/30 text-ivory/75 hover:border-bronze/55 hover:text-bronze-light',
+          ? 'border-bronze bg-bronze/15 text-bronze-light day:text-bronze-dark'
+          : 'border-graphite-line/55 bg-graphite/30 text-ivory/75 hover:border-bronze/55 hover:text-bronze-light day:border-stone-300 day:bg-stone-100 day:text-stone-600 day:hover:text-bronze-dark',
       )}
     >
       {label}
