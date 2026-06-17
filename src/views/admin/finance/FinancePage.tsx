@@ -90,33 +90,23 @@ export function FinancePage() {
   async function fetchFinanceData() {
     const [
       revenueRes,
-      bookingsRevenueRes,
       refundedApplicationsRes,
       pendingPaidApplicationsRes,
       outstandingRes,
       recentRes,
-      recentGuestBookingsRes,
       overdueRes,
       subsRes,
       mrrRes,
       sponsorshipsRes,
     ] = await Promise.all([
-      // Membership / event-via-member revenue (paid payment rows).
-      // payment_type splits these into membership vs event income for
-      // the "Revenue by source" breakdown.
+      // All paid revenue (paid payment rows). Guest event bookings now
+      // get a real payment row too (member_id null), so this is the
+      // complete ledger; payment_type splits membership vs event income
+      // for the "Revenue by source" breakdown.
       supabase
         .from('payments')
         .select('amount_pence, payment_type')
         .eq('status', 'paid'),
-
-      // Guest event-booking revenue — payments.member_id is NOT NULL so
-      // guest bookings never get a payment row. Sum directly from
-      // bookings to make their revenue visible in totals.
-      supabase
-        .from('bookings')
-        .select('amount_pence')
-        .eq('status', 'confirmed')
-        .is('member_id', null),
 
       // Refunded application payments — when admin rejects a paid
       // application we refund the Stripe charge. The payment row that
@@ -170,20 +160,6 @@ export function FinancePage() {
         .order('created_at', { ascending: false })
         .limit(15),
 
-      // Recent guest bookings — synthesised into PaymentRow shape below
-      // so they appear alongside member payments in the Recent Payments
-      // table. Without this, guest ticket revenue shows in the total
-      // but the row itself is invisible.
-      supabase
-        .from('bookings')
-        .select(
-          'id, amount_pence, payment_method, created_at, guest_name, guest_company, events(title)',
-        )
-        .eq('status', 'confirmed')
-        .is('member_id', null)
-        .order('created_at', { ascending: false })
-        .limit(15),
-
       // Overdue payments
       supabase
         .from('payments')
@@ -227,17 +203,14 @@ export function FinancePage() {
     )
     // Split paid payment rows by type so we can attribute them to the
     // right source. Anything that isn't an event booking is treated as
-    // membership income (the dominant case).
+    // membership income (the dominant case). Event bookings now include
+    // both member and guest rows (guest payments are real ledger rows).
     const membershipPayments = (revenueRes.data ?? [])
       .filter((p) => p.payment_type !== 'event_booking')
       .reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
-    const eventMemberPayments = (revenueRes.data ?? [])
+    const eventPayments = (revenueRes.data ?? [])
       .filter((p) => p.payment_type === 'event_booking')
       .reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
-    const bookingsRevenue = (bookingsRevenueRes.data ?? []).reduce(
-      (sum, b) => sum + (b.amount_pence ?? 0),
-      0,
-    )
     // Committed sponsorship fees (confirmed / invoiced / paid).
     const sponsorshipRevenue = (sponsorshipsRes.data ?? []).reduce(
       (sum, s) => sum + (s.amount_pence ?? 0),
@@ -276,7 +249,6 @@ export function FinancePage() {
     )
     setTotalRevenue(
       paymentsRevenue +
-        bookingsRevenue +
         sponsorshipRevenue +
         pendingPaidTotal +
         refundedOriginalsTotal -
@@ -294,7 +266,7 @@ export function FinancePage() {
         pendingPaidTotal +
         refundedOriginalsTotal -
         refundedTotal,
-      events: eventMemberPayments + bookingsRevenue,
+      events: eventPayments,
       sponsorship: sponsorshipRevenue,
     })
     setOutstanding(
@@ -305,28 +277,10 @@ export function FinancePage() {
     // Synthesise guest bookings + refunded applications into the
     // PaymentRow shape and merge with real payments, then sort by
     // created_at desc and trim to 15.
+    // Guest event-booking payments now live in `payments` (member_id null)
+    // and arrive via recentRes like any other payment — no separate
+    // synthesis needed.
     const memberPaymentRows = (recentRes.data ?? []) as unknown as PaymentRow[]
-    const guestBookingRows: PaymentRow[] = (recentGuestBookingsRes.data ?? []).map((b) => {
-      const ev = b.events as { title: string | null } | null
-      return {
-        id: b.id,
-        payment_type: 'event_booking',
-        amount_pence: b.amount_pence ?? 0,
-        status: 'paid' as PaymentStatus,
-        payment_method: (b.payment_method ?? 'stripe') as PaymentMethod,
-        due_date: null,
-        paid_at: b.created_at,
-        description: ev?.title ? `Event booking — ${ev.title} (guest)` : 'Event booking (guest)',
-        created_at: b.created_at,
-        members: {
-          company_name: b.guest_company ?? null,
-          profiles: {
-            first_name: b.guest_name ?? 'Guest',
-            last_name: '',
-          },
-        },
-      }
-    })
     // Pending-paid invoice rows — applicants whose money is captured
     // by Stripe but not yet promoted into a `payments` row by the
     // approve flow. Surfaces them as 'pending' (yellow badge) in the
@@ -390,7 +344,6 @@ export function FinancePage() {
     })
     const mergedRecent = [
       ...memberPaymentRows,
-      ...guestBookingRows,
       ...pendingInvoiceRows,
       ...refundLedgerRows,
     ]

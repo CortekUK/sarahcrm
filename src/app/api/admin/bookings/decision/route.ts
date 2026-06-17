@@ -176,8 +176,10 @@ export async function POST(req: NextRequest) {
         .update({ status: 'confirmed', stripe_payment_intent_id: pi.id, charge_error: null })
         .eq('id', booking.id)
 
-      // Member-scoped payment row (idempotent on the payment intent).
-      if (booking.member_id) {
+      // Ledger payment row — members AND guests (payments.member_id is
+      // nullable; guest rows are admin-only under RLS). Idempotent on the
+      // payment intent.
+      {
         const { data: existingPay } = await admin
           .from('payments')
           .select('id')
@@ -185,7 +187,7 @@ export async function POST(req: NextRequest) {
           .maybeSingle()
         if (!existingPay) {
           await admin.from('payments').insert({
-            member_id: booking.member_id,
+            member_id: booking.member_id ?? null,
             amount_pence: amount,
             currency: 'GBP',
             payment_type: 'event_booking',
@@ -194,7 +196,9 @@ export async function POST(req: NextRequest) {
             paid_at: new Date().toISOString(),
             stripe_payment_intent_id: pi.id,
             reference_id: booking.id,
-            description: `Event booking — ${eventTitle}`,
+            description: booking.member_id
+              ? `Event booking — ${eventTitle}`
+              : `Event booking — ${eventTitle} (guest${booking.guest_name ? `: ${booking.guest_name}` : ''})`,
           })
         }
       }

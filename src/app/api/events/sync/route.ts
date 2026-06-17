@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
         amount_pence: amountPence,
       })
       .eq('id', bookingId)
-      .select('id, member_id, is_guest')
+      .select('id, member_id, is_guest, guest_name, guest_email, events(title)')
       .single()
     if (bookErr || !booking) {
       console.error('[event-sync] failed to update booking', bookErr)
@@ -133,13 +133,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 2. Insert a payment row IF the booking is tied to a member.
-    //    payments.member_id is NOT NULL — guest bookings don't get a
-    //    member-keyed payment record. (Finance still sees the revenue
-    //    via the bookings.amount_pence aggregate; this is a known
-    //    limitation of payments being member-scoped.)
+    const eventTitle =
+      (booking.events as unknown as { title: string | null } | null)?.title ?? null
+
+    // 2. Insert a payment row — for members AND guests. payments.member_id
+    //    is now nullable (see 20260617_guest_payments_ledger), so guest
+    //    bookings get a proper ledger row too (member_id null, admin-only
+    //    under RLS). Idempotent on the payment intent.
     let paymentInserted = false
-    if (booking.member_id) {
+    {
       const { data: existing } = await admin
         .from('payments')
         .select('id')
@@ -147,7 +149,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle()
       if (!existing) {
         await admin.from('payments').insert({
-          member_id: booking.member_id,
+          member_id: booking.member_id ?? null,
           amount_pence: amountPence,
           currency: 'GBP',
           payment_type: 'event_booking',
@@ -156,9 +158,38 @@ export async function POST(req: NextRequest) {
           paid_at: paidAt,
           stripe_payment_intent_id: paymentIntentId,
           reference_id: booking.id,
-          description: 'Event booking',
+          description: booking.member_id
+            ? eventTitle
+              ? `Event booking — ${eventTitle}`
+              : 'Event booking'
+            : `Event booking — ${eventTitle ?? 'event'} (guest${booking.guest_name ? `: ${booking.guest_name}` : ''})`,
         })
         paymentInserted = true
+      }
+    }
+
+    // 3. Confirmation email. Members are emailed by the webhook; guests
+    //    never reach it (it requires member_id), so paying guests would
+    //    otherwise get nothing. Send the branded confirmation here for
+    //    guests (idempotent-enough: sync only runs once the booking flips
+    //    to confirmed, and the success page calls it on landing).
+    if (booking.is_guest && booking.guest_email && paymentInserted) {
+      try {
+        const { renderClubEmail, sendClubEmail } = await import('@/lib/email/club-email')
+        const title = eventTitle || 'the event'
+        const firstName = (booking.guest_name || 'there').split(' ')[0]
+        const html = renderClubEmail({
+          eyebrow: 'Booking confirmed',
+          heading: `You're confirmed for ${title}`,
+          paragraphs: [
+            `Hello ${firstName},`,
+            `Wonderful news — your place at <strong style="color:#2C2825;">${title}</strong> is confirmed and your payment has been received.`,
+            `We'll be in touch with the practicalities closer to the date.`,
+          ],
+        })
+        await sendClubEmail({ to: booking.guest_email, subject: `You're confirmed for ${title}`, html })
+      } catch (e) {
+        console.error('[event-sync] guest confirmation email failed:', e)
       }
     }
 

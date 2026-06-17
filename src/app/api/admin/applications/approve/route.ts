@@ -15,7 +15,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { computeNextRenewal } from '@/lib/billing/renewal'
 import { sendInviteEmail } from '@/lib/email/invite'
-import { resolvePlan, planForTier, introQuotaForTier } from '@/lib/membership/plans'
+import { resolvePlanFromDb, planForTier, introQuotaForTier } from '@/lib/membership/plans'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     // same canonical plan so they can't drift. An explicit body.tier (admin
     // override on the approve dialog) wins over the application's free-text
     // preferred_tier. The monthly intro quota is read live from the plan.
-    const plan = body.tier ? planForTier(body.tier) : resolvePlan(app.preferred_tier)
+    const plan = body.tier ? planForTier(body.tier) : await resolvePlanFromDb(admin, app.preferred_tier)
     const tier = plan.tier
     const membership_type = plan.membershipType
     const monthly_intro_quota = await introQuotaForTier(admin, tier)
