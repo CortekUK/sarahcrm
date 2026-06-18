@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/Table'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime, titleCase } from '@/lib/utils'
 import { AlertTriangle } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -609,7 +609,7 @@ export function FinancePage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-text-muted capitalize">{p.payment_type}</span>
+                      <span className="text-text-muted">{titleCase(p.payment_type)}</span>
                     </TableCell>
                     <TableCell className="font-medium">
                       {formatCurrency(p.amount_pence)}
@@ -679,7 +679,7 @@ export function FinancePage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Payment Type</p>
-                <p className="text-sm text-text capitalize">{selectedPayment.payment_type}</p>
+                <p className="text-sm text-text">{titleCase(selectedPayment.payment_type)}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-1">Method</p>

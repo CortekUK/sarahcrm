@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { SponsorsPanel } from './SponsorsPanel'
+import { EventInvitesPanel } from './EventInvitesPanel'
 import { formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import {
   ArrowLeft,
@@ -454,7 +455,12 @@ export function EventDetailPage() {
         <StatCard label="Checked in" value={`${checkedInCount} / ${confirmedGuests.length}`} />
       </div>
 
-      {/* Guest list — desktop table, mobile cards */}
+      {/* Invite list — who's been invited, Invited vs Confirmed views */}
+      <div className="mb-6">
+        <EventInvitesPanel eventId={id} />
+      </div>
+
+      {/* Guest list — actual bookings (desktop table, mobile cards) */}
       <Card>
         <CardHeader>
           <CardTitle>Guest list ({guests.length})</CardTitle>

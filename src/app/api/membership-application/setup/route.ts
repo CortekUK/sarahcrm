@@ -102,6 +102,9 @@ export async function POST(req: NextRequest) {
       postcode: (body.postcode as string) || null,
       preferred_location: (body.preferred_location as string) || null,
       interests: Array.isArray(body.interests) ? (body.interests as string[]) : null,
+      personal_interests: Array.isArray(body.personal_interests)
+        ? (body.personal_interests as string[])
+        : null,
       photo_url: (body.photo_url as string) || null,
       nationality: (body.nationality as string) || null,
       identifies_as: (body.identifies_as as string) || null,

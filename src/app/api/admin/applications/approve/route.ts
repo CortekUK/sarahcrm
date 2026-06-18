@@ -429,6 +429,46 @@ export async function POST(req: NextRequest) {
         .ilike('guest_email', app.email)
     }
 
+    // 5c. Map the applicant's personal interests to matchmaking interest tags.
+    //     Each chosen interest becomes (or reuses) an `interest` tag and is
+    //     linked to the member via member_tags, so Suggest Matches can use it.
+    const personalInterests = Array.isArray(appAny.personal_interests)
+      ? (appAny.personal_interests as string[])
+      : []
+    for (const raw of personalInterests) {
+      const name = (raw ?? '').trim()
+      if (!name) continue
+      // Ensure the interest tag exists (tags are unique on name + category).
+      let tagId: string | null = null
+      const { data: existingTag } = await admin
+        .from('tags')
+        .select('id')
+        .eq('name', name)
+        .eq('category', 'interest')
+        .maybeSingle()
+      if (existingTag) {
+        tagId = existingTag.id
+      } else {
+        const { data: newTag } = await admin
+          .from('tags')
+          .insert({ name, category: 'interest' })
+          .select('id')
+          .single()
+        tagId = newTag?.id ?? null
+      }
+      if (!tagId) continue
+      // Link to the member if not already linked.
+      const { data: link } = await admin
+        .from('member_tags')
+        .select('member_id')
+        .eq('member_id', memberId)
+        .eq('tag_id', tagId)
+        .maybeSingle()
+      if (!link) {
+        await admin.from('member_tags').insert({ member_id: memberId, tag_id: tagId })
+      }
+    }
+
     // 6. Mark the application approved
     const { error: markErr } = await admin
       .from('membership_applications')

@@ -158,6 +158,24 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // If this member was on the event's invite list, flip their invite to
+    // confirmed and link the booking (powers the Invited-vs-Confirmed views).
+    {
+      const inviteMatch = user.email
+        ? `invitee_email.ilike.${user.email},member_id.eq.${member.id}`
+        : `member_id.eq.${member.id}`
+      await admin
+        .from('event_invitations')
+        .update({
+          status: 'confirmed',
+          booking_id: booking.id,
+          responded_at: new Date().toISOString(),
+        })
+        .eq('event_id', event.id)
+        .eq('status', 'invited')
+        .or(inviteMatch)
+    }
+
     // Tell the team a new member booking has come in.
     const notifyOrigin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
     await notifyAdmins(admin, {

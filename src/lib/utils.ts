@@ -56,3 +56,15 @@ export function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '')
 }
+
+// Turn machine values like "event_booking" or "monthly" into a human label
+// "Event Booking" / "Monthly" \u2014 splits on underscores/spaces and upper-cases
+// the first letter of each word.
+export function titleCase(text: string): string {
+  return text
+    .replace(/_/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}

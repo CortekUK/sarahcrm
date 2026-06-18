@@ -804,6 +804,57 @@ export type Database = {
           },
         ]
       }
+      event_invitations: {
+        Row: {
+          booking_id: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          id: string
+          invitee_company: string | null
+          invitee_email: string | null
+          invitee_name: string | null
+          invited_at: string
+          member_id: string | null
+          notes: string | null
+          responded_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          booking_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          id?: string
+          invitee_company?: string | null
+          invitee_email?: string | null
+          invitee_name?: string | null
+          invited_at?: string
+          member_id?: string | null
+          notes?: string | null
+          responded_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          booking_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          id?: string
+          invitee_company?: string | null
+          invitee_email?: string | null
+          invitee_name?: string | null
+          invited_at?: string
+          member_id?: string | null
+          notes?: string | null
+          responded_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       galleries: {
         Row: {
           category: string | null
@@ -1559,6 +1610,7 @@ export type Database = {
           industry: string | null
           instagram_url: string | null
           interests: string[] | null
+          personal_interests: string[] | null
           last_name: string
           linkedin_url: string | null
           looking_for: string | null
@@ -1615,6 +1667,7 @@ export type Database = {
           industry?: string | null
           instagram_url?: string | null
           interests?: string[] | null
+          personal_interests?: string[] | null
           last_name: string
           linkedin_url?: string | null
           looking_for?: string | null
@@ -1671,6 +1724,7 @@ export type Database = {
           industry?: string | null
           instagram_url?: string | null
           interests?: string[] | null
+          personal_interests?: string[] | null
           last_name?: string
           linkedin_url?: string | null
           looking_for?: string | null

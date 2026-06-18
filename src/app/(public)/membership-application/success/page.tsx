@@ -73,7 +73,7 @@ function SuccessInner() {
         <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-[1.7]">
           Your application is with the team for review. Your card has been securely saved, but
           nothing has been charged — we&apos;ll only take payment if your application is approved.
-          You&apos;ll hear from us within seven days.
+          You&apos;ll hear from us within 14 working days.
         </p>
 
         {/* Quiet status indicator — visible while we record the saved card.

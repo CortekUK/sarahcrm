@@ -43,7 +43,7 @@ async function sendPendingEmail(args: {
       `Hello ${args.firstName || 'there'},`,
       `Thank you for applying to The Club. Your application is now with the team for review.`,
       `Your card has been securely saved, but <strong style="color:#2C2825;">nothing has been charged.</strong> We'll only take payment if your application is approved — and if it isn't, no payment is taken and your card details are removed.`,
-      `You'll hear from us with a decision within seven days.`,
+      `You'll hear from us with a decision within 14 working days.`,
     ],
   })
   const r = await sendClubEmail({

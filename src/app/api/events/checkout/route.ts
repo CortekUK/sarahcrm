@@ -248,6 +248,24 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // If this guest was on the event's invite list, flip their invite to
+    // confirmed and link the booking (powers the Invited-vs-Confirmed views).
+    {
+      const inviteMatch = linkedMemberId
+        ? `invitee_email.ilike.${body.guest_email},member_id.eq.${linkedMemberId}`
+        : `invitee_email.ilike.${body.guest_email}`
+      await admin
+        .from('event_invitations')
+        .update({
+          status: 'confirmed',
+          booking_id: booking.id,
+          responded_at: new Date().toISOString(),
+        })
+        .eq('event_id', event.id)
+        .eq('status', 'invited')
+        .or(inviteMatch)
+    }
+
     // ── Stripe Checkout Session ────────────────────────────────────
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
       apiVersion: '2026-02-25.clover',

@@ -495,7 +495,7 @@ export function AiPromptPanel({
                 What email do you want?
               </p>
               <p className="mt-3 font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/85 max-w-[280px] mx-auto leading-[1.65]">
-                I&rsquo;ll write it using The Club&rsquo;s merge tags + Sarah Restrick&rsquo;s voice.
+                I&rsquo;ll write it using The Club&rsquo;s merge tags and Sarah Restrick&rsquo;s voice.
               </p>
             </div>
             <p className="font-[family-name:var(--font-meta)] text-[9.5px] font-medium uppercase tracking-[0.28em] text-bronze-light/85 px-1 mb-3">

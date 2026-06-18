@@ -439,8 +439,13 @@ function InlineButtonBlock({
         paddingTop: content.paddingTop,
         paddingBottom: content.paddingBottom,
       }}
+      // Don't swallow the click — let it bubble to the block wrapper so the
+      // button gets SELECTED and its properties panel (URL, colour, width,
+      // alignment) opens. The inner span still handles inline text editing.
+      // Previously stopping propagation here meant clicking a button only let
+      // you edit its label — and a full-width AI button (no margin to click
+      // around it) couldn't be selected at all.
       onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
     >
       <span
         style={{

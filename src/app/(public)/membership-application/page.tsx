@@ -133,6 +133,24 @@ const INTERESTS = [
   'Wellness days',
 ] as const
 
+// Personal / professional interests — fed into matchmaking on approval (each
+// becomes one of the member's interest tags). Names mirror the seeded interest
+// tags so they map cleanly. Distinct from INTERESTS (event-type preferences).
+const PERSONAL_INTERESTS = [
+  'Networking',
+  'Investing',
+  'Startups',
+  'Travel',
+  'Fine Dining & Wine',
+  'Art & Design',
+  'Golf',
+  'Sport',
+  'Philanthropy',
+  'Sustainability',
+  'Technology',
+  'Property',
+] as const
+
 const NATIONALITIES = [
   'British',
   'Irish',
@@ -162,17 +180,6 @@ const NATIONALITIES = [
 ]
 const IDENTIFIES = ['Woman', 'Man', 'Non-binary', 'Prefer not to say']
 const PRONOUNS = ['She / Her', 'He / Him', 'They / Them', 'Prefer not to say']
-const TURNOVER = [
-  'Under £100k',
-  '£100k – £500k',
-  '£500k – £1m',
-  '£1m – £5m',
-  '£5m – £25m',
-  '£25m – £100m',
-  '£100m+',
-  'Prefer not to say',
-]
-const HEADCOUNT = ['1', '2 – 10', '11 – 50', '51 – 250', '251 – 1,000', '1,000+']
 // Business stage drives the application track: early-stage applicants
 // seeking investment are routed to PITCH rather than standard membership.
 const STAGES = ['Established business', 'Early-stage, seeking investment'] as const
@@ -278,6 +285,7 @@ const schema = z.object({
   }),
 
   interests: z.array(z.string()),
+  personal_interests: z.array(z.string()).optional(),
 
   photo_url: z.string().optional(),
   nationality: z.string().optional(),
@@ -447,7 +455,7 @@ export default function MembershipApplicationPage() {
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { interests: [] },
+    defaultValues: { interests: [], personal_interests: [] },
     mode: 'onChange',
   })
 
@@ -819,12 +827,15 @@ function StepIndicator({ step }: { step: number }) {
   return (
     <Reveal type="up" delay={0}>
       <div className="mb-16">
-        {/* Grid gives every step exactly 1/8 of the row width, so labels
-            can wrap onto two lines inside their own column without
-            colliding with the next one (this is what was breaking when
-            "Choose Membership" / "Select Payment" sat next to each
-            other in a flex layout). */}
-        <div className="grid grid-cols-8 items-start">
+        {/* Grid gives every step an equal share of the row width, so labels
+            can wrap onto two lines inside their own column without colliding
+            with the next one. Columns are derived from STEPS.length (was a
+            hardcoded grid-cols-8, which made the 9th step — Payment Details —
+            wrap onto a second row). */}
+        <div
+          className="grid items-start"
+          style={{ gridTemplateColumns: `repeat(${STEPS.length}, minmax(0, 1fr))` }}
+        >
           {STEPS.map((s, i) => {
             const state = i === step ? 'active' : i < step ? 'done' : 'upcoming'
             const isLast = i === STEPS.length - 1
@@ -1220,8 +1231,63 @@ function ProfileStep({
           error={errors.bio?.message}
           {...register('bio')}
         />
+
+        {/* Personal interests — optional. Feeds matchmaking on approval. */}
+        <div>
+          <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light mb-2">
+            Your interests
+            <span className="ml-2 text-slate-dim normal-case tracking-normal">— optional</span>
+          </p>
+          <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/80 day:text-graphite/70 mb-4">
+            Pick what you&rsquo;re into — we use these to introduce you to the right members.
+          </p>
+          <Controller
+            name="personal_interests"
+            control={control}
+            render={({ field }) => (
+              <InterestChips value={field.value ?? []} onChange={field.onChange} />
+            )}
+          />
+        </div>
       </div>
     </Reveal>
+  )
+}
+
+// Pill multi-select for personal interests. Lives inside the Build Profile
+// step rather than as its own step — it's a quick optional add-on.
+function InterestChips({
+  value,
+  onChange,
+}: {
+  value: string[]
+  onChange: (v: string[]) => void
+}) {
+  function toggle(item: string) {
+    onChange(value.includes(item) ? value.filter((v) => v !== item) : [...value, item])
+  }
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {PERSONAL_INTERESTS.map((item) => {
+        const on = value.includes(item)
+        return (
+          <button
+            key={item}
+            type="button"
+            onClick={() => toggle(item)}
+            aria-pressed={on}
+            className={cn(
+              'px-4 py-2 rounded-full border font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.18em] transition-all duration-300',
+              on
+                ? 'border-bronze bg-bronze/10 text-bronze-light shadow-[0_0_22px_-10px_rgba(192,152,112,0.6)]'
+                : 'border-graphite-line/70 text-ivory-soft hover:border-bronze/55 hover:text-ivory day:bg-white day:border-graphite-line/55 day:text-graphite day:hover:border-bronze/55',
+            )}
+          >
+            {item}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -1385,29 +1451,17 @@ function BusinessStep({
           />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <Controller
-            name="annual_turnover"
-            control={control}
-            render={({ field }) => (
-              <EditorialSelect
-                label="Annual turnover"
-                options={TURNOVER}
-                value={field.value ?? ''}
-                onChange={field.onChange}
-              />
-            )}
+          <Field
+            label="Annual turnover"
+            placeholder="e.g. £500k – £1m"
+            error={errors.annual_turnover?.message}
+            {...register('annual_turnover')}
           />
-          <Controller
-            name="employees"
-            control={control}
-            render={({ field }) => (
-              <EditorialSelect
-                label="Employees"
-                options={HEADCOUNT}
-                value={field.value ?? ''}
-                onChange={field.onChange}
-              />
-            )}
+          <Field
+            label="Employees"
+            placeholder="e.g. 12"
+            error={errors.employees?.message}
+            {...register('employees')}
           />
         </div>
         <Controller

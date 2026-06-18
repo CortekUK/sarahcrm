@@ -13,7 +13,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { useProgress } from '@/components/admin/TopProgressBar'
-import { formatDateTime, formatDate, cn } from '@/lib/utils'
+import { formatDateTime, formatDate, cn, titleCase } from '@/lib/utils'
 import { toast } from '@/lib/hooks/use-toast'
 import {
   ClipboardList,
@@ -836,7 +836,9 @@ function ApplicationDetailModal({
         )}
 
         {/* ── Bio + Interests ─────────────────────────────────────── */}
-        {(a.bio || (a.interests && a.interests.length > 0)) && (
+        {(a.bio ||
+          (a.interests && a.interests.length > 0) ||
+          (a.personal_interests && a.personal_interests.length > 0)) && (
           <Section title="Profile" icon={<Quote size={11} />}>
             {a.bio && (
               <div>
@@ -858,6 +860,23 @@ function ApplicationDetailModal({
                       className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full bg-gold-muted text-gold-dark border border-border-gold"
                     >
                       <Heart size={10} className="flex-shrink-0" />
+                      {int}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {a.personal_interests && a.personal_interests.length > 0 && (
+              <div className={a.bio || (a.interests && a.interests.length > 0) ? 'mt-5' : ''}>
+                <p className="text-[10px] font-medium uppercase tracking-[0.15em] text-text-dim mb-2">
+                  Personal interests
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {a.personal_interests.map((int) => (
+                    <span
+                      key={int}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full bg-[rgba(90,123,150,0.1)] text-[#5A7B96] border border-[rgba(90,123,150,0.25)]"
+                    >
                       {int}
                     </span>
                   ))}
@@ -966,7 +985,7 @@ function ApplicationDetailModal({
                 <DetailRow
                   icon={<CreditCard size={13} />}
                   label="Payment cadence"
-                  value={a.payment_preference}
+                  value={titleCase(a.payment_preference)}
                 />
               )}
             </div>
