@@ -17,7 +17,9 @@ import {
   CheckCircle2,
   Archive,
 } from 'lucide-react'
+import { FileSignature } from 'lucide-react'
 import { SendTemplateModal } from '@/components/templates/SendTemplateModal'
+import { ContractsPanel } from '@/components/contracts/ContractsPanel'
 import { previewMergeTags } from '@/lib/templates/preview-data'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -46,7 +48,7 @@ import { formatDate } from '@/lib/utils'
 import { useTheme } from '@/providers/ThemeProvider'
 import type { Template } from '@/lib/templates/types'
 
-export function TemplatesListPage() {
+export function TemplatesListPage({ initialView = 'templates' }: { initialView?: 'templates' | 'contracts' }) {
   const router = useRouter()
   const confirm = useConfirm()
   const { data: user } = useCurrentUser()
@@ -54,6 +56,7 @@ export function TemplatesListPage() {
 
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<'all' | Template['category']>('all')
+  const [showContracts, setShowContracts] = useState(initialView === 'contracts')
   const debouncedSearch = useDebouncedValue(search, 300)
   const [sendTarget, setSendTarget] = useState<Template | null>(null)
 
@@ -78,6 +81,10 @@ export function TemplatesListPage() {
 
   const handleCreate = () => {
     router.push('/dashboard/communications/templates/editor')
+  }
+
+  const handleCreateContract = () => {
+    router.push('/dashboard/communications/contracts/editor')
   }
 
   const handleEdit = (template: Template) => {
@@ -175,20 +182,29 @@ export function TemplatesListPage() {
             AI-assisted email composition for member communications
           </p>
         </div>
-        <SarahButton variant="primary" onClick={handleCreate}>
-          <Sparkles size={16} />
-          <Plus size={16} className="-ml-1" />
-          New template
-        </SarahButton>
+        <div className="flex items-center gap-2">
+          <SarahButton variant="secondary" onClick={handleCreateContract}>
+            <FileSignature size={16} />
+            <Plus size={16} className="-ml-1" />
+            New contract
+          </SarahButton>
+          <SarahButton variant="primary" onClick={handleCreate}>
+            <Sparkles size={16} />
+            <Plus size={16} className="-ml-1" />
+            New template
+          </SarahButton>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <StatTile label="Total" value={counts.total} />
-        <StatTile label="Campaign" value={counts.campaign} />
-        <StatTile label="Automation" value={counts.automation} />
-        <StatTile label="Drafts" value={counts.draft} />
-      </div>
+      {!showContracts && (
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <StatTile label="Total" value={counts.total} />
+          <StatTile label="Campaign" value={counts.campaign} />
+          <StatTile label="Automation" value={counts.automation} />
+          <StatTile label="Drafts" value={counts.draft} />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4">
@@ -205,9 +221,12 @@ export function TemplatesListPage() {
           {(['all', 'campaign', 'automation', 'transactional'] as const).map((c) => (
             <button
               key={c}
-              onClick={() => setCategory(c)}
+              onClick={() => {
+                setShowContracts(false)
+                setCategory(c)
+              }}
               className={`px-3 py-1.5 text-xs rounded-full border transition-colors capitalize ${
-                category === c
+                category === c && !showContracts
                   ? 'bg-gold text-white border-gold'
                   : 'bg-[var(--color-surface)] text-text-muted border-border hover:border-border-hover hover:text-text'
               }`}
@@ -215,10 +234,26 @@ export function TemplatesListPage() {
               {c === 'all' ? 'All' : c}
             </button>
           ))}
+          <span className="mx-1 h-4 w-px bg-border" />
+          <button
+            onClick={() => setShowContracts(true)}
+            className={`px-3 py-1.5 text-xs rounded-full border transition-colors inline-flex items-center gap-1.5 ${
+              showContracts
+                ? 'bg-gold text-white border-gold'
+                : 'bg-[var(--color-surface)] text-text-muted border-border hover:border-border-hover hover:text-text'
+            }`}
+          >
+            <FileSignature size={12} />
+            Contracts
+          </button>
         </div>
       </div>
 
-      {/* Table */}
+      {/* Contracts view — a separate table from the same screen */}
+      {showContracts ? (
+        <ContractsPanel search={debouncedSearch} />
+      ) : (
+      /* Templates table */
       <Card>
         <CardHeader>
           <CardTitle>{templates.length} {templates.length === 1 ? 'template' : 'templates'}</CardTitle>
@@ -299,6 +334,7 @@ export function TemplatesListPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <SendTemplateModal
         template={sendTarget}

@@ -572,6 +572,102 @@ export type Database = {
           },
         ]
       }
+      contract_ai_chats: {
+        Row: {
+          contract_id: string | null
+          created_at: string
+          id: string
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      contract_ai_messages: {
+        Row: {
+          blocks_snapshot: Json | null
+          chat_id: string
+          content: string
+          created_at: string
+          id: string
+          role: string
+        }
+        Insert: {
+          blocks_snapshot?: Json | null
+          chat_id: string
+          content?: string
+          created_at?: string
+          id?: string
+          role: string
+        }
+        Update: {
+          blocks_snapshot?: Json | null
+          chat_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+        }
+        Relationships: []
+      }
+      contract_templates: {
+        Row: {
+          attachments: Json | null
+          body_html: string
+          body_json: Json | null
+          created_at: string
+          created_by_id: string | null
+          doc_type: string
+          id: string
+          is_draft: boolean
+          name: string
+          theme: Json | null
+          updated_at: string
+        }
+        Insert: {
+          attachments?: Json | null
+          body_html?: string
+          body_json?: Json | null
+          created_at?: string
+          created_by_id?: string | null
+          doc_type?: string
+          id?: string
+          is_draft?: boolean
+          name?: string
+          theme?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          attachments?: Json | null
+          body_html?: string
+          body_json?: Json | null
+          created_at?: string
+          created_by_id?: string | null
+          doc_type?: string
+          id?: string
+          is_draft?: boolean
+          name?: string
+          theme?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       email_templates: {
         Row: {
           attachments: Json | null
@@ -2247,6 +2343,78 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      signature_requests: {
+        Row: {
+          completed_at: string | null
+          contract_template_id: string | null
+          created_at: string
+          declined_reason: string | null
+          doc_type: string
+          envelope_id: string | null
+          error: string | null
+          id: string
+          last_checked_at: string | null
+          member_id: string
+          message: string | null
+          sent_at: string | null
+          sent_by: string | null
+          signed_document_id: string | null
+          signer_email: string
+          signer_name: string
+          source_file_name: string | null
+          status: string
+          subject: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          contract_template_id?: string | null
+          created_at?: string
+          declined_reason?: string | null
+          doc_type?: string
+          envelope_id?: string | null
+          error?: string | null
+          id?: string
+          last_checked_at?: string | null
+          member_id: string
+          message?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          signed_document_id?: string | null
+          signer_email: string
+          signer_name: string
+          source_file_name?: string | null
+          status?: string
+          subject?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          contract_template_id?: string | null
+          created_at?: string
+          declined_reason?: string | null
+          doc_type?: string
+          envelope_id?: string | null
+          error?: string | null
+          id?: string
+          last_checked_at?: string | null
+          member_id?: string
+          message?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          signed_document_id?: string | null
+          signer_email?: string
+          signer_name?: string
+          source_file_name?: string | null
+          status?: string
+          subject?: string | null
+          title?: string | null
           updated_at?: string
         }
         Relationships: []

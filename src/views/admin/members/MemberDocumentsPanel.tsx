@@ -66,6 +66,34 @@ export function MemberDocumentsPanel({ memberId }: { memberId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId])
 
+  // Auto-file any freshly-signed DocuSign documents for this member on load, so
+  // signed agreements appear here without anyone pressing "refresh". Best-effort
+  // and cheap when nothing is pending (the endpoint no-ops on settled requests).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/signatures/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ member_id: memberId }),
+        })
+        if (!res.ok) return
+        const json = await res.json()
+        const filed =
+          Array.isArray(json.requests) &&
+          json.requests.some((r: { signed_document_id?: string | null }) => r.signed_document_id)
+        if (!cancelled && filed) load()
+      } catch {
+        /* best-effort */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberId])
+
   async function load() {
     setLoading(true)
     const { data } = await supabase
