@@ -37,6 +37,12 @@ interface DashboardStats {
   introsLastMonth: number
   bookingsLastMonth: number
   revenueLastMonthPence: number
+  // Executive overview (Phase 1) — headline numbers pulled from existing data.
+  pendingApplications: number
+  renewalsDue30: number
+  outstandingPence: number
+  overdueCount: number
+  sponsorshipPipelinePence: number
 }
 
 type IntroResponse = 'pending' | 'accepted' | 'declined'
@@ -108,6 +114,11 @@ export function DashboardPage() {
     introsLastMonth: 0,
     bookingsLastMonth: 0,
     revenueLastMonthPence: 0,
+    pendingApplications: 0,
+    renewalsDue30: 0,
+    outstandingPence: 0,
+    overdueCount: 0,
+    sponsorshipPipelinePence: 0,
   })
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([])
   const [recentIntros, setRecentIntros] = useState<RecentIntro[]>([])
@@ -122,6 +133,12 @@ export function DashboardPage() {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString()
+    // Renewal window — members whose renewal_date (a plain date) falls in the
+    // next 30 days. Compared as YYYY-MM-DD strings.
+    const todayStr = now.toISOString().slice(0, 10)
+    const in30Str = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 30)
+      .toISOString()
+      .slice(0, 10)
 
     const [
       membersRes,
@@ -134,6 +151,10 @@ export function DashboardPage() {
       eventsRes,
       recentIntrosRes,
       newestMembersRes,
+      pendingAppsRes,
+      renewalsRes,
+      outstandingRes,
+      sponsorshipsRes,
     ] = await Promise.all([
       // Active members count
       supabase
@@ -213,6 +234,37 @@ export function DashboardPage() {
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(5),
+
+      // ── Executive overview (Phase 1) ──────────────────────────
+      // Pending applications awaiting a decision
+      supabase
+        .from('membership_applications')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending'),
+
+      // Renewals due in the next 30 days (active members only)
+      supabase
+        .from('members')
+        .select('id', { count: 'exact', head: true })
+        .eq('membership_status', 'active')
+        .is('deleted_at', null)
+        .not('renewal_date', 'is', null)
+        .gte('renewal_date', todayStr)
+        .lte('renewal_date', in30Str),
+
+      // Outstanding invoices — everything not yet paid (pending + overdue).
+      // Pull rows so we can both sum the value and count the overdue subset.
+      supabase
+        .from('payments')
+        .select('amount_pence, status')
+        .in('status', ['pending', 'overdue']),
+
+      // Sponsorship pipeline — open opportunity value (anything not paid or
+      // closed-lost). sponsorships.status is free-form, so we filter by an
+      // explicit denylist of closed states client-side.
+      supabase
+        .from('sponsorships')
+        .select('amount_pence, status'),
     ])
 
     const paymentsPence = (revenueRes.data ?? []).reduce(
@@ -225,6 +277,25 @@ export function DashboardPage() {
     )
     const revenuePence = paymentsPence + guestBookingsPence
 
+    // ── Executive overview aggregates ──────────────────────────
+    const outstandingRows = outstandingRes.data ?? []
+    const outstandingPence = outstandingRows.reduce(
+      (sum, p) => sum + (p.amount_pence ?? 0),
+      0
+    )
+    const overdueCount = outstandingRows.filter((p) => p.status === 'overdue').length
+
+    const CLOSED_SPONSORSHIP = new Set([
+      'paid',
+      'cancelled',
+      'declined',
+      'lost',
+      'rejected',
+    ])
+    const sponsorshipPipelinePence = (sponsorshipsRes.data ?? [])
+      .filter((s) => !CLOSED_SPONSORSHIP.has((s.status ?? '').toLowerCase()))
+      .reduce((sum, s) => sum + (s.amount_pence ?? 0), 0)
+
     setStats({
       totalActiveMembers: membersRes.count ?? 0,
       introsThisMonth: introsRes.count ?? 0,
@@ -234,6 +305,11 @@ export function DashboardPage() {
       introsLastMonth: introsLastRes.count ?? 0,
       bookingsLastMonth: 0,
       revenueLastMonthPence: 0,
+      pendingApplications: pendingAppsRes.count ?? 0,
+      renewalsDue30: renewalsRes.count ?? 0,
+      outstandingPence,
+      overdueCount,
+      sponsorshipPipelinePence,
     })
 
     const events = (eventsRes.data ?? []).map((e: Record<string, unknown>) => {
@@ -304,6 +380,64 @@ export function DashboardPage() {
           changeText={stats.revenueMtdPence > 0 ? 'payments received' : 'no payments yet'}
           changeType={stats.revenueMtdPence > 0 ? 'positive' : 'neutral'}
         />
+      </div>
+
+      {/* Executive overview — headline numbers from existing data. Each tile
+          links through to where the work happens. Grows with every phase. */}
+      <div className="mb-8">
+        <p className="font-[family-name:var(--font-label)] text-[10px] font-medium uppercase tracking-[0.18em] text-text-dim mb-3">
+          Executive overview
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/applications')}
+            className="text-left transition-transform hover:-translate-y-0.5"
+          >
+            <StatCard
+              label="Pending Applications"
+              value={stats.pendingApplications.toLocaleString('en-GB')}
+              changeText="awaiting decision"
+              changeType={stats.pendingApplications > 0 ? 'negative' : 'neutral'}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/members')}
+            className="text-left transition-transform hover:-translate-y-0.5"
+          >
+            <StatCard
+              label="Renewals Due"
+              value={stats.renewalsDue30.toLocaleString('en-GB')}
+              changeText="next 30 days"
+              changeType={stats.renewalsDue30 > 0 ? 'negative' : 'neutral'}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/finance')}
+            className="text-left transition-transform hover:-translate-y-0.5"
+          >
+            <StatCard
+              label="Outstanding Invoices"
+              value={formatCurrency(stats.outstandingPence)}
+              changeText={stats.overdueCount > 0 ? `${stats.overdueCount} overdue` : 'none overdue'}
+              changeType={stats.overdueCount > 0 ? 'negative' : 'positive'}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/finance')}
+            className="text-left transition-transform hover:-translate-y-0.5"
+          >
+            <StatCard
+              label="Sponsorship Pipeline"
+              value={formatCurrency(stats.sponsorshipPipelinePence)}
+              changeText="open opportunities"
+              changeType="neutral"
+            />
+          </button>
+        </div>
       </div>
 
       {/* Upcoming events */}

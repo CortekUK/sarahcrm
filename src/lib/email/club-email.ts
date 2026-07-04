@@ -9,6 +9,10 @@ interface ClubEmailParts {
   cta?: { label: string; url: string }
   // Where the CTA button sits: after this many paragraphs. Omit = after all.
   ctaAfterIndex?: number
+  // Optional raw-HTML block (e.g. a highlighted panel) inserted between
+  // paragraphs, after `panelAfterIndex` of them (default: after all).
+  panelHtml?: string
+  panelAfterIndex?: number
   signoff?: string
 }
 
@@ -29,14 +33,23 @@ export function renderClubEmail(parts: ClubEmailParts): string {
          <a href="${parts.cta.url}" style="display:inline-block;padding:13px 30px;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#FFFFFF;text-decoration:none;font-weight:600;">${parts.cta.label}</a>
        </td></tr></table>`
     : ''
+  const panelBlock = parts.panelHtml ?? ''
   // Place the CTA after `ctaAfterIndex` paragraphs, or after all of them.
+  // Optionally slot a raw-HTML panel in among the paragraphs too.
   const body =
     parts.cta && typeof parts.ctaAfterIndex === 'number'
       ? (() => {
           const idx = Math.max(0, Math.min(parts.ctaAfterIndex, paraHtml.length))
-          return [...paraHtml.slice(0, idx), cta, ...paraHtml.slice(idx)].join('')
+          return [...paraHtml.slice(0, idx), cta, ...paraHtml.slice(idx)].join('') + panelBlock
         })()
-      : paraHtml.join('') + cta
+      : (() => {
+          const arr = [...paraHtml]
+          if (panelBlock) {
+            const pIdx = Math.max(0, Math.min(parts.panelAfterIndex ?? arr.length, arr.length))
+            arr.splice(pIdx, 0, panelBlock)
+          }
+          return arr.join('') + cta
+        })()
   const signoff = parts.signoff ?? 'Sarah Restrick &amp; the team'
   return `
 <!DOCTYPE html>

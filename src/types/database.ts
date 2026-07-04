@@ -1256,6 +1256,45 @@ export type Database = {
         }
         Relationships: []
       }
+      member_documents: {
+        Row: {
+          content_type: string | null
+          created_at: string
+          doc_type: string
+          file_name: string
+          file_path: string
+          id: string
+          member_id: string
+          size_bytes: number | null
+          title: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          content_type?: string | null
+          created_at?: string
+          doc_type?: string
+          file_name: string
+          file_path: string
+          id?: string
+          member_id: string
+          size_bytes?: number | null
+          title?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          content_type?: string | null
+          created_at?: string
+          doc_type?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          member_id?: string
+          size_bytes?: number | null
+          title?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       member_tags: {
         Row: {
           member_id: string
@@ -2208,6 +2247,81 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      task_comments: {
+        Row: {
+          author_id: string | null
+          body: string
+          created_at: string
+          id: string
+          task_id: string
+        }
+        Insert: {
+          author_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          task_id: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          task_id?: string
+        }
+        Relationships: []
+      }
+      tasks: {
+        Row: {
+          assigned_to: string | null
+          category: string
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          due_date: string | null
+          id: string
+          priority: string
+          related_event_id: string | null
+          related_member_id: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          category?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          priority?: string
+          related_event_id?: string | null
+          related_member_id?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          category?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          priority?: string
+          related_event_id?: string | null
+          related_member_id?: string | null
+          status?: string
+          title?: string
           updated_at?: string
         }
         Relationships: []

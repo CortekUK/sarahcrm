@@ -28,6 +28,7 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDate, formatCurrency, cn } from '@/lib/utils'
 import { MemberMatchesPanel } from './MemberMatchesPanel'
+import { MemberDocumentsPanel } from './MemberDocumentsPanel'
 import {
   PLAN_OPTIONS,
   planForTier,
@@ -101,6 +102,12 @@ interface MemberDetail {
   estimated_profit: string | null
   company_address: string | null
   invoice_address: string | null
+  // Accounts & finance contacts (Phase 1) — who to bill / chase per company
+  accounts_contact_name: string | null
+  accounts_contact_email: string | null
+  accounts_contact_phone: string | null
+  invoice_chaser_contact: string | null
+  fd_contact: string | null
   intro_target_types: string | null
   intro_target_criteria: string | null
   dream_introductions: string | null
@@ -185,6 +192,19 @@ const editSchema = z.object({
   estimated_profit: z.string().optional(),
   company_address: z.string().optional(),
   invoice_address: z.string().optional(),
+  // Accounts & finance contacts (Phase 1)
+  accounts_contact_name: z.string().optional(),
+  accounts_contact_email: z
+    .string()
+    .email('Enter a valid email address')
+    .or(z.literal(''))
+    .optional(),
+  accounts_contact_phone: z
+    .string()
+    .regex(/^[0-9+()\s-]*$/, 'Digits and + ( ) - only')
+    .optional(),
+  invoice_chaser_contact: z.string().optional(),
+  fd_contact: z.string().optional(),
   intro_target_types: z.string().optional(),
   intro_target_criteria: z.string().optional(),
   dream_introductions: z.string().optional(),
@@ -201,7 +221,7 @@ type EditFormData = z.infer<typeof editSchema>
 // form and read view in sync without 16 repetitive blocks.
 const RI_GROUPS: {
   title: string
-  fields: { name: keyof EditFormData; label: string; long?: boolean }[]
+  fields: { name: keyof EditFormData; label: string; long?: boolean; type?: 'email' | 'tel' }[]
 }[] = [
   {
     title: 'Company depth',
@@ -213,6 +233,16 @@ const RI_GROUPS: {
       { name: 'estimated_profit', label: 'Estimated profit' },
       { name: 'company_address', label: 'Company address', long: true },
       { name: 'invoice_address', label: 'Invoice address', long: true },
+    ],
+  },
+  {
+    title: 'Accounts & finance contacts',
+    fields: [
+      { name: 'accounts_contact_name', label: 'Accounts payable contact' },
+      { name: 'accounts_contact_email', label: 'Accounts email', type: 'email' },
+      { name: 'accounts_contact_phone', label: 'Accounts phone', type: 'tel' },
+      { name: 'invoice_chaser_contact', label: 'Invoice chaser' },
+      { name: 'fd_contact', label: 'Finance director' },
     ],
   },
   {
@@ -317,7 +347,7 @@ export function MemberDetailPage() {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'events' | 'payments'>('events')
-  const [actionPending, setActionPending] = useState<'cancel' | 'delete' | null>(null)
+  const [actionPending, setActionPending] = useState<'cancel' | 'delete' | 'resend' | null>(null)
   // Bumped after a save so the suggested-introductions panel recomputes
   // against the freshly-saved tags.
   const [refreshKey, setRefreshKey] = useState(0)
@@ -468,6 +498,11 @@ export function MemberDetailPage() {
       estimated_profit: member.estimated_profit ?? '',
       company_address: member.company_address ?? '',
       invoice_address: member.invoice_address ?? '',
+      accounts_contact_name: member.accounts_contact_name ?? '',
+      accounts_contact_email: member.accounts_contact_email ?? '',
+      accounts_contact_phone: member.accounts_contact_phone ?? '',
+      invoice_chaser_contact: member.invoice_chaser_contact ?? '',
+      fd_contact: member.fd_contact ?? '',
       intro_target_types: member.intro_target_types ?? '',
       intro_target_criteria: member.intro_target_criteria ?? '',
       dream_introductions: member.dream_introductions ?? '',
@@ -529,6 +564,11 @@ export function MemberDetailPage() {
         estimated_profit: data.estimated_profit || null,
         company_address: data.company_address || null,
         invoice_address: data.invoice_address || null,
+        accounts_contact_name: data.accounts_contact_name || null,
+        accounts_contact_email: data.accounts_contact_email || null,
+        accounts_contact_phone: data.accounts_contact_phone || null,
+        invoice_chaser_contact: data.invoice_chaser_contact || null,
+        fd_contact: data.fd_contact || null,
         intro_target_types: data.intro_target_types || null,
         intro_target_criteria: data.intro_target_criteria || null,
         dream_introductions: data.dream_introductions || null,
@@ -685,6 +725,39 @@ export function MemberDetailPage() {
     router.push('/dashboard/members')
   }
 
+  async function handleResendInvite() {
+    if (!member) return
+    const name =
+      `${member.profiles.first_name ?? ''} ${member.profiles.last_name ?? ''}`.trim() ||
+      'this member'
+    const ok = await confirm({
+      title: `Send login details to ${name}?`,
+      description: (
+        <span>
+          Emails {member.profiles.email ?? 'the member'} their login details — their email
+          and a new temporary password to sign in to the members portal. They’ll be asked to
+          change it after first login. Sent via The Club’s branded email.
+        </span>
+      ),
+      confirmLabel: 'Send login email',
+      tone: 'neutral',
+    })
+    if (!ok) return
+    setActionPending('resend')
+    const res = await fetch('/api/admin/members/resend-invite', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ member_id: member.id }),
+    })
+    const json = await res.json()
+    setActionPending(null)
+    if (!res.ok) {
+      toast({ title: 'Could not send', description: json.error, variant: 'destructive' })
+      return
+    }
+    toast({ title: 'Login details sent', description: json.email })
+  }
+
   if (loading || !member) {
     return (
       <div className="p-4 md:p-8">
@@ -764,6 +837,15 @@ export function MemberDetailPage() {
               onClick={startEditing}
             >
               Edit
+            </Button>
+            <Button
+              variant="ghost"
+              icon={<Mail size={14} />}
+              size="sm"
+              loading={actionPending === 'resend'}
+              onClick={handleResendInvite}
+            >
+              Resend login
             </Button>
             {!isCancelled && (
               <Button
@@ -1000,19 +1082,38 @@ export function MemberDetailPage() {
             <Section key={group.title} title={group.title}>
               {editing ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {group.fields.map((f) =>
-                    f.long ? (
-                      <Textarea
+                  {group.fields.map((f) => {
+                    if (f.long) {
+                      return (
+                        <Textarea
+                          key={f.name}
+                          label={f.label}
+                          rows={2}
+                          className="sm:col-span-2"
+                          {...form.register(f.name)}
+                        />
+                      )
+                    }
+                    const reg = form.register(f.name)
+                    return (
+                      <Input
                         key={f.name}
                         label={f.label}
-                        rows={2}
-                        className="sm:col-span-2"
-                        {...form.register(f.name)}
+                        type={f.type === 'email' ? 'email' : 'text'}
+                        inputMode={f.type === 'tel' ? 'tel' : undefined}
+                        error={form.formState.errors[f.name]?.message as string | undefined}
+                        {...reg}
+                        onChange={(e) => {
+                          // Phone/number fields: strip anything that isn't a
+                          // digit or standard phone punctuation as they type.
+                          if (f.type === 'tel') {
+                            e.target.value = e.target.value.replace(/[^0-9+()\s-]/g, '')
+                          }
+                          reg.onChange(e)
+                        }}
                       />
-                    ) : (
-                      <Input key={f.name} label={f.label} {...form.register(f.name)} />
-                    ),
-                  )}
+                    )
+                  })}
                 </div>
               ) : (
                 (() => {
@@ -1133,6 +1234,9 @@ export function MemberDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Document vault — onboarding forms, agreements, NDAs (private storage) */}
+      {!editing && <MemberDocumentsPanel memberId={member.id} />}
 
       {/* Application data — only if we found a linked application */}
       {application && !editing && (

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { SmoothScrolling } from '@/components/website/SmoothScrolling'
 import { ThemeProvider, THEME_BOOT_SCRIPT } from '@/providers/ThemeProvider'
+import { AuthHashRedirect } from '@/components/AuthHashRedirect'
 
 export const metadata: Metadata = {
   title: 'The Club by Sarah Restrick',
@@ -28,6 +29,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body>
+        <AuthHashRedirect />
         <ThemeProvider>
           <SmoothScrolling>{children}</SmoothScrolling>
         </ThemeProvider>
