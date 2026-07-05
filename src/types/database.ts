@@ -1547,6 +1547,7 @@ export type Database = {
           membership_tier: Database["public"]["Enums"]["membership_tier"]
           membership_type: Database["public"]["Enums"]["membership_type"]
           membership_value_pence: number | null
+          member_number: number | null
           monthly_intro_quota: number
           nda_url: string | null
           notes: string | null
@@ -1640,6 +1641,7 @@ export type Database = {
           membership_tier?: Database["public"]["Enums"]["membership_tier"]
           membership_type?: Database["public"]["Enums"]["membership_type"]
           membership_value_pence?: number | null
+          member_number?: number | null
           monthly_intro_quota?: number
           nda_url?: string | null
           notes?: string | null
@@ -1733,6 +1735,7 @@ export type Database = {
           membership_tier?: Database["public"]["Enums"]["membership_tier"]
           membership_type?: Database["public"]["Enums"]["membership_type"]
           membership_value_pence?: number | null
+          member_number?: number | null
           monthly_intro_quota?: number
           nda_url?: string | null
           notes?: string | null
@@ -2243,6 +2246,214 @@ export type Database = {
           website_url?: string | null
         }
         Relationships: []
+      }
+      reward_partners: {
+        Row: {
+          id: string
+          name: string
+          category: string
+          description: string | null
+          logo_url: string | null
+          website_url: string | null
+          contact_name: string | null
+          contact_email: string | null
+          contact_phone: string | null
+          is_active: boolean
+          is_public: boolean
+          display_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          category?: string
+          description?: string | null
+          logo_url?: string | null
+          website_url?: string | null
+          contact_name?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          is_active?: boolean
+          is_public?: boolean
+          display_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          category?: string
+          description?: string | null
+          logo_url?: string | null
+          website_url?: string | null
+          contact_name?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          is_active?: boolean
+          is_public?: boolean
+          display_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      reward_offers: {
+        Row: {
+          id: string
+          partner_id: string
+          title: string
+          summary: string | null
+          details: string | null
+          member_benefit: string | null
+          redemption_process: string | null
+          booking_url: string | null
+          discount_code: string | null
+          is_active: boolean
+          valid_until: string | null
+          display_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          partner_id: string
+          title: string
+          summary?: string | null
+          details?: string | null
+          member_benefit?: string | null
+          redemption_process?: string | null
+          booking_url?: string | null
+          discount_code?: string | null
+          is_active?: boolean
+          valid_until?: string | null
+          display_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          partner_id?: string
+          title?: string
+          summary?: string | null
+          details?: string | null
+          member_benefit?: string | null
+          redemption_process?: string | null
+          booking_url?: string | null
+          discount_code?: string | null
+          is_active?: boolean
+          valid_until?: string | null
+          display_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reward_offers_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "reward_partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reward_claims: {
+        Row: {
+          id: string
+          member_id: string
+          offer_id: string
+          status: string
+          claimed_at: string
+          redeemed_at: string | null
+          value_pence: number | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          member_id: string
+          offer_id: string
+          status?: string
+          claimed_at?: string
+          redeemed_at?: string | null
+          value_pence?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          member_id?: string
+          offer_id?: string
+          status?: string
+          claimed_at?: string
+          redeemed_at?: string | null
+          value_pence?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reward_claims_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reward_claims_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "reward_offers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reward_referrals: {
+        Row: {
+          id: string
+          member_id: string
+          description: string | null
+          referred_name: string | null
+          revenue_pence: number | null
+          commission_pence: number | null
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          member_id: string
+          description?: string | null
+          referred_name?: string | null
+          revenue_pence?: number | null
+          commission_pence?: number | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          member_id?: string
+          description?: string | null
+          referred_name?: string | null
+          revenue_pence?: number | null
+          commission_pence?: number | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reward_referrals_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reviews: {
         Row: {

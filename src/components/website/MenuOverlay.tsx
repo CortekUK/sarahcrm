@@ -13,6 +13,7 @@ const navLinks = [
   { href: '/memberships', label: 'Memberships', image: 'https://images.unsplash.com/photo-1630484179285-076074c31cc0?w=800&q=80' },
   { href: '/events', label: 'Events', image: 'https://images.unsplash.com/photo-1608538242779-113f7b19baa1?w=800&q=80' },
   { href: '/concierge', label: 'Concierge', image: 'https://images.unsplash.com/photo-1445019980597-93fa8acb246c?w=800&q=80' },
+  { href: '/rewards', label: 'Rewards', image: 'https://images.unsplash.com/photo-1607344645866-009c320b63e0?w=800&q=80' },
   { href: '/private-event-services', label: 'Private Events', image: 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=800&q=80' },
   { href: '/one-london-road', label: '[ONE] London Road', image: 'https://images.unsplash.com/photo-1665575061295-bd3aa839ff8c?w=800&q=80' },
   { href: '/gallery', label: 'Gallery', image: 'https://images.unsplash.com/photo-1552960226-639240203497?w=800&q=80' },

@@ -32,7 +32,7 @@ if (!TOKEN) {
 }
 
 const files = [
-  'supabase/migrations/20260707_introduction_request_fields.sql',
+  'supabase/migrations/20260708_rewards_benefits.sql',
 ]
 
 for (const file of files) {

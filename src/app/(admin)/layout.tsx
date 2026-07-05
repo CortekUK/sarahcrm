@@ -34,6 +34,7 @@ import {
   Handshake,
   ListTodo,
   BellRing,
+  Gift,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -114,6 +115,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/introductions', label: 'Introductions', icon: Handshake },
       { to: '/dashboard/tasks', label: 'Tasks', icon: ListTodo },
       { to: '/dashboard/concierge', label: 'Concierge', icon: BellRing },
+      { to: '/dashboard/rewards', label: 'Rewards', icon: Gift },
       { to: '/dashboard/tags', label: 'Tags', icon: Tags },
     ],
   },

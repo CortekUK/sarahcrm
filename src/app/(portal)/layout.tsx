@@ -16,6 +16,7 @@ import {
   Users,
   CreditCard,
   BellRing,
+  Gift,
   LogOut,
   Menu,
   X,
@@ -37,6 +38,7 @@ const NAV_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; end:
   { to: '/portal', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/portal/events', label: 'Events', icon: CalendarDays, end: false },
   { to: '/portal/concierge', label: 'Concierge', icon: BellRing, end: false },
+  { to: '/portal/rewards', label: 'Rewards', icon: Gift, end: false },
 ]
 
 const COMMUNITY_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; description: string }[] = [
