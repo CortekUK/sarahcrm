@@ -15,6 +15,7 @@ import {
   Handshake,
   Users,
   CreditCard,
+  BellRing,
   LogOut,
   Menu,
   X,
@@ -35,6 +36,7 @@ import {
 const NAV_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; end: boolean }[] = [
   { to: '/portal', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/portal/events', label: 'Events', icon: CalendarDays, end: false },
+  { to: '/portal/concierge', label: 'Concierge', icon: BellRing, end: false },
 ]
 
 const COMMUNITY_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; description: string }[] = [

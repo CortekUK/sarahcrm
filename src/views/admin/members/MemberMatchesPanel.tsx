@@ -10,6 +10,7 @@ import { Sparkles, HelpCircle } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { scoreMatches, type MatchCandidate, type MatchResult } from '@/lib/introductions/matching'
 import { IntroComposeModal, type ComposeMember } from '@/views/admin/introductions/IntroComposeModal'
+import { IntroOutcomeForm } from '@/components/admin/IntroOutcomeForm'
 
 interface WhyFact { label: string; value: string }
 interface WhyData {
@@ -62,6 +63,13 @@ interface ActiveIntro {
   outcome: string | null
   estimatedValuePence: number | null
   businessConverted: boolean
+  meetingHeldAt: string | null
+  proposalSentAt: string | null
+  dealStatus: 'won' | 'lost' | null
+  revenuePence: number | null
+  testimonialObtained: boolean
+  testimonialNote: string | null
+  followedUpAt: string | null
 }
 
 // All introductions with one counterpart, newest first.
@@ -94,42 +102,12 @@ export function MemberMatchesPanel({
   const [noTags, setNoTags] = useState(false)
   const [compose, setCompose] = useState<ComposeState | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
-  // Outcome capture (after both accept)
+  // Outcome capture (after both accept) — the pipeline form is shared with
+  // the introduction detail page via IntroOutcomeForm.
   const [outcomeIntro, setOutcomeIntro] = useState<ActiveIntro | null>(null)
-  const [outcomeText, setOutcomeText] = useState('')
-  const [outcomeValue, setOutcomeValue] = useState('')
-  const [outcomeConverted, setOutcomeConverted] = useState(false)
-  const [savingOutcome, setSavingOutcome] = useState(false)
 
   function openOutcome(item: ActiveIntro) {
     setOutcomeIntro(item)
-    setOutcomeText(item.outcome ?? '')
-    setOutcomeValue(item.estimatedValuePence != null ? String(item.estimatedValuePence / 100) : '')
-    setOutcomeConverted(item.businessConverted)
-  }
-
-  async function saveOutcome() {
-    if (!outcomeIntro) return
-    setSavingOutcome(true)
-    const pounds = parseFloat(outcomeValue)
-    const { error } = await supabase
-      .from('introductions')
-      .update({
-        outcome: outcomeText.trim() || null,
-        estimated_value_pence: Number.isFinite(pounds) ? Math.round(pounds * 100) : null,
-        business_converted: outcomeConverted,
-        status: 'completed',
-        followed_up_at: new Date().toISOString(),
-      })
-      .eq('id', outcomeIntro.introId)
-    setSavingOutcome(false)
-    if (error) {
-      toast({ title: 'Could not save outcome', description: error.message, variant: 'destructive' })
-      return
-    }
-    toast({ title: 'Outcome recorded' })
-    setOutcomeIntro(null)
-    compute()
   }
   // "Why this match?" AI dialog
   const [whyOpen, setWhyOpen] = useState(false)
@@ -177,7 +155,7 @@ export function MemberMatchesPanel({
     const { data: existingIntros } = await supabase
       .from('introductions')
       .select(
-        'id, status, created_at, member_a_id, member_b_id, match_reason, match_score, email_a_sent_at, email_b_sent_at, email_a_scheduled_at, email_b_scheduled_at, member_a_response, member_b_response, member_a_response_note, member_b_response_note, outcome, estimated_value_pence, business_converted',
+        'id, status, created_at, member_a_id, member_b_id, match_reason, match_score, email_a_sent_at, email_b_sent_at, email_a_scheduled_at, email_b_scheduled_at, member_a_response, member_b_response, member_a_response_note, member_b_response_note, outcome, estimated_value_pence, business_converted, meeting_held_at, proposal_sent_at, deal_status, revenue_pence, testimonial_obtained, testimonial_note, followed_up_at',
       )
       .or(`member_a_id.eq.${memberId},member_b_id.eq.${memberId}`)
 
@@ -237,6 +215,13 @@ export function MemberMatchesPanel({
         outcome: (intro.outcome as string | null) ?? null,
         estimatedValuePence: (intro.estimated_value_pence as number | null) ?? null,
         businessConverted: Boolean(intro.business_converted),
+        meetingHeldAt: (intro.meeting_held_at as string | null) ?? null,
+        proposalSentAt: (intro.proposal_sent_at as string | null) ?? null,
+        dealStatus: (intro.deal_status as 'won' | 'lost' | null) ?? null,
+        revenuePence: (intro.revenue_pence as number | null) ?? null,
+        testimonialObtained: Boolean(intro.testimonial_obtained),
+        testimonialNote: (intro.testimonial_note as string | null) ?? null,
+        followedUpAt: (intro.followed_up_at as string | null) ?? null,
       })
     }
 
@@ -611,56 +596,32 @@ export function MemberMatchesPanel({
         )}
       </Modal>
 
-      {/* Record outcome */}
-      <Modal open={Boolean(outcomeIntro)} onClose={() => !savingOutcome && setOutcomeIntro(null)} title="Record outcome" size="md">
+      {/* Record outcome — shared pipeline form */}
+      <Modal open={Boolean(outcomeIntro)} onClose={() => setOutcomeIntro(null)} title="Record outcome" size="md">
         {outcomeIntro && (
           <div className="space-y-4">
             <p className="text-sm text-text-muted">
               Capture what came of introducing <span className="text-text font-medium">{memberName}</span> and{' '}
               <span className="text-text font-medium">{outcomeIntro.other.name}</span>.
             </p>
-            <div>
-              <label className="block font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-1.5">
-                Outcome note
-              </label>
-              <textarea
-                value={outcomeText}
-                onChange={(e) => setOutcomeText(e.target.value)}
-                rows={3}
-                placeholder="e.g. Met for coffee; Northstar is exploring a seed round into Gamma."
-                className="w-full px-3.5 py-2.5 bg-surface text-text text-sm rounded-[var(--radius-md)] border border-border outline-none focus:border-gold resize-y"
-              />
-            </div>
-            <div>
-              <label className="block font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-1.5">
-                Value generated (£)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim text-sm">£</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={outcomeValue}
-                  onChange={(e) => setOutcomeValue(e.target.value)}
-                  placeholder="0"
-                  className="w-full pl-7 pr-3.5 py-2.5 bg-surface text-text text-sm rounded-[var(--radius-md)] border border-border outline-none focus:border-gold"
-                />
-              </div>
-              <p className="text-xs text-text-dim mt-1">Estimated value of business from this introduction.</p>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-text cursor-pointer">
-              <input type="checkbox" checked={outcomeConverted} onChange={(e) => setOutcomeConverted(e.target.checked)} />
-              Business converted (a deal happened)
-            </label>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="ghost" onClick={() => setOutcomeIntro(null)} disabled={savingOutcome}>
-                Cancel
-              </Button>
-              <Button onClick={saveOutcome} loading={savingOutcome}>
-                Save outcome
-              </Button>
-            </div>
+            <IntroOutcomeForm
+              introId={outcomeIntro.introId}
+              initial={{
+                outcome: outcomeIntro.outcome,
+                meeting_held_at: outcomeIntro.meetingHeldAt,
+                proposal_sent_at: outcomeIntro.proposalSentAt,
+                deal_status: outcomeIntro.dealStatus,
+                estimated_value_pence: outcomeIntro.estimatedValuePence,
+                revenue_pence: outcomeIntro.revenuePence,
+                testimonial_obtained: outcomeIntro.testimonialObtained,
+                testimonial_note: outcomeIntro.testimonialNote,
+                followed_up_at: outcomeIntro.followedUpAt,
+              }}
+              onSaved={() => {
+                setOutcomeIntro(null)
+                compute()
+              }}
+            />
           </div>
         )}
       </Modal>

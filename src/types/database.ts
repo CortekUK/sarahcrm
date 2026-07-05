@@ -317,57 +317,91 @@ export type Database = {
       }
       concierge_requests: {
         Row: {
+          assigned_to: string | null
           budget_pence: number | null
+          commission_pence: number | null
           created_at: string
           dates: string | null
+          delivered_at: string | null
           description: string | null
           event_name: string | null
+          feedback_note: string | null
+          feedback_rating: number | null
           fulfilled_by: string | null
           guests: number | null
           id: string
           location: string | null
           member_id: string
           notes: string | null
+          priority: string | null
           quoted_amount_pence: number | null
           request_type: string
+          sale_price_pence: number | null
           status: string
+          supplier_cost_pence: number | null
+          supplier_name: string | null
           updated_at: string
         }
         Insert: {
+          assigned_to?: string | null
           budget_pence?: number | null
+          commission_pence?: number | null
           created_at?: string
           dates?: string | null
+          delivered_at?: string | null
           description?: string | null
           event_name?: string | null
+          feedback_note?: string | null
+          feedback_rating?: number | null
           fulfilled_by?: string | null
           guests?: number | null
           id?: string
           location?: string | null
           member_id: string
           notes?: string | null
+          priority?: string | null
           quoted_amount_pence?: number | null
           request_type: string
+          sale_price_pence?: number | null
           status?: string
+          supplier_cost_pence?: number | null
+          supplier_name?: string | null
           updated_at?: string
         }
         Update: {
+          assigned_to?: string | null
           budget_pence?: number | null
+          commission_pence?: number | null
           created_at?: string
           dates?: string | null
+          delivered_at?: string | null
           description?: string | null
           event_name?: string | null
+          feedback_note?: string | null
+          feedback_rating?: number | null
           fulfilled_by?: string | null
           guests?: number | null
           id?: string
           location?: string | null
           member_id?: string
           notes?: string | null
+          priority?: string | null
           quoted_amount_pence?: number | null
           request_type?: string
+          sale_price_pence?: number | null
           status?: string
+          supplier_cost_pence?: number | null
+          supplier_name?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "concierge_requests_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "concierge_requests_fulfilled_by_fkey"
             columns: ["fulfilled_by"]
@@ -1199,7 +1233,16 @@ export type Database = {
           scheduled_send_at: string | null
           outcome: string | null
           requested_by: string | null
+          request_reason: string | null
+          desired_outcome: string | null
           sent_at: string | null
+          meeting_held_at: string | null
+          proposal_sent_at: string | null
+          deal_status: string | null
+          deal_closed_at: string | null
+          revenue_pence: number | null
+          testimonial_obtained: boolean
+          testimonial_note: string | null
           status: Database["public"]["Enums"]["intro_status"]
           suggested_at: string
           updated_at: string
@@ -1236,7 +1279,16 @@ export type Database = {
           scheduled_send_at?: string | null
           outcome?: string | null
           requested_by?: string | null
+          request_reason?: string | null
+          desired_outcome?: string | null
           sent_at?: string | null
+          meeting_held_at?: string | null
+          proposal_sent_at?: string | null
+          deal_status?: string | null
+          deal_closed_at?: string | null
+          revenue_pence?: number | null
+          testimonial_obtained?: boolean
+          testimonial_note?: string | null
           status?: Database["public"]["Enums"]["intro_status"]
           suggested_at?: string
           updated_at?: string
@@ -1273,7 +1325,16 @@ export type Database = {
           scheduled_send_at?: string | null
           outcome?: string | null
           requested_by?: string | null
+          request_reason?: string | null
+          desired_outcome?: string | null
           sent_at?: string | null
+          meeting_held_at?: string | null
+          proposal_sent_at?: string | null
+          deal_status?: string | null
+          deal_closed_at?: string | null
+          revenue_pence?: number | null
+          testimonial_obtained?: boolean
+          testimonial_note?: string | null
           status?: Database["public"]["Enums"]["intro_status"]
           suggested_at?: string
           updated_at?: string

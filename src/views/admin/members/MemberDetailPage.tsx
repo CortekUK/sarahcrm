@@ -29,6 +29,9 @@ import { toast } from '@/lib/hooks/use-toast'
 import { formatDate, formatCurrency, cn } from '@/lib/utils'
 import { MemberMatchesPanel } from './MemberMatchesPanel'
 import { MemberDocumentsPanel } from './MemberDocumentsPanel'
+import { MemberRoiPanel } from '@/components/admin/MemberRoiPanel'
+import { MemberScoresPanel } from '@/components/admin/MemberScoresPanel'
+import { MemberRecommendationsPanel } from '@/components/admin/MemberRecommendationsPanel'
 import {
   PLAN_OPTIONS,
   planForTier,
@@ -1140,6 +1143,17 @@ export function MemberDetailPage() {
           ))}
         </CardContent>
       </Card>
+
+      {/* Commercial value / ROI rollup (Feature #5) + relationship scores
+          (Feature #4). Added alongside — not replacing — the free-text
+          relationship-intelligence card above. */}
+      {!editing && (
+        <>
+          <MemberRoiPanel memberId={member.id} />
+          <MemberScoresPanel memberId={member.id} />
+          <MemberRecommendationsPanel memberId={member.id} />
+        </>
+      )}
 
       {/* Representatives — business accounts (Business + Corporate plans)
           that hold the membership (not themselves a rep under another

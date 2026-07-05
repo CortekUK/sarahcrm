@@ -10,9 +10,11 @@ import {
   PortalButton,
   PortalCard,
   PortalEmptyState,
+  PortalField,
   PortalLoading,
   PortalModal,
   PortalPageHeader,
+  PortalTextarea,
 } from '@/components/portal/PortalChrome'
 
 function stripLookingFor(name: string) {
@@ -74,6 +76,11 @@ export function PortalNetworkPage() {
   const [toastVisible, setToastVisible] = useState(false)
   const [requesting, setRequesting] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
+  // The short "reason / desired outcome" form the member fills before the
+  // request is sent to The Club.
+  const [requestFormOpen, setRequestFormOpen] = useState(false)
+  const [requestReason, setRequestReason] = useState('')
+  const [requestOutcome, setRequestOutcome] = useState('')
   // Members this session has already requested an intro to (for button state).
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
 
@@ -209,14 +216,31 @@ export function PortalNetworkPage() {
     setProfileData(null)
   }
 
+  function openRequestForm() {
+    setRequestReason('')
+    setRequestOutcome('')
+    setRequestError(null)
+    setRequestFormOpen(true)
+  }
+
   async function handleRequestIntroduction() {
     if (!selectedMemberId || requesting) return
+    const reason = requestReason.trim()
+    if (!reason) {
+      setRequestError('Please share a reason for the introduction.')
+      return
+    }
+    setRequestError(null)
     setRequesting(true)
     try {
       const res = await fetch('/api/portal/introductions/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_member_id: selectedMemberId }),
+        body: JSON.stringify({
+          target_member_id: selectedMemberId,
+          reason,
+          desired_outcome: requestOutcome.trim() || undefined,
+        }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -229,6 +253,7 @@ export function PortalNetworkPage() {
         return
       }
       setRequestedIds((prev) => new Set(prev).add(selectedMemberId))
+      setRequestFormOpen(false)
       setToastVisible(true)
       setTimeout(() => setToastVisible(false), 3000)
     } finally {
@@ -490,18 +515,72 @@ export function PortalNetworkPage() {
                 <PortalButton
                   className="w-full justify-center"
                   icon={<Handshake size={14} strokeWidth={1.5} />}
-                  onClick={handleRequestIntroduction}
-                  loading={requesting}
+                  onClick={openRequestForm}
                 >
                   Request introduction
                 </PortalButton>
               )}
-              {requestError && (
-                <p className="mt-2 text-center text-[12px] text-rose-300/90">{requestError}</p>
-              )}
             </div>
           </div>
         ) : null}
+      </PortalModal>
+
+      {/* Request-introduction form — the member's own words, sent to The Club. */}
+      <PortalModal
+        open={requestFormOpen}
+        onClose={() => !requesting && setRequestFormOpen(false)}
+        size="md"
+      >
+        <div className="space-y-6">
+          <div className="text-center">
+            <h2 className="font-[family-name:var(--font-display)] text-[clamp(1.35rem,2vw,1.65rem)] text-ivory leading-tight">
+              Request an introduction
+            </h2>
+            {fullName && (
+              <p className="mt-2 font-[family-name:var(--font-editorial)] italic text-[13.5px] text-slate-haze">
+                to {fullName}
+              </p>
+            )}
+          </div>
+
+          <PortalField
+            label="Reason for introduction"
+            hint="Shared with The Club, in confidence."
+          >
+            <PortalTextarea
+              value={requestReason}
+              onChange={(e) => setRequestReason(e.target.value)}
+              placeholder="Why would you like to be introduced?"
+              rows={3}
+            />
+          </PortalField>
+
+          <PortalField
+            label="Desired outcome"
+            hint="Optional — what you hope comes of it."
+          >
+            <PortalTextarea
+              value={requestOutcome}
+              onChange={(e) => setRequestOutcome(e.target.value)}
+              placeholder="What would a good introduction lead to?"
+              rows={3}
+            />
+          </PortalField>
+
+          <div>
+            <PortalButton
+              className="w-full justify-center"
+              icon={<Handshake size={14} strokeWidth={1.5} />}
+              onClick={handleRequestIntroduction}
+              loading={requesting}
+            >
+              Send request to The Club
+            </PortalButton>
+            {requestError && (
+              <p className="mt-2 text-center text-[12px] text-rose-300/90">{requestError}</p>
+            )}
+          </div>
+        </div>
       </PortalModal>
 
       {toastVisible && (

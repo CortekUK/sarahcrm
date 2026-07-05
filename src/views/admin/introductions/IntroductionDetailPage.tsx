@@ -6,11 +6,10 @@ import { supabase } from '@/lib/supabase/client'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Textarea } from '@/components/ui/Textarea'
 import { Avatar } from '@/components/ui/Avatar'
+import { IntroOutcomeForm } from '@/components/admin/IntroOutcomeForm'
 import { formatDate, cn } from '@/lib/utils'
-import { ArrowLeft, ArrowRight, Check, X as XIcon, Save } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, X as XIcon } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type IntroStatus = Database['public']['Enums']['intro_status']
@@ -20,6 +19,8 @@ interface IntroDetail {
   status: IntroStatus
   match_score: number | null
   match_reason: string | null
+  request_reason: string | null
+  desired_outcome: string | null
   matching_tags: string[] | null
   suggested_at: string
   approved_at: string | null
@@ -30,6 +31,13 @@ interface IntroDetail {
   outcome: string | null
   business_converted: boolean
   estimated_value_pence: number | null
+  meeting_held_at: string | null
+  proposal_sent_at: string | null
+  deal_status: 'won' | 'lost' | null
+  deal_closed_at: string | null
+  revenue_pence: number | null
+  testimonial_obtained: boolean
+  testimonial_note: string | null
   event_id: string | null
   member_a_id: string
   member_b_id: string
@@ -119,12 +127,6 @@ export function IntroductionDetailPage() {
   const [loading, setLoading] = useState(true)
   const [advancing, setAdvancing] = useState(false)
 
-  // Outcome editing
-  const [outcomeText, setOutcomeText] = useState('')
-  const [businessConverted, setBusinessConverted] = useState(false)
-  const [estimatedValue, setEstimatedValue] = useState('')
-  const [savingOutcome, setSavingOutcome] = useState(false)
-
   useEffect(() => {
     if (id) fetchIntro(id)
   }, [id])
@@ -151,9 +153,6 @@ export function IntroductionDetailPage() {
     if (!error && data) {
       const d = data as unknown as IntroDetail
       setIntro(d)
-      setOutcomeText(d.outcome ?? '')
-      setBusinessConverted(d.business_converted)
-      setEstimatedValue(d.estimated_value_pence != null ? String(d.estimated_value_pence / 100) : '')
 
       // Resolve matching_tags UUIDs to names
       if (d.matching_tags && d.matching_tags.length > 0) {
@@ -182,26 +181,6 @@ export function IntroductionDetailPage() {
       .eq('id', id)
     await fetchIntro(id)
     setAdvancing(false)
-  }
-
-  async function saveOutcome() {
-    if (!id) return
-    setSavingOutcome(true)
-
-    // Recording an outcome completes the introduction. There is no
-    // dedicated completed_at column, so we stamp followed_up_at as the
-    // real completion time (matching the matches-panel flow) rather than
-    // reusing accepted_at.
-    await supabase.from('introductions').update({
-      outcome: outcomeText || null,
-      business_converted: businessConverted,
-      estimated_value_pence: estimatedValue ? Math.round(parseFloat(estimatedValue) * 100) : null,
-      status: 'completed',
-      followed_up_at: new Date().toISOString(),
-    }).eq('id', id)
-
-    await fetchIntro(id)
-    setSavingOutcome(false)
   }
 
   if (loading || !intro) {
@@ -301,6 +280,20 @@ export function IntroductionDetailPage() {
             <div className="mt-4 pt-4 border-t border-border">
               <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Match Reason</p>
               <p className="text-sm text-text">{intro.match_reason}</p>
+            </div>
+          )}
+
+          {/* The requesting member's own words (only when they requested it) */}
+          {intro.request_reason && (
+            <div className="mt-4 pt-4 border-t border-border">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Member&apos;s reason</p>
+              <p className="text-sm text-text whitespace-pre-line">{intro.request_reason}</p>
+            </div>
+          )}
+          {intro.desired_outcome && (
+            <div className="mt-4 pt-4 border-t border-border">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Desired outcome</p>
+              <p className="text-sm text-text whitespace-pre-line">{intro.desired_outcome}</p>
             </div>
           )}
 
@@ -529,8 +522,9 @@ export function IntroductionDetailPage() {
         </Card>
       )}
 
-      {/* Outcome — recordable once not declined; saving completes the intro
-          and stamps followed_up_at as the completion time. */}
+      {/* Outcome pipeline — recordable once not declined. Deciding a deal
+          (won/lost) completes the intro and stamps followed_up_at. Shared
+          with the member matches panel via IntroOutcomeForm. */}
       {!isDeclined && (
         <Card>
           <CardHeader>
@@ -542,47 +536,21 @@ export function IntroductionDetailPage() {
                 Completed {formatDate(intro.followed_up_at)}.
               </p>
             )}
-            <div className="space-y-4">
-              <Textarea
-                label="Outcome Notes"
-                rows={3}
-                value={outcomeText}
-                onChange={(e) => setOutcomeText(e.target.value)}
-                placeholder="Describe the outcome of this introduction..."
-              />
-
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={businessConverted}
-                    onChange={(e) => setBusinessConverted(e.target.checked)}
-                    className="w-4 h-4 rounded border-border text-gold focus:ring-gold"
-                  />
-                  <span className="text-sm text-text">Business converted</span>
-                </label>
-              </div>
-
-              <Input
-                label="Estimated Value (£)"
-                type="number"
-                step="0.01"
-                min="0"
-                value={estimatedValue}
-                onChange={(e) => setEstimatedValue(e.target.value)}
-                placeholder="0.00"
-              />
-
-              <div className="flex justify-end">
-                <Button
-                  icon={<Save size={14} />}
-                  loading={savingOutcome}
-                  onClick={saveOutcome}
-                >
-                  {isCompleted ? 'Save Outcome' : 'Save Outcome & Complete'}
-                </Button>
-              </div>
-            </div>
+            <IntroOutcomeForm
+              introId={intro.id}
+              initial={{
+                outcome: intro.outcome,
+                meeting_held_at: intro.meeting_held_at,
+                proposal_sent_at: intro.proposal_sent_at,
+                deal_status: intro.deal_status,
+                estimated_value_pence: intro.estimated_value_pence,
+                revenue_pence: intro.revenue_pence,
+                testimonial_obtained: intro.testimonial_obtained,
+                testimonial_note: intro.testimonial_note,
+                followed_up_at: intro.followed_up_at,
+              }}
+              onSaved={() => fetchIntro(intro.id)}
+            />
           </CardContent>
         </Card>
       )}

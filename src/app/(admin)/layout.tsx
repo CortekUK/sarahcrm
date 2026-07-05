@@ -33,6 +33,7 @@ import {
   Tags,
   Handshake,
   ListTodo,
+  BellRing,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -112,6 +113,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/bookings', label: 'Bookings', icon: Ticket },
       { to: '/dashboard/introductions', label: 'Introductions', icon: Handshake },
       { to: '/dashboard/tasks', label: 'Tasks', icon: ListTodo },
+      { to: '/dashboard/concierge', label: 'Concierge', icon: BellRing },
       { to: '/dashboard/tags', label: 'Tags', icon: Tags },
     ],
   },

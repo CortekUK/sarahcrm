@@ -30,10 +30,19 @@ export async function POST(req: NextRequest) {
   } = await supabase.auth.getUser()
   if (!user) return Response.json({ error: 'Not authenticated' }, { status: 401 })
 
-  const body = (await req.json().catch(() => ({}))) as { target_member_id?: string }
+  const body = (await req.json().catch(() => ({}))) as {
+    target_member_id?: string
+    reason?: string
+    desired_outcome?: string
+  }
   if (!body.target_member_id) {
     return Response.json({ error: 'target_member_id is required.' }, { status: 400 })
   }
+
+  // Optional free-text context from the requesting member. Trim and coerce
+  // empty strings to null so we never store whitespace-only values.
+  const requestReason = body.reason?.trim() || null
+  const desiredOutcome = body.desired_outcome?.trim() || null
 
   const { data: me } = await supabase
     .from('members')
@@ -89,6 +98,8 @@ export async function POST(req: NextRequest) {
     member_b_id: bId,
     status: 'suggested',
     requested_by: me.id,
+    request_reason: requestReason,
+    desired_outcome: desiredOutcome,
     match_reason: `Requested by ${requesterName}.`,
   })
   if (error) {

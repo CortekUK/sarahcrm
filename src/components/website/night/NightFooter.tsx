@@ -33,6 +33,7 @@ const COLUMNS: Array<{ label: string; links: Array<{ href: string; text: string 
     label: 'Connect',
     links: [
       { href: '/contact-us', text: 'Contact' },
+      { href: '/concierge', text: 'Concierge' },
       { href: '/share-your-experience', text: 'Share Your Experience' },
       { href: '/membership-application', text: 'Apply for Membership' },
       { href: 'mailto:hello@theclubbysarahrestrick.com', text: 'hello@theclubbysarahrestrick.com' },

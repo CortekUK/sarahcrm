@@ -14,12 +14,14 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table'
-import { formatDate } from '@/lib/utils'
-import { Plus, Search, Inbox } from 'lucide-react'
+import { formatDate, formatCurrency } from '@/lib/utils'
+import { Plus, Search, Inbox, Sparkles, TrendingUp } from 'lucide-react'
 import { CreateIntroductionModal } from './CreateIntroductionModal'
 import { IntroComposeModal, type ComposeMember } from './IntroComposeModal'
 import { Modal } from '@/components/ui/Modal'
+import { StatCard } from '@/components/ui/StatCard'
 import { toast } from '@/lib/hooks/use-toast'
+import { buildIntroReport } from '@/lib/introductions/reporting'
 import type { Database } from '@/types/database'
 
 type IntroStatus = Database['public']['Enums']['intro_status']
@@ -30,6 +32,8 @@ interface IntroRow {
   status: IntroStatus
   match_score: number | null
   match_reason: string | null
+  request_reason: string | null
+  desired_outcome: string | null
   suggested_at: string
   event_id: string | null
   requested_by: string | null
@@ -37,7 +41,13 @@ interface IntroRow {
   member_b_id: string
   member_a_response: IntroResponse
   member_b_response: IntroResponse
+  // Commercial-outcome fields feeding the Insights / reporting section.
+  sent_at: string | null
+  meeting_held_at: string | null
+  deal_status: string | null
+  revenue_pence: number | null
   member_a: {
+    sector: string | null
     profiles: {
       first_name: string | null
       last_name: string | null
@@ -45,6 +55,7 @@ interface IntroRow {
     }
   }
   member_b: {
+    sector: string | null
     profiles: {
       first_name: string | null
       last_name: string | null
@@ -91,6 +102,9 @@ export function IntroductionsListPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  // AI suggestion generation + dismissal
+  const [generating, setGenerating] = useState(false)
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
 
   // Approve flow → compose & send
   const [compose, setCompose] = useState<{
@@ -116,6 +130,87 @@ export function IntroductionsListPage() {
     () => intros.filter((i) => i.status === 'suggested' && i.requested_by),
     [intros],
   )
+
+  // AI-generated suggestions awaiting review (no requester = engine-created).
+  const aiSuggestions = useMemo(
+    () => intros.filter((i) => i.status === 'suggested' && !i.requested_by),
+    [intros],
+  )
+
+  // Insights / reporting — aggregate every introduction into the dashboard
+  // metrics the client doc calls for (revenue generated, ROI by member/sector).
+  const report = useMemo(() => {
+    const memberMap = new Map<string, { id: string; name: string; sector: string | null }>()
+    for (const i of intros) {
+      memberMap.set(i.member_a_id, {
+        id: i.member_a_id,
+        name: memberName(i.member_a?.profiles ?? null),
+        sector: i.member_a?.sector ?? null,
+      })
+      memberMap.set(i.member_b_id, {
+        id: i.member_b_id,
+        name: memberName(i.member_b?.profiles ?? null),
+        sector: i.member_b?.sector ?? null,
+      })
+    }
+    return buildIntroReport(
+      intros.map((i) => ({
+        member_a_id: i.member_a_id,
+        member_b_id: i.member_b_id,
+        requested_by: i.requested_by,
+        status: i.status,
+        sent_at: i.sent_at,
+        meeting_held_at: i.meeting_held_at,
+        deal_status: i.deal_status,
+        revenue_pence: i.revenue_pence,
+      })),
+      [...memberMap.values()],
+    )
+  }, [intros])
+
+  async function generateSuggestions() {
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/admin/introductions/generate-suggestions', {
+        method: 'POST',
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        toast({ title: 'Could not generate', description: json.error, variant: 'destructive' })
+        return
+      }
+      const n = json.created as number
+      toast({
+        title: n > 0 ? `${n} suggestion${n === 1 ? '' : 's'} generated` : 'No new suggestions',
+        description:
+          n > 0
+            ? 'Review them below and approve or dismiss.'
+            : 'Every strong match already has an introduction.',
+      })
+      await fetchIntros()
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function dismissSuggestion(intro: IntroRow) {
+    setDismissingId(intro.id)
+    try {
+      const res = await fetch('/api/admin/introductions/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ introduction_id: intro.id, notify: false }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        toast({ title: 'Could not dismiss', description: json.error, variant: 'destructive' })
+        return
+      }
+      await fetchIntros()
+    } finally {
+      setDismissingId(null)
+    }
+  }
 
   function requesterAndOther(intro: IntroRow) {
     const aIsRequester = intro.requested_by === intro.member_a_id
@@ -192,6 +287,8 @@ export function IntroductionsListPage() {
         status,
         match_score,
         match_reason,
+        request_reason,
+        desired_outcome,
         suggested_at,
         event_id,
         requested_by,
@@ -199,10 +296,16 @@ export function IntroductionsListPage() {
         member_b_id,
         member_a_response,
         member_b_response,
+        sent_at,
+        meeting_held_at,
+        deal_status,
+        revenue_pence,
         member_a:members!introductions_member_a_id_fkey(
+          sector,
           profiles(first_name, last_name, company_name)
         ),
         member_b:members!introductions_member_b_id_fkey(
+          sector,
           profiles(first_name, last_name, company_name)
         ),
         events(title)
@@ -261,9 +364,91 @@ export function IntroductionsListPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          <Button
+            variant="secondary"
+            icon={<Sparkles size={16} />}
+            loading={generating}
+            onClick={generateSuggestions}
+          >
+            Generate suggestions
+          </Button>
           <Button icon={<Plus size={16} />} onClick={() => setShowCreateModal(true)}>
             Create Introduction
           </Button>
+        </div>
+      </div>
+
+      {/* Insights — revenue generated by introductions + ROI breakdowns */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp size={16} className="text-gold" />
+          <h2 className="text-sm font-medium text-text">Insights</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Introductions Requested" value={report.totalRequested} />
+          <StatCard label="Introductions Made" value={report.totalMade} />
+          <StatCard label="Meetings Created" value={report.meetingsHeld} />
+          <StatCard label="Opportunities Created" value={report.dealsWon} />
+          <StatCard label="Total Introductions" value={report.totalIntroductions} />
+          <StatCard
+            label="Revenue Generated"
+            value={formatCurrency(report.revenuePence)}
+            changeText="from introductions"
+          />
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {/* ROI by member */}
+          <div className="rounded-[var(--radius-lg)] border border-border bg-surface p-4 shadow-[var(--shadow-card)]">
+            <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-3">
+              ROI by Member
+            </p>
+            {report.byMember.length === 0 ? (
+              <p className="text-sm text-text-dim">No introduction revenue recorded yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {report.byMember.map((row, i) => (
+                  <div
+                    key={row.key}
+                    className="flex items-center justify-between rounded-[var(--radius-md)] bg-surface-2 border border-border px-3 py-2"
+                  >
+                    <span className="min-w-0 truncate text-sm text-text">
+                      <span className="text-text-dim mr-1.5">{i + 1}.</span>
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 text-sm font-medium text-gold">
+                      {formatCurrency(row.revenuePence)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* ROI by industry sector */}
+          <div className="rounded-[var(--radius-lg)] border border-border bg-surface p-4 shadow-[var(--shadow-card)]">
+            <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-muted mb-3">
+              ROI by Industry Sector
+            </p>
+            {report.bySector.length === 0 ? (
+              <p className="text-sm text-text-dim">No introduction revenue recorded yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {report.bySector.map((row, i) => (
+                  <div
+                    key={row.key}
+                    className="flex items-center justify-between rounded-[var(--radius-md)] bg-surface-2 border border-border px-3 py-2"
+                  >
+                    <span className="min-w-0 truncate text-sm text-text">
+                      <span className="text-text-dim mr-1.5">{i + 1}.</span>
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 text-sm font-medium text-gold">
+                      {formatCurrency(row.revenuePence)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -286,11 +471,23 @@ export function IntroductionsListPage() {
                   key={intro.id}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] bg-surface border border-border p-3"
                 >
-                  <p className="text-sm text-text">
-                    <span className="font-medium">{reqName}</span>
-                    <span className="text-text-muted"> would like to meet </span>
-                    <span className="font-medium">{otherName}</span>
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-text">
+                      <span className="font-medium">{reqName}</span>
+                      <span className="text-text-muted"> would like to meet </span>
+                      <span className="font-medium">{otherName}</span>
+                    </p>
+                    {intro.request_reason && (
+                      <p className="mt-1 text-xs text-text-muted">
+                        <span className="text-text-dim">Reason:</span> {intro.request_reason}
+                      </p>
+                    )}
+                    {intro.desired_outcome && (
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        <span className="text-text-dim">Desired outcome:</span> {intro.desired_outcome}
+                      </p>
+                    )}
+                  </div>
                   <div className="flex gap-2 shrink-0">
                     <Button
                       size="sm"
@@ -302,6 +499,66 @@ export function IntroductionsListPage() {
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => openReject(intro)}>
                       Reject
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* AI suggestions inbox */}
+      {aiSuggestions.length > 0 && (
+        <div className="mb-6 rounded-[var(--radius-lg)] border border-border-gold bg-gold-muted/40 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-gold-light to-gold text-white shadow-[0_2px_6px_rgba(184,151,90,0.35)]">
+              <Sparkles size={11} strokeWidth={1.75} />
+            </div>
+            <h2 className="text-sm font-medium text-text">
+              Suggested introductions · {aiSuggestions.length}
+            </h2>
+          </div>
+          <div className="space-y-2">
+            {aiSuggestions.map((intro) => {
+              const nameA = memberName(intro.member_a?.profiles ?? null)
+              const nameB = memberName(intro.member_b?.profiles ?? null)
+              return (
+                <div
+                  key={intro.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] bg-surface border border-border p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-text">
+                      <span className="font-medium">{nameA}</span>
+                      <span className="text-text-muted"> &amp; </span>
+                      <span className="font-medium">{nameB}</span>
+                      {intro.match_score != null && (
+                        <span className="ml-2 text-gold font-medium">
+                          {Math.round(intro.match_score * 100)}%
+                        </span>
+                      )}
+                    </p>
+                    {intro.match_reason && (
+                      <p className="text-xs text-text-dim italic mt-0.5">{intro.match_reason}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={approvingId === intro.id}
+                      onClick={() => approveRequest(intro)}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      loading={dismissingId === intro.id}
+                      onClick={() => dismissSuggestion(intro)}
+                    >
+                      Dismiss
                     </Button>
                   </div>
                 </div>

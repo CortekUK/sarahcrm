@@ -74,6 +74,7 @@ export function EnquiriesListPage() {
   const [statusFilter, setStatusFilter] = useState<EnquiryStatus | 'all'>('new')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<EnquiryRow | null>(null)
+  const [composing, setComposing] = useState<EnquiryRow | null>(null)
 
   useEffect(() => {
     fetchEnquiries()
@@ -176,22 +177,15 @@ export function EnquiriesListPage() {
     toast({ title: 'Enquiry deleted' })
   }
 
-  // Compose a mailto: link so the admin can reply from their own email
-  // client (which carries their identity + signature). Subject quotes
-  // the first line of the message; body opens with a polite greeting
-  // and the original quoted below.
-  function buildMailto(enquiry: EnquiryRow): string {
-    const subject = `Re: Your enquiry to The Club`
-    const greeting = `Hi ${enquiry.first_name ?? 'there'},\n\nThank you for reaching out — `
-    const quoted =
-      `\n\n— — —\nOn ${formatDateTime(enquiry.created_at)} you wrote:\n` +
-      enquiry.message
-        .split('\n')
-        .map((l) => `> ${l}`)
-        .join('\n')
-    const body = `${greeting}\n\nWith warmth,\nThe Club by Sarah Restrick${quoted}`
-    const params = new URLSearchParams({ subject, body })
-    return `mailto:${enquiry.email}?${params.toString().replace(/\+/g, '%20')}`
+  // When a reply is sent through the in-app composer, reflect it locally
+  // (mark replied + stamp the time) so the inbox updates without a reload.
+  function handleReplySent(id: string, repliedAt: string) {
+    setEnquiries((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, status: 'replied', replied_at: repliedAt } : e)),
+    )
+    setSelected((prev) =>
+      prev?.id === id ? { ...prev, status: 'replied', replied_at: repliedAt } : prev,
+    )
   }
 
   return (
@@ -331,17 +325,132 @@ export function EnquiriesListPage() {
           onClose={() => setSelected(null)}
           onStatusChange={(next) => updateStatus(selected.id, next)}
           onNotesChange={(notes) => saveNotes(selected.id, notes)}
-          onReply={() => {
-            window.open(buildMailto(selected), '_blank')
-            // Mark replied so the inbox empties as the admin works
-            // through it. They can re-open via the Closed/All filters
-            // if they need to follow up.
-            if (selected.status !== 'replied') updateStatus(selected.id, 'replied')
-          }}
+          onReply={() => setComposing(selected)}
           onDelete={() => handleDelete(selected)}
         />
       )}
+
+      {composing && (
+        <ReplyComposeModal
+          enquiry={composing}
+          onClose={() => setComposing(null)}
+          onSent={(repliedAt) => {
+            handleReplySent(composing.id, repliedAt)
+            setComposing(null)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+// ─── Reply composer ────────────────────────────────────────────────
+// In-app reply sent through the branded Resend pipeline (no external
+// mail client). Pre-filled with a sensible subject and a warm greeting.
+
+function ReplyComposeModal({
+  enquiry,
+  onClose,
+  onSent,
+}: {
+  enquiry: EnquiryRow
+  onClose: () => void
+  onSent: (repliedAt: string) => void
+}) {
+  const [subject, setSubject] = useState('Re: Your enquiry to The Club')
+  const [body, setBody] = useState(
+    `Hi ${enquiry.first_name ?? 'there'},\n\nThank you for reaching out — `,
+  )
+  const [sending, setSending] = useState(false)
+
+  async function send() {
+    if (!subject.trim() || !body.trim()) {
+      toast({ title: 'Subject and message are required', variant: 'destructive' })
+      return
+    }
+    setSending(true)
+    try {
+      const res = await fetch('/api/admin/enquiries/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enquiry_id: enquiry.id, subject, body }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        warning?: string
+        replied_at?: string
+      }
+      if (!res.ok || !json.ok) {
+        toast({
+          title: 'Could not send reply',
+          description: json.error ?? 'Please try again.',
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({
+        title: 'Reply sent',
+        description: json.warning ?? `Emailed ${enquiry.email}.`,
+      })
+      onSent(json.replied_at ?? new Date().toISOString())
+    } catch (e) {
+      toast({
+        title: 'Could not send reply',
+        description: e instanceof Error ? e.message : 'Network error.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Reply via email" size="lg">
+      <div className="space-y-4">
+        <div className="border border-border rounded-md px-3 py-2.5 bg-surface-2/40">
+          <div className="flex items-center gap-1.5 text-text-muted mb-1">
+            <Mail size={13} />
+            <span className="text-[10px] font-medium uppercase tracking-[0.16em]">To</span>
+          </div>
+          <p className="text-sm text-text">
+            {fullName(enquiry)} · {enquiry.email}
+          </p>
+        </div>
+
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
+            Subject
+          </p>
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+        </div>
+
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
+            Message
+          </p>
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={8}
+            placeholder="Write your reply — it's sent as a branded Club email."
+          />
+          <p className="text-xs text-text-dim mt-1.5">
+            Sent through The Club&apos;s branded email. The enquiry is marked replied on send.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={send} disabled={sending}>
+            <Reply size={14} />
+            {sending ? 'Sending…' : 'Send reply'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

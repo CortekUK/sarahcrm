@@ -5,7 +5,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
-const envPath = path.join(root, '.env.local')
+// Prefer .env.local, fall back to .env (the token lives in whichever exists).
+const envPath = [path.join(root, '.env.local'), path.join(root, '.env')].find((p) =>
+  fs.existsSync(p),
+)
+if (!envPath) {
+  console.error('No .env.local or .env found')
+  process.exit(1)
+}
 const env = Object.fromEntries(
   fs
     .readFileSync(envPath, 'utf8')
@@ -25,8 +32,7 @@ if (!TOKEN) {
 }
 
 const files = [
-  'supabase/migrations/20260524_extend_membership_applications.sql',
-  'supabase/migrations/20260525_applicant_photos_storage_policy.sql',
+  'supabase/migrations/20260707_introduction_request_fields.sql',
 ]
 
 for (const file of files) {
