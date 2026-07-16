@@ -22,6 +22,8 @@ export interface IntroOutcomeValues {
   deal_status: DealStatus | null
   estimated_value_pence: number | null
   revenue_pence: number | null
+  /** Introduced-business commission the Club earns on a won deal (Receivable). */
+  commission_pence: number | null
   testimonial_obtained: boolean
   testimonial_note: string | null
 }
@@ -108,6 +110,10 @@ export function buildIntroOutcomeUpdate(
     estimated_value_pence: v.estimated_value_pence,
     // Realised revenue only makes sense on a won deal.
     revenue_pence: v.deal_status === 'won' ? v.revenue_pence : null,
+    // Introduced-business commission likewise only applies to a won deal.
+    // Its owed→paid lifecycle (commission_status / commission_paid_at) is
+    // owned by the commission tracker, so it is deliberately not touched here.
+    commission_pence: v.deal_status === 'won' ? v.commission_pence : null,
     testimonial_obtained: v.testimonial_obtained,
     testimonial_note: v.testimonial_obtained ? v.testimonial_note?.trim() || null : null,
     // keep the legacy flag in lock-step

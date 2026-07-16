@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { DateField } from '@/components/ui/DateField'
 import { Textarea } from '@/components/ui/Textarea'
 import { toast } from '@/lib/hooks/use-toast'
-import { cn } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 import { Save, Check } from 'lucide-react'
 import {
   OUTCOME_STAGES,
@@ -28,6 +28,8 @@ export interface IntroOutcomeInitial {
   deal_status: DealStatus | null
   estimated_value_pence: number | null
   revenue_pence: number | null
+  /** Introduced-business commission the Club earns on a won deal (Receivable). */
+  commission_pence?: number | null
   testimonial_obtained: boolean
   testimonial_note: string | null
   followed_up_at: string | null
@@ -36,6 +38,11 @@ export interface IntroOutcomeInitial {
 interface Props {
   introId: string
   initial: IntroOutcomeInitial
+  /**
+   * A member's introducer-agreement rate (percentage, e.g. 10 = 10%). When
+   * set, a commission suggestion (revenue × pct) is offered on won deals.
+   */
+  agreementCommissionPct?: number | null
   /** Called after a successful save so the parent can refetch. */
   onSaved?: () => void
 }
@@ -61,7 +68,7 @@ function today(): string {
  * introduction detail page and the member matches panel so the two never
  * drift. Renders fields only — the parent supplies the surrounding card/modal.
  */
-export function IntroOutcomeForm({ introId, initial, onSaved }: Props) {
+export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, onSaved }: Props) {
   const [outcome, setOutcome] = useState(initial.outcome ?? '')
   const [meetingHeld, setMeetingHeld] = useState(Boolean(initial.meeting_held_at))
   const [meetingDate, setMeetingDate] = useState(toDateInput(initial.meeting_held_at))
@@ -70,12 +77,23 @@ export function IntroOutcomeForm({ introId, initial, onSaved }: Props) {
   const [dealStatus, setDealStatus] = useState<DealStatus | null>(initial.deal_status)
   const [estimatedValue, setEstimatedValue] = useState(penceToPounds(initial.estimated_value_pence))
   const [revenue, setRevenue] = useState(penceToPounds(initial.revenue_pence))
+  const [commission, setCommission] = useState(penceToPounds(initial.commission_pence ?? null))
   const [testimonialObtained, setTestimonialObtained] = useState(initial.testimonial_obtained)
   const [testimonialNote, setTestimonialNote] = useState(initial.testimonial_note ?? '')
   const [saving, setSaving] = useState(false)
 
   const meetingAt = meetingHeld ? fromDateInput(meetingDate || today()) : null
   const proposalAt = proposalSent ? fromDateInput(proposalDate || today()) : null
+
+  // Suggested commission from the member's introducer agreement rate,
+  // applied to the entered revenue (revenue × pct). Only offered when a
+  // rate is set and revenue has been entered — the admin can accept it
+  // into the field or override with their own figure.
+  const revenuePence = poundsToPence(revenue)
+  const suggestedCommissionPence =
+    agreementCommissionPct != null && agreementCommissionPct > 0 && revenuePence != null
+      ? Math.round(revenuePence * (agreementCommissionPct / 100))
+      : null
   // Each pill reflects its OWN milestone, independently — live as boxes tick.
   const stageFlags = outcomeStageFlags({
     meeting_held_at: meetingAt,
@@ -94,6 +112,7 @@ export function IntroOutcomeForm({ introId, initial, onSaved }: Props) {
       deal_status: dealStatus,
       estimated_value_pence: poundsToPence(estimatedValue),
       revenue_pence: poundsToPence(revenue),
+      commission_pence: poundsToPence(commission),
       testimonial_obtained: testimonialObtained,
       testimonial_note: testimonialNote || null,
     }
@@ -216,17 +235,43 @@ export function IntroOutcomeForm({ introId, initial, onSaved }: Props) {
         </p>
       </div>
 
-      {/* Revenue — only when won */}
+      {/* Revenue + commission — only when won. Commission is the Club's
+          introduced-business commission (Receivable), tracked owed→paid in
+          the commission tracker. */}
       {dealStatus === 'won' && (
-        <Input
-          label="Revenue generated (£)"
-          type="number"
-          step="0.01"
-          min="0"
-          value={revenue}
-          onChange={(e) => setRevenue(e.target.value)}
-          placeholder="0.00"
-        />
+        <>
+          <Input
+            label="Revenue generated (£)"
+            type="number"
+            step="0.01"
+            min="0"
+            value={revenue}
+            onChange={(e) => setRevenue(e.target.value)}
+            placeholder="0.00"
+          />
+          <div className="space-y-1.5">
+            <Input
+              label="Commission to the Club (£)"
+              type="number"
+              step="0.01"
+              min="0"
+              value={commission}
+              onChange={(e) => setCommission(e.target.value)}
+              placeholder="0.00"
+            />
+            {suggestedCommissionPence != null &&
+              poundsToPence(commission) !== suggestedCommissionPence && (
+                <button
+                  type="button"
+                  onClick={() => setCommission(penceToPounds(suggestedCommissionPence))}
+                  className="text-xs text-gold hover:underline"
+                >
+                  Suggested: {formatCurrency(suggestedCommissionPence)} ({agreementCommissionPct}% of
+                  revenue) — apply
+                </button>
+              )}
+          </div>
+        </>
       )}
 
       {/* Testimonial */}

@@ -67,6 +67,7 @@ interface ActiveIntro {
   proposalSentAt: string | null
   dealStatus: 'won' | 'lost' | null
   revenuePence: number | null
+  commissionPence: number | null
   testimonialObtained: boolean
   testimonialNote: string | null
   followedUpAt: string | null
@@ -155,7 +156,7 @@ export function MemberMatchesPanel({
     const { data: existingIntros } = await supabase
       .from('introductions')
       .select(
-        'id, status, created_at, member_a_id, member_b_id, match_reason, match_score, email_a_sent_at, email_b_sent_at, email_a_scheduled_at, email_b_scheduled_at, member_a_response, member_b_response, member_a_response_note, member_b_response_note, outcome, estimated_value_pence, business_converted, meeting_held_at, proposal_sent_at, deal_status, revenue_pence, testimonial_obtained, testimonial_note, followed_up_at',
+        'id, status, created_at, member_a_id, member_b_id, match_reason, match_score, email_a_sent_at, email_b_sent_at, email_a_scheduled_at, email_b_scheduled_at, member_a_response, member_b_response, member_a_response_note, member_b_response_note, outcome, estimated_value_pence, business_converted, meeting_held_at, proposal_sent_at, deal_status, revenue_pence, commission_pence, testimonial_obtained, testimonial_note, followed_up_at',
       )
       .or(`member_a_id.eq.${memberId},member_b_id.eq.${memberId}`)
 
@@ -219,6 +220,7 @@ export function MemberMatchesPanel({
         proposalSentAt: (intro.proposal_sent_at as string | null) ?? null,
         dealStatus: (intro.deal_status as 'won' | 'lost' | null) ?? null,
         revenuePence: (intro.revenue_pence as number | null) ?? null,
+        commissionPence: (intro.commission_pence as number | null) ?? null,
         testimonialObtained: Boolean(intro.testimonial_obtained),
         testimonialNote: (intro.testimonial_note as string | null) ?? null,
         followedUpAt: (intro.followed_up_at as string | null) ?? null,
@@ -613,6 +615,7 @@ export function MemberMatchesPanel({
                 deal_status: outcomeIntro.dealStatus,
                 estimated_value_pence: outcomeIntro.estimatedValuePence,
                 revenue_pence: outcomeIntro.revenuePence,
+                commission_pence: outcomeIntro.commissionPence,
                 testimonial_obtained: outcomeIntro.testimonialObtained,
                 testimonial_note: outcomeIntro.testimonialNote,
                 followed_up_at: outcomeIntro.followedUpAt,

@@ -35,6 +35,7 @@ import {
   ListTodo,
   BellRing,
   Gift,
+  Coins,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -136,6 +137,7 @@ const NAV_SECTIONS: NavSection[] = [
         ],
       },
       { to: '/dashboard/finance', label: 'Finance', icon: PoundSterling },
+      { to: '/dashboard/commissions', label: 'Commissions', icon: Coins },
       { to: '/dashboard/automations', label: 'Automations', icon: Zap },
     ],
   },

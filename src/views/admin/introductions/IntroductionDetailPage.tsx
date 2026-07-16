@@ -36,6 +36,7 @@ interface IntroDetail {
   deal_status: 'won' | 'lost' | null
   deal_closed_at: string | null
   revenue_pence: number | null
+  commission_pence: number | null
   testimonial_obtained: boolean
   testimonial_note: string | null
   event_id: string | null
@@ -52,6 +53,7 @@ interface IntroDetail {
   member_a: {
     id: string
     company_name: string | null
+    agreement_commission_pct: number | null
     profiles: {
       first_name: string | null
       last_name: string | null
@@ -62,6 +64,7 @@ interface IntroDetail {
   member_b: {
     id: string
     company_name: string | null
+    agreement_commission_pct: number | null
     profiles: {
       first_name: string | null
       last_name: string | null
@@ -138,11 +141,11 @@ export function IntroductionDetailPage() {
       .select(`
         *,
         member_a:members!introductions_member_a_id_fkey(
-          id, company_name,
+          id, company_name, agreement_commission_pct,
           profiles(first_name, last_name, avatar_url, company_name)
         ),
         member_b:members!introductions_member_b_id_fkey(
-          id, company_name,
+          id, company_name, agreement_commission_pct,
           profiles(first_name, last_name, avatar_url, company_name)
         ),
         events(title)
@@ -545,10 +548,15 @@ export function IntroductionDetailPage() {
                 deal_status: intro.deal_status,
                 estimated_value_pence: intro.estimated_value_pence,
                 revenue_pence: intro.revenue_pence,
+                commission_pence: intro.commission_pence,
                 testimonial_obtained: intro.testimonial_obtained,
                 testimonial_note: intro.testimonial_note,
                 followed_up_at: intro.followed_up_at,
               }}
+              agreementCommissionPct={
+                intro.member_a.agreement_commission_pct ??
+                intro.member_b.agreement_commission_pct
+              }
               onSaved={() => fetchIntro(intro.id)}
             />
           </CardContent>

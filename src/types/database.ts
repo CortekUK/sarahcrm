@@ -320,6 +320,8 @@ export type Database = {
           assigned_to: string | null
           budget_pence: number | null
           commission_pence: number | null
+          commission_paid_at: string | null
+          commission_status: string
           created_at: string
           dates: string | null
           delivered_at: string | null
@@ -346,6 +348,8 @@ export type Database = {
           assigned_to?: string | null
           budget_pence?: number | null
           commission_pence?: number | null
+          commission_paid_at?: string | null
+          commission_status?: string
           created_at?: string
           dates?: string | null
           delivered_at?: string | null
@@ -372,6 +376,8 @@ export type Database = {
           assigned_to?: string | null
           budget_pence?: number | null
           commission_pence?: number | null
+          commission_paid_at?: string | null
+          commission_status?: string
           created_at?: string
           dates?: string | null
           delivered_at?: string | null
@@ -1297,6 +1303,9 @@ export type Database = {
           deal_status: string | null
           deal_closed_at: string | null
           revenue_pence: number | null
+          commission_pence: number | null
+          commission_status: string
+          commission_paid_at: string | null
           testimonial_obtained: boolean
           testimonial_note: string | null
           status: Database["public"]["Enums"]["intro_status"]
@@ -1343,6 +1352,9 @@ export type Database = {
           deal_status?: string | null
           deal_closed_at?: string | null
           revenue_pence?: number | null
+          commission_pence?: number | null
+          commission_status?: string
+          commission_paid_at?: string | null
           testimonial_obtained?: boolean
           testimonial_note?: string | null
           status?: Database["public"]["Enums"]["intro_status"]
@@ -1389,6 +1401,9 @@ export type Database = {
           deal_status?: string | null
           deal_closed_at?: string | null
           revenue_pence?: number | null
+          commission_pence?: number | null
+          commission_status?: string
+          commission_paid_at?: string | null
           testimonial_obtained?: boolean
           testimonial_note?: string | null
           status?: Database["public"]["Enums"]["intro_status"]
@@ -1544,6 +1559,7 @@ export type Database = {
           accounts_contact_name: string | null
           accounts_contact_phone: string | null
           achievements: string | null
+          agreement_commission_pct: number | null
           ai_intelligence: Json | null
           allergies: string | null
           annual_turnover: string | null
@@ -1638,6 +1654,7 @@ export type Database = {
           accounts_contact_name?: string | null
           accounts_contact_phone?: string | null
           achievements?: string | null
+          agreement_commission_pct?: number | null
           ai_intelligence?: Json | null
           allergies?: string | null
           annual_turnover?: string | null
@@ -1732,6 +1749,7 @@ export type Database = {
           accounts_contact_name?: string | null
           accounts_contact_phone?: string | null
           achievements?: string | null
+          agreement_commission_pct?: number | null
           ai_intelligence?: Json | null
           allergies?: string | null
           annual_turnover?: string | null
