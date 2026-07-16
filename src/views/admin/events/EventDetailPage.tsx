@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { SponsorsPanel } from './SponsorsPanel'
+import { EventExpensesPanel } from './EventExpensesPanel'
 import { EventInvitesPanel } from './EventInvitesPanel'
 import { formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import {
@@ -658,6 +659,11 @@ export function EventDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Expenses + P&L — cost side and profit for this event */}
+      <div className="mt-6">
+        <EventExpensesPanel eventId={id} ticketRevenuePence={totalRevenue} />
+      </div>
 
       {/* Sponsors — packages, members and committed revenue for this event */}
       <div className="mt-6">

@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -15,9 +17,35 @@ import {
 } from '@/components/ui/Table'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { CashflowChart } from '@/components/ui/CashflowChart'
+import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency, formatDate, formatDateTime, titleCase } from '@/lib/utils'
-import { AlertTriangle } from 'lucide-react'
+import {
+  computeRenewalRate,
+  computeCashflow,
+  type RenewalRateResult,
+  type CashflowBucket,
+} from '@/lib/finance/metrics'
+import { AlertTriangle, ArrowUpDown, RefreshCw } from 'lucide-react'
 import type { Database } from '@/types/database'
+
+interface EventPnlRow {
+  id: string
+  title: string
+  date: string | null
+  revenuePence: number
+  costPence: number
+  profitPence: number
+  marginPct: number | null
+}
+
+interface MemberRevenueRow {
+  id: string
+  name: string
+  company: string | null
+  revenuePaidPence: number
+  ltvPence: number
+}
 
 type PaymentStatus = Database['public']['Enums']['payment_status']
 type PaymentMethod = Database['public']['Enums']['payment_method']
@@ -69,18 +97,31 @@ function memberName(p: { first_name: string | null; last_name: string | null } |
 }
 
 export function FinancePage() {
+  const router = useRouter()
   const [totalRevenue, setTotalRevenue] = useState(0)
   const [revenueBySource, setRevenueBySource] = useState({
     membership: 0,
     events: 0,
     sponsorship: 0,
+    concierge: 0,
+    referrals: 0,
   })
+  const [conciergeGmv, setConciergeGmv] = useState(0)
   const [outstanding, setOutstanding] = useState(0)
   const [activeSubscriptions, setActiveSubscriptions] = useState(0)
   const [mrr, setMrr] = useState(0)
   const [recentPayments, setRecentPayments] = useState<PaymentRow[]>([])
   const [overduePayments, setOverduePayments] = useState<PaymentRow[]>([])
+  const [cashflow, setCashflow] = useState<CashflowBucket[]>([])
+  const [renewalRate, setRenewalRate] = useState<RenewalRateResult | null>(null)
+  const [eventPnl, setEventPnl] = useState<EventPnlRow[]>([])
+  const [memberRevenue, setMemberRevenue] = useState<MemberRevenueRow[]>([])
+  const [memberSort, setMemberSort] = useState<{ key: 'ltv' | 'revenue'; dir: 'asc' | 'desc' }>({
+    key: 'ltv',
+    dir: 'desc',
+  })
   const [loading, setLoading] = useState(true)
+  const [recomputing, setRecomputing] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null)
 
   useEffect(() => {
@@ -98,6 +139,12 @@ export function FinancePage() {
       subsRes,
       mrrRes,
       sponsorshipsRes,
+      conciergeRes,
+      referralsRes,
+      membersRes,
+      eventsRes,
+      confirmedBookingsRes,
+      expensesRes,
     ] = await Promise.all([
       // All paid revenue (paid payment rows). Guest event bookings now
       // get a real payment row too (member_id null), so this is the
@@ -105,7 +152,7 @@ export function FinancePage() {
       // for the "Revenue by source" breakdown.
       supabase
         .from('payments')
-        .select('amount_pence, payment_type')
+        .select('amount_pence, payment_type, member_id, paid_at')
         .eq('status', 'paid'),
 
       // Refunded application payments — when admin rejects a paid
@@ -191,10 +238,45 @@ export function FinancePage() {
 
       // Sponsorship revenue — committed (confirmed or beyond) sponsor
       // fees, the third income source alongside membership + events.
+      // event_id is carried so the same rows drive the Event P&L table.
       supabase
         .from('sponsorships')
-        .select('amount_pence, status')
+        .select('amount_pence, status, event_id')
         .in('status', ['confirmed', 'invoiced', 'paid']),
+
+      // Concierge — realised (paid-for) fulfilment only. sale_price −
+      // supplier_cost is the Club's MARGIN (its actual income);
+      // quoted_amount_pence is the GMV (gross value), shown separately.
+      supabase
+        .from('concierge_requests')
+        .select('quoted_amount_pence, sale_price_pence, supplier_cost_pence, status')
+        .in('status', ['booked', 'delivered', 'feedback']),
+
+      // Referral revenue The Club EARNED on member-referred business
+      // (commission_pence is what the Club owes members — a payout, not
+      // income — so it is deliberately not used here).
+      supabase.from('reward_referrals').select('revenue_pence'),
+
+      // All non-deleted members — powers renewal rate (renewal_date +
+      // status) and the revenue-by-member / LTV table (persisted LTV).
+      supabase
+        .from('members')
+        .select(
+          'id, membership_status, renewal_date, lifetime_value_pence, company_name, profiles(first_name, last_name)',
+        )
+        .is('deleted_at', null),
+
+      // Events — for the Event P&L table.
+      supabase.from('events').select('id, title, start_date'),
+
+      // Confirmed bookings — ticket revenue side of event P&L.
+      supabase
+        .from('bookings')
+        .select('event_id, amount_pence')
+        .eq('status', 'confirmed'),
+
+      // Event expenses — cost side of event P&L + cashflow out.
+      supabase.from('event_expenses').select('event_id, amount_pence, created_at'),
     ])
 
     const paymentsRevenue = (revenueRes.data ?? []).reduce(
@@ -214,6 +296,30 @@ export function FinancePage() {
     // Committed sponsorship fees (confirmed / invoiced / paid).
     const sponsorshipRevenue = (sponsorshipsRes.data ?? []).reduce(
       (sum, s) => sum + (s.amount_pence ?? 0),
+      0,
+    )
+    // Concierge — realised fulfilment (booked/delivered/feedback).
+    //  • conciergeRevenue = MARGIN = Σ (sale_price − supplier_cost).
+    //    This is the Club's actual concierge income and is what feeds
+    //    totalRevenue + revenueBySource.concierge.
+    //  • conciergeGmv = gross value (quoted_amount_pence), a headline
+    //    volume metric shown as its own tile — NOT added to revenue.
+    // Neither lives in `payments`, so no double-count.
+    const conciergeRevenue = (conciergeRes.data ?? []).reduce(
+      (sum, c) => sum + ((c.sale_price_pence ?? 0) - (c.supplier_cost_pence ?? 0)),
+      0,
+    )
+    const conciergeGmv = (conciergeRes.data ?? []).reduce(
+      (sum, c) => sum + (c.quoted_amount_pence ?? 0),
+      0,
+    )
+    // Referrals — revenue The Club EARNED on member-referred business
+    // (reward_referrals.revenue_pence). commission_pence is a payout the
+    // Club owes members, so it is excluded. Introduced-business deal value
+    // (introductions.revenue_pence) is member-to-member value, not Club
+    // income, so it is excluded entirely too.
+    const referralRevenue = (referralsRes.data ?? []).reduce(
+      (sum, r) => sum + (r.revenue_pence ?? 0),
       0,
     )
     // Refunded application accounting needs BOTH sides of the ledger
@@ -250,10 +356,13 @@ export function FinancePage() {
     setTotalRevenue(
       paymentsRevenue +
         sponsorshipRevenue +
+        conciergeRevenue +
+        referralRevenue +
         pendingPaidTotal +
         refundedOriginalsTotal -
         refundedTotal,
     )
+    setConciergeGmv(conciergeGmv)
     // Attribute revenue to its source for the breakdown card.
     //  • Membership = membership payment rows + pending-but-paid
     //    applications, net of refunds (refund nets to ≈0 per the
@@ -268,6 +377,8 @@ export function FinancePage() {
         refundedTotal,
       events: eventPayments,
       sponsorship: sponsorshipRevenue,
+      concierge: conciergeRevenue,
+      referrals: referralRevenue,
     })
     setOutstanding(
       (outstandingRes.data ?? []).reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
@@ -402,7 +513,156 @@ export function FinancePage() {
       }
     }
 
+    // ── Cashflow (last 12 months) ────────────────────────────────
+    // In = paid payments by paid_at; out = event expenses by created_at.
+    const paidPayments = (revenueRes.data ?? []) as Array<{
+      amount_pence: number | null
+      member_id: string | null
+      paid_at: string | null
+    }>
+    setCashflow(
+      computeCashflow(
+        paidPayments.map((p) => ({ amount_pence: p.amount_pence, paid_at: p.paid_at })),
+        (expensesRes.data ?? []).map((e) => ({
+          amount_pence: e.amount_pence,
+          created_at: e.created_at,
+        })),
+      ),
+    )
+
+    // ── Renewal rate (trailing 90 days) ──────────────────────────
+    const memberRows = (membersRes.data ?? []) as unknown as Array<{
+      id: string
+      membership_status: string
+      renewal_date: string | null
+      lifetime_value_pence: number | null
+      company_name: string | null
+      profiles: { first_name: string | null; last_name: string | null } | null
+    }>
+    setRenewalRate(
+      computeRenewalRate(
+        memberRows.map((m) => ({
+          id: m.id,
+          renewal_date: m.renewal_date,
+          membership_status: m.membership_status,
+        })),
+        paidPayments.map((p) => ({ member_id: p.member_id, status: 'paid', paid_at: p.paid_at })),
+      ),
+    )
+
+    // ── Event P&L table ──────────────────────────────────────────
+    const ticketByEvent = new Map<string, number>()
+    for (const b of confirmedBookingsRes.data ?? []) {
+      if (!b.event_id) continue
+      ticketByEvent.set(b.event_id, (ticketByEvent.get(b.event_id) ?? 0) + (b.amount_pence ?? 0))
+    }
+    const sponsorByEvent = new Map<string, number>()
+    for (const s of sponsorshipsRes.data ?? []) {
+      if (!s.event_id) continue
+      sponsorByEvent.set(s.event_id, (sponsorByEvent.get(s.event_id) ?? 0) + (s.amount_pence ?? 0))
+    }
+    const costByEvent = new Map<string, number>()
+    for (const e of expensesRes.data ?? []) {
+      if (!e.event_id) continue
+      costByEvent.set(e.event_id, (costByEvent.get(e.event_id) ?? 0) + (e.amount_pence ?? 0))
+    }
+    const pnlRows: EventPnlRow[] = (eventsRes.data ?? [])
+      .map((ev) => {
+        const revenuePence = (ticketByEvent.get(ev.id) ?? 0) + (sponsorByEvent.get(ev.id) ?? 0)
+        const costPence = costByEvent.get(ev.id) ?? 0
+        const profitPence = revenuePence - costPence
+        return {
+          id: ev.id,
+          title: ev.title,
+          date: ev.start_date,
+          revenuePence,
+          costPence,
+          profitPence,
+          marginPct: revenuePence > 0 ? Math.round((profitPence / revenuePence) * 100) : null,
+        }
+      })
+      // Only events with money in or out — skip empty drafts.
+      .filter((r) => r.revenuePence > 0 || r.costPence > 0)
+      .sort((a, b) => b.revenuePence - a.revenuePence)
+    setEventPnl(pnlRows)
+
+    // ── Revenue-by-member + LTV ──────────────────────────────────
+    // Revenue paid-to-date grouped from paid payment rows; LTV read from
+    // the persisted members.lifetime_value_pence (written by
+    // recompute-scores, which uses computeMemberRoi — same figure as the
+    // member's MemberRoiPanel).
+    const revenueByMember = new Map<string, number>()
+    for (const p of paidPayments) {
+      if (!p.member_id) continue
+      revenueByMember.set(
+        p.member_id,
+        (revenueByMember.get(p.member_id) ?? 0) + (p.amount_pence ?? 0),
+      )
+    }
+    const memberRevenueRows: MemberRevenueRow[] = memberRows
+      .filter((m) => m.membership_status === 'active')
+      .map((m) => ({
+        id: m.id,
+        name:
+          `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.trim() || 'Unnamed',
+        company: m.company_name,
+        revenuePaidPence: revenueByMember.get(m.id) ?? 0,
+        ltvPence: m.lifetime_value_pence ?? 0,
+      }))
+    setMemberRevenue(memberRevenueRows)
+
     setLoading(false)
+  }
+
+  // Sorted view of the revenue-by-member table.
+  const sortedMemberRevenue = useMemo(() => {
+    const rows = [...memberRevenue]
+    rows.sort((a, b) => {
+      const av = memberSort.key === 'ltv' ? a.ltvPence : a.revenuePaidPence
+      const bv = memberSort.key === 'ltv' ? b.ltvPence : b.revenuePaidPence
+      return memberSort.dir === 'desc' ? bv - av : av - bv
+    })
+    return rows
+  }, [memberRevenue, memberSort])
+
+  function toggleMemberSort(key: 'ltv' | 'revenue') {
+    setMemberSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
+        : { key, dir: 'desc' },
+    )
+  }
+
+  // Recompute LTV / relationship scores for every active member (no body =
+  // all active), then refresh the finance data so LTV populates. Reuses the
+  // existing route — does not reimplement scoring.
+  async function handleRecomputeLtv() {
+    setRecomputing(true)
+    try {
+      const res = await fetch('/api/admin/members/recompute-scores', { method: 'POST' })
+      const json = (await res.json().catch(() => ({}))) as { updated?: number; error?: string }
+      if (!res.ok) {
+        toast({
+          title: 'Recompute failed',
+          description: json.error || 'Could not recompute member scores.',
+          variant: 'destructive',
+        })
+        return
+      }
+      toast({
+        title: 'LTV recomputed',
+        description: `Updated ${json.updated ?? 0} member${json.updated === 1 ? '' : 's'}.`,
+      })
+      await fetchFinanceData()
+    } catch (err) {
+      toast({
+        title: 'Recompute failed',
+        description: err instanceof Error ? err.message : 'Unexpected error',
+        variant: 'destructive',
+      })
+    } finally {
+      setRecomputing(false)
+    }
   }
 
   if (loading) {
@@ -429,7 +689,7 @@ export function FinancePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mb-8">
         <StatCard
           label="Revenue"
           value={formatCurrency(totalRevenue)}
@@ -454,6 +714,28 @@ export function FinancePage() {
           changeText="monthly recurring"
           changeType="positive"
         />
+        <StatCard
+          label="Renewal rate"
+          value={renewalRate ? `${Math.round(renewalRate.rate * 100)}%` : '—'}
+          changeText={
+            renewalRate
+              ? `${renewalRate.renewed}/${renewalRate.due} in last ${renewalRate.windowDays}d`
+              : 'no renewals due'
+          }
+          changeType={
+            renewalRate && renewalRate.due > 0
+              ? renewalRate.rate >= 0.8
+                ? 'positive'
+                : 'negative'
+              : 'neutral'
+          }
+        />
+        <StatCard
+          label="Concierge GMV"
+          value={formatCurrency(conciergeGmv)}
+          changeText="gross booked value"
+          changeType="neutral"
+        />
       </div>
 
       {/* Revenue by source */}
@@ -467,6 +749,8 @@ export function FinancePage() {
               { key: 'membership', label: 'Membership', value: revenueBySource.membership, color: 'bg-gold' },
               { key: 'events', label: 'Events', value: revenueBySource.events, color: 'bg-accent-blue' },
               { key: 'sponsorship', label: 'Sponsorship', value: revenueBySource.sponsorship, color: 'bg-accent' },
+              { key: 'concierge', label: 'Concierge', value: revenueBySource.concierge, color: 'bg-bronze' },
+              { key: 'referrals', label: 'Referrals', value: revenueBySource.referrals, color: 'bg-accent-warm' },
             ]
             const sum = sources.reduce((s, x) => s + Math.max(0, x.value), 0)
             if (sum === 0) {
@@ -516,6 +800,168 @@ export function FinancePage() {
           })()}
         </CardContent>
       </Card>
+
+      {/* Cashflow — monthly cash in (paid payments) vs out (event expenses) */}
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Cashflow — last 12 months</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {cashflow.some((b) => b.inPence > 0 || b.outPence > 0) ? (
+            <div className="space-y-5">
+              {/* Themed recharts bar chart with hover tooltip (In / Out / Net) */}
+              <CashflowChart data={cashflow} />
+              {/* Legend + net */}
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-dim border-t border-border pt-4">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-gold" /> Cash in
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-accent-warm" /> Cash out (event
+                  expenses)
+                </span>
+                <span className="ml-auto text-text-muted">
+                  Net 12m:{' '}
+                  <span className="text-text tabular-nums">
+                    {formatCurrency(cashflow.reduce((s, b) => s + b.netPence, 0))}
+                  </span>
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-text-dim py-4 text-center">
+              No cash movement recorded yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Event P&L */}
+      {eventPnl.length > 0 && (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Event P&amp;L</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Event</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                  <TableHead className="text-right">Profit</TableHead>
+                  <TableHead className="text-right">Margin</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {eventPnl.map((e) => (
+                  <TableRow
+                    key={e.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/dashboard/events/${e.id}`)}
+                  >
+                    <TableCell>
+                      <p className="font-medium text-text">{e.title}</p>
+                      {e.date && <p className="text-xs text-text-dim">{formatDate(e.date)}</p>}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-text-muted">
+                      {formatCurrency(e.revenuePence)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-text-muted">
+                      {formatCurrency(e.costPence)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums font-medium ${
+                        e.profitPence >= 0 ? 'text-text' : 'text-accent-warm'
+                      }`}
+                    >
+                      {formatCurrency(e.profitPence)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums ${
+                        e.profitPence >= 0 ? 'text-text-muted' : 'text-accent-warm'
+                      }`}
+                    >
+                      {e.marginPct === null ? '—' : `${e.marginPct}%`}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Revenue by member + LTV */}
+      {sortedMemberRevenue.length > 0 && (
+        <Card className="mb-8">
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle>Revenue by member &amp; LTV</CardTitle>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RefreshCw size={14} />}
+              loading={recomputing}
+              onClick={handleRecomputeLtv}
+            >
+              Recompute LTV
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Member</TableHead>
+                  <TableHead className="text-right">
+                    <button
+                      onClick={() => toggleMemberSort('revenue')}
+                      className="inline-flex items-center gap-1 hover:text-text transition-colors"
+                    >
+                      Revenue paid
+                      <ArrowUpDown size={12} className={memberSort.key === 'revenue' ? 'text-gold' : ''} />
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <button
+                      onClick={() => toggleMemberSort('ltv')}
+                      className="inline-flex items-center gap-1 hover:text-text transition-colors"
+                    >
+                      LTV
+                      <ArrowUpDown size={12} className={memberSort.key === 'ltv' ? 'text-gold' : ''} />
+                    </button>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedMemberRevenue.slice(0, 50).map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell>
+                      <Link
+                        href={`/dashboard/members/${m.id}`}
+                        className="font-medium text-text hover:text-gold transition-colors"
+                      >
+                        {m.name}
+                      </Link>
+                      {m.company && <p className="text-xs text-text-dim">{m.company}</p>}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-text-muted">
+                      {formatCurrency(m.revenuePaidPence)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium text-text">
+                      {formatCurrency(m.ltvPence)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <p className="px-6 py-3 text-[11px] text-text-dim border-t border-border">
+              LTV is the cached lifetime value (members.lifetime_value_pence), refreshed by the
+              members score recompute. Showing top {Math.min(50, sortedMemberRevenue.length)} of{' '}
+              {sortedMemberRevenue.length} active members.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Overdue Invoices (only if any exist) */}
       {overduePayments.length > 0 && (

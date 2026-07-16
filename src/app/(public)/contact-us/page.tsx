@@ -64,6 +64,8 @@ const SUBJECT_OPTIONS = [
   { value: 'membership', label: 'About membership' },
   { value: 'event', label: 'An upcoming event' },
   { value: 'private_event', label: 'Hosting a private event' },
+  { value: 'sponsorship', label: 'Sponsorship / partnership' },
+  { value: 'venue', label: 'Venue / space hire' },
   { value: 'press', label: 'Press / media' },
 ] as const
 
@@ -79,9 +81,10 @@ const enquirySchema = z.object({
   email: z.string().email('Please enter a valid email'),
   phone: z.string().optional(),
   company: z.string().optional(),
-  intent_type: z.enum(['general', 'membership', 'event', 'private_event', 'press'], {
-    error: 'Please choose a subject',
-  }),
+  intent_type: z.enum(
+    ['general', 'membership', 'event', 'private_event', 'sponsorship', 'venue', 'press'],
+    { error: 'Please choose a subject' },
+  ),
   message: z.string().min(10, 'Please share a few more lines'),
 })
 type EnquiryData = z.infer<typeof enquirySchema>
@@ -135,10 +138,21 @@ export default function ContactPage() {
   async function onSubmit(data: EnquiryData) {
     setError(null)
     const { intent_type, ...rest } = data
-    const { error: err } = await supabase
-      .from('enquiries')
-      .insert({ ...rest, intent: [intent_type] })
-    if (err) {
+    // Route through the server intake so the enquiry is scored, assigned an
+    // owner, acknowledged by email and turned into a sales task — instead of
+    // a bare browser insert into `enquiries`.
+    try {
+      const res = await fetch('/api/enquiries/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...rest, intent: [intent_type], source: 'contact_form' }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean }
+      if (!res.ok || !json.ok) {
+        setError('Something went wrong. Please try again, or email us directly.')
+        return
+      }
+    } catch {
       setError('Something went wrong. Please try again, or email us directly.')
       return
     }

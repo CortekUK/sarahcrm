@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { SelectMenu } from '@/components/ui/SelectMenu'
 import { Textarea } from '@/components/ui/Textarea'
 import {
   Table,
@@ -33,11 +35,31 @@ import {
   Archive,
   Trash2,
   Tag,
+  ListTodo,
+  Gauge,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type EnquiryRow = Database['public']['Tables']['enquiries']['Row']
 type EnquiryStatus = 'new' | 'replied' | 'closed'
+
+interface AdminProfile {
+  id: string
+  first_name: string | null
+  last_name: string | null
+}
+
+function personName(p: AdminProfile | undefined): string {
+  if (!p) return 'Unassigned'
+  return `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Unnamed'
+}
+
+// Readable labels for the stored `source` slugs the intake route writes.
+const SOURCE_LABELS: Record<string, string> = {
+  contact_form: 'Contact form',
+  concierge_form: 'Concierge',
+  website: 'Website',
+}
 
 const STATUS_OPTIONS: { value: EnquiryStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -60,6 +82,9 @@ const INTENT_LABELS: Record<string, string> = {
   membership: 'Membership',
   event: 'Upcoming event',
   private_event: 'Private event',
+  concierge: 'Concierge',
+  sponsorship: 'Sponsorship',
+  venue: 'Venue / space hire',
   press: 'Press / media',
 }
 
@@ -70,8 +95,10 @@ function fullName(e: Pick<EnquiryRow, 'first_name' | 'last_name'>): string {
 export function EnquiriesListPage() {
   const confirm = useConfirm()
   const [enquiries, setEnquiries] = useState<EnquiryRow[]>([])
+  const [admins, setAdmins] = useState<AdminProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<EnquiryStatus | 'all'>('new')
+  const [ownerFilter, setOwnerFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<EnquiryRow | null>(null)
   const [composing, setComposing] = useState<EnquiryRow | null>(null)
@@ -82,26 +109,48 @@ export function EnquiriesListPage() {
 
   async function fetchEnquiries() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('enquiries')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (error) {
+    // Load enquiries + the admin roster (owners) together — same pattern
+    // TasksPage uses to populate its owner dropdown.
+    const [enquiriesRes, adminsRes] = await Promise.all([
+      supabase.from('enquiries').select('*').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('id, first_name, last_name').eq('role', 'admin'),
+    ])
+    if (enquiriesRes.error) {
       toast({
         title: 'Failed to load enquiries',
-        description: error.message,
+        description: enquiriesRes.error.message,
         variant: 'destructive',
       })
-    } else if (data) {
-      setEnquiries(data as EnquiryRow[])
+    } else if (enquiriesRes.data) {
+      setEnquiries(enquiriesRes.data as EnquiryRow[])
     }
+    if (adminsRes.data) setAdmins(adminsRes.data as AdminProfile[])
     setLoading(false)
+  }
+
+  async function updateOwner(id: string, ownerId: string | null) {
+    // optimistic
+    setEnquiries((prev) => prev.map((e) => (e.id === id ? { ...e, assigned_to: ownerId } : e)))
+    setSelected((prev) => (prev?.id === id ? { ...prev, assigned_to: ownerId } : prev))
+    const { error } = await supabase
+      .from('enquiries')
+      .update({ assigned_to: ownerId })
+      .eq('id', id)
+    if (error) {
+      toast({ title: 'Could not reassign', description: error.message, variant: 'destructive' })
+      fetchEnquiries()
+      return
+    }
+    toast({ title: ownerId ? 'Owner updated' : 'Unassigned' })
   }
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     return enquiries.filter((e) => {
       if (statusFilter !== 'all' && e.status !== statusFilter) return false
+      if (ownerFilter === 'unassigned' && e.assigned_to) return false
+      if (ownerFilter !== 'all' && ownerFilter !== 'unassigned' && e.assigned_to !== ownerFilter)
+        return false
       if (!term) return true
       const name = fullName(e).toLowerCase()
       return (
@@ -111,7 +160,7 @@ export function EnquiriesListPage() {
         (e.message ?? '').toLowerCase().includes(term)
       )
     })
-  }, [enquiries, statusFilter, search])
+  }, [enquiries, statusFilter, ownerFilter, search])
 
   const counts = useMemo(
     () => ({
@@ -241,6 +290,18 @@ export function EnquiriesListPage() {
             </button>
           ))}
         </div>
+        <div className="sm:w-52">
+          <SelectMenu
+            ariaLabel="Filter by owner"
+            value={ownerFilter}
+            onValueChange={setOwnerFilter}
+            options={[
+              { value: 'all', label: 'All owners' },
+              { value: 'unassigned', label: 'Unassigned' },
+              ...admins.map((a) => ({ value: a.id, label: personName(a) })),
+            ]}
+          />
+        </div>
       </div>
 
       {/* ── Table ──────────────────────────────────────────── */}
@@ -264,7 +325,9 @@ export function EnquiriesListPage() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead>From</TableHead>
                   <TableHead>Subject</TableHead>
-                  <TableHead>Message</TableHead>
+                  <TableHead>Score</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Owner</TableHead>
                   <TableHead>Received</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -280,7 +343,19 @@ export function EnquiriesListPage() {
                       onClick={() => setSelected(e)}
                     >
                       <TableCell>
-                        <p className="font-medium text-text">{name}</p>
+                        <p className="font-medium text-text flex items-center gap-1.5">
+                          {name}
+                          {e.related_task_id && (
+                            <Link
+                              href="/dashboard/tasks"
+                              onClick={(ev) => ev.stopPropagation()}
+                              title="Sales follow-up task created"
+                              className="text-gold hover:text-gold/80"
+                            >
+                              <ListTodo size={13} />
+                            </Link>
+                          )}
+                        </p>
                         <p className="text-xs text-text-dim truncate max-w-[220px]">
                           {e.email}
                           {e.company ? ` · ${e.company}` : ''}
@@ -295,8 +370,25 @@ export function EnquiriesListPage() {
                           <span className="text-text-dim text-xs">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="max-w-[360px]">
-                        <p className="text-sm text-text-muted truncate">{e.message}</p>
+                      <TableCell>
+                        <ScoreMeter score={e.lead_score} />
+                      </TableCell>
+                      <TableCell className="text-text-muted text-xs whitespace-nowrap">
+                        {e.source ? (SOURCE_LABELS[e.source] ?? e.source) : '—'}
+                      </TableCell>
+                      {/* Owner dropdown — stop the row click from opening the modal */}
+                      <TableCell onClick={(ev) => ev.stopPropagation()}>
+                        <SelectMenu
+                          size="sm"
+                          ariaLabel="Assign owner"
+                          value={e.assigned_to ?? 'none'}
+                          onValueChange={(v) => updateOwner(e.id, v === 'none' ? null : v)}
+                          options={[
+                            { value: 'none', label: 'Unassigned' },
+                            ...admins.map((a) => ({ value: a.id, label: personName(a) })),
+                          ]}
+                          className="w-40"
+                        />
                       </TableCell>
                       <TableCell className="text-text-muted text-xs whitespace-nowrap">
                         {formatDateTime(e.created_at)}
@@ -530,6 +622,34 @@ function EnquiryDetailModal({
           )}
         </div>
 
+        {/* Lead score + routing */}
+        {typeof enquiry.lead_score === 'number' && (
+          <div className="border border-border rounded-md px-4 py-3 bg-surface-2/40">
+            <div className="flex items-center gap-1.5 text-text-muted mb-2.5">
+              <Gauge size={13} />
+              <span className="text-[10px] font-medium uppercase tracking-[0.16em]">
+                Lead score
+              </span>
+              {enquiry.source && (
+                <span className="ml-auto text-[11px] text-text-dim">
+                  via {SOURCE_LABELS[enquiry.source] ?? enquiry.source}
+                </span>
+              )}
+            </div>
+            <ScoreMeter score={enquiry.lead_score} />
+            {Array.isArray(enquiry.score_reasons) && enquiry.score_reasons.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {(enquiry.score_reasons as string[]).map((r, i) => (
+                  <li key={i} className="text-xs text-text-muted flex items-start gap-1.5">
+                    <span className="text-gold mt-0.5">·</span>
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {/* Message */}
         <div>
           <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
@@ -620,6 +740,40 @@ function ContactBlock({
         <span className="text-[10px] font-medium uppercase tracking-[0.16em]">{label}</span>
       </div>
       <div className="text-sm">{children}</div>
+    </div>
+  )
+}
+
+// ─── ScoreMeter — compact colour-scaled lead-score readout ───────────
+// >=70 hot (gold) · 40–69 warm (blue) · <70 cool (dim). Number + mini bar.
+
+function scoreTone(score: number): { text: string; bar: string } {
+  if (score >= 70) return { text: 'text-gold', bar: 'bg-gold' }
+  if (score >= 40) return { text: 'text-accent-blue', bar: 'bg-accent-blue' }
+  return { text: 'text-text-dim', bar: 'bg-text-dim' }
+}
+
+function ScoreMeter({ score }: { score: number | null }) {
+  if (score === null || score === undefined) {
+    return <span className="text-text-dim text-xs">—</span>
+  }
+  const tone = scoreTone(score)
+  return (
+    <div className="flex items-center gap-2 min-w-[76px]">
+      <span
+        className={cn(
+          'font-[family-name:var(--font-label)] text-xs font-semibold tabular-nums w-6',
+          tone.text,
+        )}
+      >
+        {score}
+      </span>
+      <div className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+        <div
+          className={cn('h-full rounded-full', tone.bar)}
+          style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+        />
+      </div>
     </div>
   )
 }

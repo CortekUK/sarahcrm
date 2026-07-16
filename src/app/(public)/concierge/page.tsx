@@ -144,16 +144,29 @@ export default function ConciergePage() {
 
   async function onSubmit(data: EnquiryData) {
     setError(null)
-    const { error: err } = await supabase.from('enquiries').insert({
-      first_name: data.first_name,
-      last_name: data.last_name,
-      email: data.email,
-      phone: data.phone?.trim() || null,
-      company: data.company?.trim() || null,
-      message: composeMessage(data),
-      intent: ['concierge'],
-    })
-    if (err) {
+    // Route through the server intake (scoring + owner routing + ack email +
+    // sales task) rather than a bare browser insert into `enquiries`.
+    try {
+      const res = await fetch('/api/enquiries/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: data.first_name,
+          last_name: data.last_name,
+          email: data.email,
+          phone: data.phone?.trim() || null,
+          company: data.company?.trim() || null,
+          message: composeMessage(data),
+          intent: ['concierge'],
+          source: 'concierge_form',
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean }
+      if (!res.ok || !json.ok) {
+        setError('Something went wrong. Please try again, or email us directly.')
+        return
+      }
+    } catch {
       setError('Something went wrong. Please try again, or email us directly.')
       return
     }

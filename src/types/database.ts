@@ -769,7 +769,9 @@ export type Database = {
       }
       enquiries: {
         Row: {
+          acknowledged_at: string | null
           admin_notes: string | null
+          assigned_to: string | null
           company: string | null
           created_at: string
           email: string
@@ -777,17 +779,23 @@ export type Database = {
           id: string
           intent: string[] | null
           last_name: string
+          lead_score: number | null
           message: string
           phone: string | null
           position: string | null
+          related_task_id: string | null
           replied_at: string | null
           reviewed_at: string | null
           reviewed_by: string | null
+          score_reasons: Json | null
+          source: string | null
           status: string
           updated_at: string
         }
         Insert: {
+          acknowledged_at?: string | null
           admin_notes?: string | null
+          assigned_to?: string | null
           company?: string | null
           created_at?: string
           email: string
@@ -795,17 +803,23 @@ export type Database = {
           id?: string
           intent?: string[] | null
           last_name: string
+          lead_score?: number | null
           message: string
           phone?: string | null
           position?: string | null
+          related_task_id?: string | null
           replied_at?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          score_reasons?: Json | null
+          source?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
+          acknowledged_at?: string | null
           admin_notes?: string | null
+          assigned_to?: string | null
           company?: string | null
           created_at?: string
           email?: string
@@ -813,12 +827,16 @@ export type Database = {
           id?: string
           intent?: string[] | null
           last_name?: string
+          lead_score?: number | null
           message?: string
           phone?: string | null
           position?: string | null
+          related_task_id?: string | null
           replied_at?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          score_reasons?: Json | null
+          source?: string | null
           status?: string
           updated_at?: string
         }
@@ -930,6 +948,44 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_expenses: {
+        Row: {
+          amount_pence: number
+          category: string | null
+          created_at: string
+          event_id: string
+          id: string
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence?: number
+          category?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          category?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          label?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_expenses_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -2726,6 +2782,7 @@ export type Database = {
           due_date: string | null
           id: string
           priority: string
+          related_enquiry_id: string | null
           related_event_id: string | null
           related_member_id: string | null
           status: string
@@ -2742,6 +2799,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           priority?: string
+          related_enquiry_id?: string | null
           related_event_id?: string | null
           related_member_id?: string | null
           status?: string
@@ -2758,6 +2816,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           priority?: string
+          related_enquiry_id?: string | null
           related_event_id?: string | null
           related_member_id?: string | null
           status?: string
