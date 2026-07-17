@@ -36,6 +36,7 @@ import {
   BellRing,
   Gift,
   Coins,
+  KanbanSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -113,6 +114,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/applications', label: 'Applications', icon: ClipboardList },
       { to: '/dashboard/events', label: 'Events', icon: CalendarDays },
       { to: '/dashboard/bookings', label: 'Bookings', icon: Ticket },
+      { to: '/dashboard/pipeline', label: 'Pipeline', icon: KanbanSquare },
       { to: '/dashboard/introductions', label: 'Introductions', icon: Handshake },
       { to: '/dashboard/tasks', label: 'Tasks', icon: ListTodo },
       { to: '/dashboard/concierge', label: 'Concierge', icon: BellRing },
