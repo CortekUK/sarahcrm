@@ -21,6 +21,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Building2, CreditCard, Landmark, Mail, SlidersHorizontal, UserPlus } from 'lucide-react'
 import { TagsManager } from './TagsManager'
 import { AutomationTimeSettings } from './AutomationTimeSettings'
+import { EnquiryRoutingSettings } from './EnquiryRoutingSettings'
 
 // A row in the read-only "Membership plans" summary table. Sourced live
 // from the `membership_plans` table (the single source of truth) — editing
@@ -289,6 +290,9 @@ export function SettingsPage() {
 
       {/* Automation send time */}
       <AutomationTimeSettings />
+
+      {/* Enquiry owner routing */}
+      <EnquiryRoutingSettings />
 
       {/* Integrations — connection status is live (real env config), not mocked */}
       <Card className="mb-6">
