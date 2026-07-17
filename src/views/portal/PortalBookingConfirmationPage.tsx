@@ -26,6 +26,7 @@ export function PortalBookingConfirmationPage() {
   const [booking, setBooking] = useState<BookingRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const pollCount = useRef(0)
   const pollTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -38,6 +39,35 @@ export function PortalBookingConfirmationPage() {
       if (pollTimer.current) clearTimeout(pollTimer.current)
     }
   }, [eventId, user]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Generate a check-in QR once the booking is confirmed. The QR encodes the
+  // admin check-in URL (/checkin/<bookingId>) that the team scans at the door.
+  useEffect(() => {
+    if (!booking || booking.status !== 'confirmed') {
+      setQrDataUrl(null)
+      return
+    }
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+    const target = `${appUrl}/checkin/${booking.id}`
+    let cancelled = false
+    import('qrcode')
+      .then((QRCode) =>
+        QRCode.toDataURL(target, {
+          width: 320,
+          margin: 1,
+          color: { dark: '#2C2825', light: '#FFFFFF' },
+        }),
+      )
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url)
+      })
+      .catch(() => {
+        /* QR is a nicety — never block the confirmation on it. */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [booking])
 
   async function fetchData() {
     const { data: eventData } = await supabase
@@ -225,6 +255,22 @@ export function PortalBookingConfirmationPage() {
           </div>
         )}
       </PortalCard>
+
+      {/* Check-in QR — shown to the team at the door to mark you attended */}
+      {qrDataUrl && (
+        <PortalCard className="p-6 lg:p-8 mb-6 text-center">
+          <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
+            Your check-in pass
+          </p>
+          <div className="inline-block rounded-[var(--radius-md)] bg-white p-4 border border-graphite-line/45">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrDataUrl} alt="Event check-in QR code" width={180} height={180} className="w-[180px] h-[180px]" />
+          </div>
+          <p className="mt-5 font-[family-name:var(--font-editorial)] italic text-[14px] text-ivory-soft/85 leading-[1.7] max-w-sm mx-auto">
+            Present this on arrival — the team will scan it to welcome you in.
+          </p>
+        </PortalCard>
+      )}
 
       {/* Actions */}
       <div className="space-y-3">

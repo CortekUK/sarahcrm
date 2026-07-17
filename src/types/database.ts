@@ -161,6 +161,7 @@ export type Database = {
         Row: {
           accommodation_booked: boolean
           amount_pence: number
+          attendance: string | null
           charge_error: string | null
           checked_in: boolean
           checked_in_at: string | null
@@ -189,6 +190,7 @@ export type Database = {
         Insert: {
           accommodation_booked?: boolean
           amount_pence?: number
+          attendance?: string | null
           charge_error?: string | null
           checked_in?: boolean
           checked_in_at?: string | null
@@ -217,6 +219,7 @@ export type Database = {
         Update: {
           accommodation_booked?: boolean
           amount_pence?: number
+          attendance?: string | null
           charge_error?: string | null
           checked_in?: boolean
           checked_in_at?: string | null
@@ -992,6 +995,45 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_comms_sent: {
+        Row: {
+          booking_id: string | null
+          event_id: string
+          id: string
+          kind: string
+          sent_at: string
+        }
+        Insert: {
+          booking_id?: string | null
+          event_id: string
+          id?: string
+          kind: string
+          sent_at?: string
+        }
+        Update: {
+          booking_id?: string | null
+          event_id?: string
+          id?: string
+          kind?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_comms_sent_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_comms_sent_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
         ]

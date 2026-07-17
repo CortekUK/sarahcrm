@@ -9,6 +9,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 import { renderIntroEmail } from '@/lib/introductions/intro-email'
+import { generateSuggestions, pairKey } from '@/lib/introductions/suggest'
+import type { MatchCandidate } from '@/lib/introductions/matching'
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL || process.env.SITE_URL || 'https://sarahcrm.vercel.app'
@@ -44,11 +46,18 @@ function fmtMoney(pence: number | null | undefined): string {
 function daysAgoIso(n: number): string {
   return new Date(Date.now() - n * 86_400_000).toISOString()
 }
+function daysAheadIso(n: number): string {
+  return new Date(Date.now() + n * 86_400_000).toISOString()
+}
 function daysAheadDate(n: number): string {
   return new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
 }
 function todayDate(): string {
   return new Date().toISOString().slice(0, 10)
+}
+// Whole hours from `now` until an ISO instant (negative once it has passed).
+function hoursUntil(iso: string): number {
+  return (new Date(iso).getTime() - Date.now()) / 3_600_000
 }
 
 interface FlowItem {
@@ -135,6 +144,109 @@ async function processFlow(
   }
 }
 
+// ── Event comms: once-only send backed by event_comms_sent ────────────
+// The event reminder + post-event sequences dedup per (booking, kind) via
+// the event_comms_sent table instead of automation_log, so each STAGE of a
+// multi-stage sequence fires exactly once even if the cron runs late/twice.
+interface EventCommsItem {
+  eventId: string
+  bookingId: string | null
+  kind: string
+  to: string | null | undefined
+  subject: string
+  html: string
+  detail: string
+}
+
+// Which (booking_id, kind) pairs have already been sent for these events.
+async function loadCommsSent(
+  admin: Admin,
+  eventIds: string[],
+): Promise<Set<string>> {
+  const sent = new Set<string>()
+  if (eventIds.length === 0) return sent
+  const { data } = await admin
+    .from('event_comms_sent')
+    .select('event_id, booking_id, kind')
+    .in('event_id', eventIds)
+  for (const r of (data ?? []) as { event_id: string; booking_id: string | null; kind: string }[]) {
+    // Per-attendee stages key on the booking; event-level stages key on the event.
+    sent.add(r.booking_id ? `${r.booking_id}:${r.kind}` : `event:${r.event_id}:${r.kind}`)
+  }
+  return sent
+}
+
+// Shared dedup + send + log step for event-comms items. Mirrors processFlow
+// but records into event_comms_sent. `flow`/`label` are for the FlowResult
+// summary only; the ref_id shown is `bookingId|event:kind`.
+async function processEventComms(
+  admin: Admin,
+  flow: string,
+  label: string,
+  dryRun: boolean,
+  items: EventCommsItem[],
+  alreadySent: Set<string>,
+): Promise<FlowResult> {
+  const valid = items.filter((i) => i.to)
+  const pending = valid.filter(
+    (i) => !alreadySent.has(`${i.bookingId ?? 'event'}:${i.kind}`),
+  )
+  const out: FlowResult['items'] = []
+  let sent = 0
+  let failed = 0
+
+  for (const it of pending) {
+    const ref = `${it.bookingId ?? it.eventId}:${it.kind}`
+    if (dryRun) {
+      out.push({ ref_id: ref, to: it.to as string, detail: it.detail, status: 'would_send' })
+      continue
+    }
+    const r = await sendClubEmail({
+      to: it.to as string,
+      subject: it.subject,
+      html: it.html,
+      category: `automation:${it.kind}`,
+    })
+    if (r.sent) {
+      await admin.from('event_comms_sent').insert({
+        event_id: it.eventId,
+        booking_id: it.bookingId,
+        kind: it.kind,
+      })
+      sent++
+    } else {
+      failed++
+    }
+    out.push({
+      ref_id: ref,
+      to: it.to as string,
+      detail: it.detail,
+      status: r.sent ? 'sent' : 'failed',
+      error: r.error,
+    })
+  }
+
+  return {
+    flow,
+    label,
+    candidates: valid.length,
+    alreadyHandled: valid.length - pending.length,
+    pending: pending.length,
+    sent,
+    failed,
+    items: out,
+  }
+}
+
+// Booking → recipient email + first name (member or guest).
+function bookingRecipient(bk: Record<string, unknown>): { to: string | undefined; name: string } {
+  const member = one(bk.members as { profiles?: unknown } | null)
+  const prof = one(member?.profiles as { first_name?: string; email?: string } | null)
+  const to = (bk.is_guest ? (bk.guest_email as string) : prof?.email) || undefined
+  const name = (bk.is_guest ? (bk.guest_name as string) : prof?.first_name) || 'there'
+  return { to, name }
+}
+
 // ── 1. Renewal reminders ──────────────────────────────────────────────
 async function renewalReminders(admin: Admin, dryRun: boolean): Promise<FlowResult> {
   const { data } = await admin
@@ -198,106 +310,318 @@ async function failedPayments(admin: Admin, dryRun: boolean): Promise<FlowResult
   return processFlow(admin, 'failed_payment', 'Failed payments', dryRun, items)
 }
 
-// ── 3. Post-event follow-up ───────────────────────────────────────────
-async function postEventFollowup(admin: Admin, dryRun: boolean): Promise<FlowResult> {
-  const { data: events } = await admin
-    .from('events')
-    .select('id, title, start_date')
-    .gte('start_date', daysAgoIso(3))
-    .lte('start_date', daysAgoIso(1))
-    .in('status', ['completed', 'live', 'published'])
+// ── 3–4. Post-event sequence ──────────────────────────────────────────
+// Keyed off the event having PASSED (reference instant = end_date || start_date).
+// One helper loads the recently-finished events once; each stage below then
+// picks the events in its post-event time band. Once-only per (booking, kind)
+// via event_comms_sent. (Supersedes the old post_event_followup +
+// guest_nurture flows, folding thank-you / feedback / conversion into
+// dedicated, correctly-timed stages.)
+interface PastEvent {
+  id: string
+  title: string
+  ref: string // end_date || start_date
+  hoursSince: number
+}
 
-  const items: FlowItem[] = []
-  for (const ev of events ?? []) {
-    const { data: bookings } = await admin
-      .from('bookings')
-      .select('id, is_guest, guest_name, guest_email, members(profiles(first_name, email))')
-      .eq('event_id', (ev as { id: string }).id)
-      .eq('status', 'confirmed')
-    for (const b of bookings ?? []) {
-      const bk = b as Record<string, unknown>
-      const member = one(bk.members as { profiles?: unknown } | null)
-      const prof = one(member?.profiles as { first_name?: string; email?: string } | null)
-      const to = bk.is_guest ? (bk.guest_email as string) : prof?.email
-      const name = (bk.is_guest ? (bk.guest_name as string) : prof?.first_name) || 'there'
-      const title = (ev as { title: string }).title
+async function loadRecentlyEndedEvents(admin: Admin): Promise<PastEvent[]> {
+  const { data } = await admin
+    .from('events')
+    .select('id, title, start_date, end_date, status')
+    .gte('start_date', daysAgoIso(11))
+    .lte('start_date', daysAheadIso(1))
+    .in('status', ['completed', 'live', 'published'])
+  const out: PastEvent[] = []
+  for (const ev of data ?? []) {
+    const e = ev as { id: string; title: string; start_date: string; end_date: string | null }
+    const ref = e.end_date || e.start_date
+    const hoursSince = -hoursUntil(ref)
+    if (hoursSince <= 0) continue // not finished yet
+    out.push({ id: e.id, title: e.title, ref, hoursSince })
+  }
+  return out
+}
+
+async function confirmedBookings(admin: Admin, eventId: string) {
+  const { data } = await admin
+    .from('bookings')
+    .select(
+      'id, is_guest, guest_name, guest_email, member_id, checked_in, attendance, members(profiles(first_name, email))',
+    )
+    .eq('event_id', eventId)
+    .eq('status', 'confirmed')
+  return (data ?? []) as Record<string, unknown>[]
+}
+
+// Thank-you (immediately after — first 24h band) to every attendee.
+async function postEventThankYou(
+  admin: Admin,
+  dryRun: boolean,
+  past: PastEvent[],
+  sent: Set<string>,
+): Promise<FlowResult> {
+  const due = past.filter((e) => e.hoursSince > 0 && e.hoursSince <= 24)
+  const items: EventCommsItem[] = []
+  for (const ev of due) {
+    for (const bk of await confirmedBookings(admin, ev.id)) {
+      const { to, name } = bookingRecipient(bk)
       items.push({
-        ref_id: String(bk.id),
+        eventId: ev.id,
+        bookingId: String(bk.id),
+        kind: 'thank_you',
         to,
-        subject: `Thank you for joining ${title}`,
-        detail: `${title} — ${name}`,
+        subject: `Thank you for joining ${ev.title}`,
+        detail: `${ev.title} — ${name}`,
         html: renderClubEmail({
           eyebrow: 'With thanks',
-          heading: `Thank you for joining us.`,
+          heading: 'Thank you for joining us.',
           paragraphs: [
             `Hello ${name},`,
-            `It was a pleasure to have you at <strong style="color:#F0EBE0;">${title}</strong>. We hope it was an evening well spent.`,
-            `We'd love to hear your reflections — your feedback shapes every evening that follows.`,
+            `It was a pleasure to have you at <strong style="color:#F0EBE0;">${ev.title}</strong>. We hope it was an evening well spent.`,
+            `We'll be in touch shortly — in the meantime, do stay in the conversation.`,
+          ],
+          cta: { label: 'See what’s next', url: `${APP_URL}/events` },
+        }),
+      })
+    }
+  }
+  return processEventComms(admin, 'event_thank_you', 'Post-event · thank you', dryRun, items, sent)
+}
+
+// Feedback request (24–48h band).
+async function postEventFeedback(
+  admin: Admin,
+  dryRun: boolean,
+  past: PastEvent[],
+  sent: Set<string>,
+): Promise<FlowResult> {
+  const due = past.filter((e) => e.hoursSince > 24 && e.hoursSince <= 48)
+  const items: EventCommsItem[] = []
+  for (const ev of due) {
+    for (const bk of await confirmedBookings(admin, ev.id)) {
+      const { to, name } = bookingRecipient(bk)
+      items.push({
+        eventId: ev.id,
+        bookingId: String(bk.id),
+        kind: 'feedback',
+        to,
+        subject: `Your reflections on ${ev.title}`,
+        detail: `${ev.title} — ${name}`,
+        html: renderClubEmail({
+          eyebrow: 'We’d love to hear',
+          heading: 'How was your evening?',
+          paragraphs: [
+            `Hello ${name},`,
+            `Now that <strong style="color:#F0EBE0;">${ev.title}</strong> has settled, we'd be grateful for your reflections — your feedback shapes every evening that follows.`,
+            `Share a note, or book a call with the team if you'd like to speak.`,
           ],
           cta: { label: 'Share your thoughts', url: `${APP_URL}/share-your-experience` },
         }),
       })
     }
   }
-  return processFlow(admin, 'post_event_followup', 'Post-event follow-up', dryRun, items)
+  return processEventComms(admin, 'event_feedback', 'Post-event · feedback', dryRun, items, sent)
 }
 
-// ── 4. Guest → member nurture ─────────────────────────────────────────
-async function guestNurture(admin: Admin, dryRun: boolean): Promise<FlowResult> {
-  // Guest bookings for events in the last 90 days.
-  const { data: bookings } = await admin
-    .from('bookings')
-    .select('id, guest_name, guest_email, events(start_date)')
-    .eq('is_guest', true)
-    .not('guest_email', 'is', null)
-
-  // Keep only guests whose event has already happened (within 90 days).
-  const recent = (bookings ?? []).filter((b: Record<string, unknown>) => {
-    const ev = one(b.events as { start_date?: string } | null)
-    if (!ev?.start_date) return false
-    const t = new Date(ev.start_date).getTime()
-    return t < Date.now() && t > Date.now() - 90 * 86_400_000
-  })
-
-  // Distinct guest emails, and exclude anyone who is already a member.
-  const byEmail = new Map<string, { name: string }>()
-  for (const b of recent) {
-    const bk = b as Record<string, unknown>
-    const email = (bk.guest_email as string)?.toLowerCase()
-    if (email && !byEmail.has(email)) byEmail.set(email, { name: (bk.guest_name as string) || 'there' })
+// Membership conversion (7-day band) to NON-member guests only.
+async function postEventConversion(
+  admin: Admin,
+  dryRun: boolean,
+  past: PastEvent[],
+  sent: Set<string>,
+): Promise<FlowResult> {
+  const due = past.filter((e) => e.hoursSince > 168 && e.hoursSince <= 216)
+  const items: EventCommsItem[] = []
+  for (const ev of due) {
+    for (const bk of await confirmedBookings(admin, ev.id)) {
+      // Non-member guests only — someone with a member_id is already in.
+      if (!bk.is_guest && bk.member_id) continue
+      const { to, name } = bookingRecipient(bk)
+      items.push({
+        eventId: ev.id,
+        bookingId: String(bk.id),
+        kind: 'conversion',
+        to,
+        subject: 'An invitation to The Club',
+        detail: `${ev.title} — ${name}`,
+        html: renderClubEmail({
+          eyebrow: 'Membership',
+          heading: 'It was lovely to have you.',
+          paragraphs: [
+            `Hello ${name},`,
+            `We so enjoyed having you as our guest at <strong style="color:#F0EBE0;">${ev.title}</strong>. The Club is a private community built around trusted introductions and curated evenings — and we'd be glad to tell you more about joining.`,
+          ],
+          cta: { label: 'Explore membership', url: `${APP_URL}/memberships` },
+        }),
+      })
+    }
   }
-  const emails = [...byEmail.keys()]
-  let memberEmails = new Set<string>()
-  if (emails.length) {
-    const { data: profs } = await admin
-      .from('profiles')
-      .select('email, members(id)')
-      .in('email', emails)
-    memberEmails = new Set(
-      (profs ?? [])
-        .filter((p: Record<string, unknown>) => one(p.members as unknown))
-        .map((p: Record<string, unknown>) => (p.email as string)?.toLowerCase()),
-    )
+  return processEventComms(admin, 'event_conversion', 'Post-event · conversion', dryRun, items, sent)
+}
+
+// AI introduction recommendations among the event's ATTENDEES (48–96h band).
+// REUSES the existing deterministic matching engine (generateSuggestions /
+// scorePairForSuggestion) — the SAME code the admin "Generate suggestions"
+// button runs — but feeds it ONLY the members who attended this event, so the
+// candidate pairs are naturally scoped to the attendee subset. Inserts new
+// pairs as introductions rows at status='suggested' (requested_by=null) so
+// they land in the existing Approve/Dismiss queue; never auto-sends.
+// Tracked once per event via event_comms_sent (booking_id=null, kind=intro_recs).
+async function postEventIntroRecs(
+  admin: Admin,
+  dryRun: boolean,
+  past: PastEvent[],
+  sent: Set<string>,
+): Promise<FlowResult> {
+  const due = past.filter((e) => e.hoursSince > 48 && e.hoursSince <= 96)
+  const out: FlowResult['items'] = []
+  let created = 0
+  let candidates = 0
+  let alreadyHandled = 0
+
+  for (const ev of due) {
+    // Per-event guard (booking_id is null, so the unique index can't dedup it):
+    // check the preloaded ledger set, keyed per event.
+    if (sent.has(`event:${ev.id}:intro_recs`)) {
+      alreadyHandled++
+      continue
+    }
+    candidates++
+
+    // Attendees = members who actually turned up (checked_in or attendance).
+    const { data: att } = await admin
+      .from('bookings')
+      .select('member_id, checked_in, attendance')
+      .eq('event_id', ev.id)
+      .eq('status', 'confirmed')
+      .not('member_id', 'is', null)
+    const attendeeIds = [
+      ...new Set(
+        (att ?? [])
+          .filter(
+            (b: Record<string, unknown>) =>
+              b.checked_in === true || b.attendance === 'attended',
+          )
+          .map((b: Record<string, unknown>) => b.member_id as string),
+      ),
+    ]
+    const detail = `${ev.title} — ${attendeeIds.length} attendee(s)`
+    if (attendeeIds.length < 2) {
+      // Nothing to pair — still stamp so we don't re-scan this event daily.
+      if (!dryRun) {
+        await admin
+          .from('event_comms_sent')
+          .insert({ event_id: ev.id, booking_id: null, kind: 'intro_recs' })
+      }
+      out.push({ ref_id: `${ev.id}:intro_recs`, to: '', detail: `${detail} — skipped (<2)`, status: dryRun ? 'would_send' : 'sent' })
+      continue
+    }
+
+    if (dryRun) {
+      out.push({ ref_id: `${ev.id}:intro_recs`, to: '', detail: `${detail} — would suggest`, status: 'would_send' })
+      continue
+    }
+
+    const suggestions = await buildAttendeeSuggestions(admin, attendeeIds)
+    if (suggestions > 0) created += suggestions
+    await admin
+      .from('event_comms_sent')
+      .insert({ event_id: ev.id, booking_id: null, kind: 'intro_recs' })
+    out.push({
+      ref_id: `${ev.id}:intro_recs`,
+      to: '',
+      detail: `${detail} — ${suggestions} suggested`,
+      status: 'sent',
+    })
   }
 
-  const items: FlowItem[] = [...byEmail.entries()]
-    .filter(([email]) => !memberEmails.has(email))
-    .map(([email, { name }]) => ({
-      ref_id: email,
-      to: email,
-      subject: 'An invitation to The Club',
-      detail: `Guest nurture — ${name}`,
-      html: renderClubEmail({
-        eyebrow: 'Membership',
-        heading: 'It was lovely to have you.',
-        paragraphs: [
-          `Hello ${name},`,
-          `We so enjoyed having you as our guest. The Club is a private community built around trusted introductions and curated evenings — and we'd be glad to tell you more about joining.`,
-        ],
-        cta: { label: 'Explore membership', url: `${APP_URL}/memberships` },
-      }),
-    }))
-  return processFlow(admin, 'guest_nurture', 'Guest → member nurture', dryRun, items)
+  return {
+    flow: 'event_intro_recs',
+    label: 'Post-event · AI intro recs',
+    candidates,
+    alreadyHandled,
+    pending: candidates,
+    sent: created,
+    failed: 0,
+    items: out,
+  }
+}
+
+// Load the given members + tags, run the existing suggestion engine over ONLY
+// them, and insert new pairs as 'suggested' introductions. Returns the number
+// of new suggestions created. Mirrors the admin generate-suggestions route,
+// scoped to an attendee subset.
+async function buildAttendeeSuggestions(admin: Admin, memberIds: string[]): Promise<number> {
+  const [membersRes, tagsRes, introsRes] = await Promise.all([
+    admin
+      .from('members')
+      .select(
+        'id, company_name, sector, sub_sector, intro_target_types, intro_target_criteria, what_they_can_offer, profiles(first_name, last_name, company_name, email)',
+      )
+      .in('id', memberIds)
+      .eq('membership_status', 'active')
+      .is('deleted_at', null),
+    admin.from('member_tags').select('member_id, tag_id, tags(name, category)').in('member_id', memberIds),
+    admin.from('introductions').select('member_a_id, member_b_id').or(
+      memberIds.map((id) => `member_a_id.eq.${id},member_b_id.eq.${id}`).join(','),
+    ),
+  ])
+
+  const tagMap = new Map<string, { tagId: string; name: string; category: string }[]>()
+  for (const row of (tagsRes.data ?? []) as unknown as Array<{
+    member_id: string
+    tag_id: string
+    tags: { name: string; category: string } | null
+  }>) {
+    if (!row.tags) continue
+    const arr = tagMap.get(row.member_id) ?? []
+    arr.push({ tagId: row.tag_id, name: row.tags.name, category: row.tags.category })
+    tagMap.set(row.member_id, arr)
+  }
+
+  const candidates: MatchCandidate[] = (
+    (membersRes.data ?? []) as unknown as Array<{
+      id: string
+      company_name: string | null
+      sector: string | null
+      sub_sector: string | null
+      intro_target_types: string | null
+      intro_target_criteria: string | null
+      what_they_can_offer: string | null
+      profiles: { first_name: string | null; last_name: string | null; company_name: string | null; email: string | null } | null
+    }>
+  ).map((m) => ({
+    id: m.id,
+    name: `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.trim() || 'Unnamed',
+    company: m.company_name ?? m.profiles?.company_name ?? null,
+    email: m.profiles?.email ?? null,
+    tags: tagMap.get(m.id) ?? [],
+    sector: m.sector,
+    subSector: m.sub_sector,
+    introTargetTypes: m.intro_target_types,
+    introTargetCriteria: m.intro_target_criteria,
+    whatTheyCanOffer: m.what_they_can_offer,
+  }))
+
+  const existingPairKeys = new Set<string>()
+  for (const intro of (introsRes.data ?? []) as Array<{ member_a_id: string; member_b_id: string }>) {
+    existingPairKeys.add(pairKey(intro.member_a_id, intro.member_b_id))
+  }
+
+  const suggestions = generateSuggestions(candidates, existingPairKeys, { minScore: 0.5, cap: 20 })
+  if (suggestions.length === 0) return 0
+
+  const rows = suggestions.map((s) => ({
+    member_a_id: s.memberAId,
+    member_b_id: s.memberBId,
+    status: 'suggested' as const,
+    match_score: s.matchScore,
+    match_reason: s.matchReason || null,
+    matching_tags: null,
+    requested_by: null,
+  }))
+  const { data: inserted } = await admin.from('introductions').insert(rows).select('id')
+  return inserted?.length ?? 0
 }
 
 // ── 5. Invoice chasing ────────────────────────────────────────────────
@@ -450,50 +774,81 @@ async function bumpIntroUsage(admin: Admin, memberIds: string[]): Promise<void> 
   }
 }
 
-// ── 7. Pre-event reminders ────────────────────────────────────────────
-// A gentle nudge to confirmed attendees (members + guests) the day before
-// an event. ref_id is the booking id so each attendee is reminded once.
-async function eventReminders(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+// ── 7. Pre-event reminder SEQUENCE ────────────────────────────────────
+// A staged countdown to confirmed attendees (members + guests) at
+// 14 days / 7 days / 48 hours / morning-of, relative to the event start.
+// hoursUntil maps each booking to exactly one non-overlapping band, so a
+// daily/hourly cron sends the right single stage per run; once-only per
+// (booking, kind) is guaranteed by event_comms_sent.
+const REMINDER_STAGES: { kind: string; minH: number; maxH: number; eyebrow: string; when: string }[] = [
+  { kind: 'reminder_14d', minH: 168, maxH: 336, eyebrow: 'Save the date', when: 'in a fortnight' },
+  { kind: 'reminder_7d', minH: 48, maxH: 168, eyebrow: 'One week to go', when: 'next week' },
+  { kind: 'reminder_48h', minH: 14, maxH: 48, eyebrow: 'Almost here', when: 'in two days' },
+  { kind: 'reminder_morning', minH: 0, maxH: 14, eyebrow: 'Today', when: 'today' },
+]
+
+async function eventReminderSequence(
+  admin: Admin,
+  dryRun: boolean,
+  sent: Set<string>,
+): Promise<FlowResult> {
+  // Upcoming events within the 14-day reminder window.
   const { data: events } = await admin
     .from('events')
     .select('id, title, start_date, venue_name, venue_city')
-    .gte('start_date', daysAheadDate(1))
-    .lte('start_date', daysAheadDate(2))
+    .gte('start_date', new Date().toISOString())
+    .lte('start_date', daysAheadIso(15))
     .in('status', ['published', 'live'])
 
-  const items: FlowItem[] = []
+  const items: EventCommsItem[] = []
   for (const ev of events ?? []) {
-    const e = ev as { id: string; title: string; start_date: string; venue_name: string | null; venue_city: string | null }
+    const e = ev as {
+      id: string
+      title: string
+      start_date: string
+      venue_name: string | null
+      venue_city: string | null
+    }
+    const h = hoursUntil(e.start_date)
+    // The single band this event currently sits in (bands are contiguous).
+    const stage = REMINDER_STAGES.find((s) => h > s.minH && h <= s.maxH)
+    if (!stage) continue
+
     const { data: bookings } = await admin
       .from('bookings')
       .select('id, is_guest, guest_name, guest_email, members(profiles(first_name, email))')
       .eq('event_id', e.id)
       .eq('status', 'confirmed')
+    const where = [e.venue_name, e.venue_city].filter(Boolean).join(', ')
     for (const b of bookings ?? []) {
       const bk = b as Record<string, unknown>
-      const member = one(bk.members as { profiles?: unknown } | null)
-      const prof = one(member?.profiles as { first_name?: string; email?: string } | null)
-      const to = bk.is_guest ? (bk.guest_email as string) : prof?.email
-      const name = (bk.is_guest ? (bk.guest_name as string) : prof?.first_name) || 'there'
-      const where = [e.venue_name, e.venue_city].filter(Boolean).join(', ')
+      const { to, name } = bookingRecipient(bk)
       items.push({
-        ref_id: String(bk.id),
+        eventId: e.id,
+        bookingId: String(bk.id),
+        kind: stage.kind,
         to,
-        subject: `A reminder — ${e.title} is almost here`,
-        detail: `${e.title} — ${name}`,
+        subject:
+          stage.kind === 'reminder_morning'
+            ? `Today — ${e.title}`
+            : `A reminder — ${e.title} is ${stage.when}`,
+        detail: `${e.title} (${stage.kind}) — ${name}`,
         html: renderClubEmail({
-          eyebrow: 'See you soon',
-          heading: `${e.title} is almost here.`,
+          eyebrow: stage.eyebrow,
+          heading:
+            stage.kind === 'reminder_morning'
+              ? `${e.title} is today.`
+              : `${e.title} is ${stage.when}.`,
           paragraphs: [
             `Hello ${name},`,
-            `Just a gentle reminder that <strong style="color:#F0EBE0;">${e.title}</strong> takes place on <strong style="color:#F0EBE0;">${fmtDate(e.start_date)}</strong>${where ? ` at ${where}` : ''}.`,
+            `A gentle reminder that <strong style="color:#F0EBE0;">${e.title}</strong> takes place on <strong style="color:#F0EBE0;">${fmtDate(e.start_date)}</strong>${where ? ` at ${where}` : ''}.`,
             `We look forward to welcoming you.`,
           ],
         }),
       })
     }
   }
-  return processFlow(admin, 'event_reminder', 'Pre-event reminders', dryRun, items)
+  return processEventComms(admin, 'event_reminder', 'Pre-event reminders', dryRun, items, sent)
 }
 
 // ── Maintenance: transition past-due pending payments to 'overdue' ─────
@@ -541,12 +896,26 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
     await markOverduePayments(admin)
     await resetMonthlyQuotasIfDue(admin)
   }
+  // Event sequences dedup via event_comms_sent. Load the ledger once for
+  // every event in play (upcoming 15d + recently-ended 11d) so each stage
+  // knows what has already been sent.
+  const { data: liveEvents } = await admin
+    .from('events')
+    .select('id')
+    .gte('start_date', daysAgoIso(11))
+    .lte('start_date', daysAheadIso(15))
+  const eventIds = (liveEvents ?? []).map((e: { id: string }) => e.id)
+  const commsSent = await loadCommsSent(admin, eventIds)
+  const pastEvents = await loadRecentlyEndedEvents(admin)
+
   const flows = [
     await renewalReminders(admin, dryRun),
     await failedPayments(admin, dryRun),
-    await eventReminders(admin, dryRun),
-    await postEventFollowup(admin, dryRun),
-    await guestNurture(admin, dryRun),
+    await eventReminderSequence(admin, dryRun, commsSent),
+    await postEventThankYou(admin, dryRun, pastEvents, commsSent),
+    await postEventFeedback(admin, dryRun, pastEvents, commsSent),
+    await postEventIntroRecs(admin, dryRun, pastEvents, commsSent),
+    await postEventConversion(admin, dryRun, pastEvents, commsSent),
     await invoiceChasing(admin, dryRun),
     await scheduledIntroductions(admin, dryRun),
   ]

@@ -47,6 +47,7 @@ interface GuestRow {
   special_requests: string | null
   checked_in: boolean
   checked_in_at: string | null
+  attendance: string | null
   is_guest: boolean
   guest_name: string | null
   guests_invited: number
@@ -103,7 +104,7 @@ export function EventDetailPage() {
       supabase
         .from('bookings')
         .select(
-          'id, status, amount_pence, payment_method, dietary_requirements, special_requests, checked_in, checked_in_at, is_guest, guest_name, guests_invited, accommodation_booked, members(id, profiles(first_name, last_name, email, avatar_url, company_name))',
+          'id, status, amount_pence, payment_method, dietary_requirements, special_requests, checked_in, checked_in_at, attendance, is_guest, guest_name, guests_invited, accommodation_booked, members(id, profiles(first_name, last_name, email, avatar_url, company_name))',
         )
         .eq('event_id', eventId)
         .order('created_at', { ascending: false }),
@@ -164,18 +165,42 @@ export function EventDetailPage() {
 
   async function toggleCheckIn(bookingId: string, currentValue: boolean) {
     const newValue = !currentValue
+    const now = new Date().toISOString()
     await supabase
       .from('bookings')
       .update({
         checked_in: newValue,
-        checked_in_at: newValue ? new Date().toISOString() : null,
+        checked_in_at: newValue ? now : null,
+        // Checking in marks them attended; un-checking clears attendance.
+        attendance: newValue ? 'attended' : null,
       })
       .eq('id', bookingId)
 
     setGuests((prev) =>
       prev.map((g) =>
         g.id === bookingId
-          ? { ...g, checked_in: newValue, checked_in_at: newValue ? new Date().toISOString() : null }
+          ? {
+              ...g,
+              checked_in: newValue,
+              checked_in_at: newValue ? now : null,
+              attendance: newValue ? 'attended' : null,
+            }
+          : g,
+      ),
+    )
+  }
+
+  // Mark a booking as a no-show (didn't attend). Clears any check-in.
+  async function markNoShow(bookingId: string) {
+    await supabase
+      .from('bookings')
+      .update({ checked_in: false, checked_in_at: null, attendance: 'no_show' })
+      .eq('id', bookingId)
+
+    setGuests((prev) =>
+      prev.map((g) =>
+        g.id === bookingId
+          ? { ...g, checked_in: false, checked_in_at: null, attendance: 'no_show' }
           : g,
       ),
     )
@@ -198,6 +223,13 @@ export function EventDetailPage() {
     ? Math.round((confirmedGuests.length / event.capacity) * 100)
     : null
   const checkedInCount = guests.filter((g) => g.checked_in).length
+  // Attendance summary — scoped to confirmed bookings.
+  const attendedCount = confirmedGuests.filter(
+    (g) => g.attendance === 'attended' || g.checked_in,
+  ).length
+  const noShowCount = confirmedGuests.filter((g) => g.attendance === 'no_show').length
+  const notCheckedInCount = confirmedGuests.length - attendedCount - noShowCount
+  const guestsCount = confirmedGuests.filter((g) => g.is_guest).length
   const speakers = (event.speakers as Array<{ name: string; title?: string }> | null) ?? []
   const agenda =
     (event.agenda as Array<{ time: string; title: string; description?: string }> | null) ?? []
@@ -456,6 +488,29 @@ export function EventDetailPage() {
         <StatCard label="Checked in" value={`${checkedInCount} / ${confirmedGuests.length}`} />
       </div>
 
+      {/* Attendance summary — attended / no-show / awaiting, plus guest count */}
+      <Card className="mb-6">
+        <CardContent className="py-4 md:py-5">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+              Attendance
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5 text-sm">
+              <Badge variant="active" dot>
+                {attendedCount} attended
+              </Badge>
+              <Badge variant="urgent" dot>
+                {noShowCount} no-show
+              </Badge>
+              <Badge variant="draft" dot>
+                {notCheckedInCount} awaiting
+              </Badge>
+              <Badge variant="info">{guestsCount} guest{guestsCount === 1 ? '' : 's'}</Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Invite list — who's been invited, Invited vs Confirmed views */}
       <div className="mb-6">
         <EventInvitesPanel eventId={id} />
@@ -557,21 +612,40 @@ export function EventDetailPage() {
                             {guest.dietary_requirements || '—'}
                           </TableCell>
                           <TableCell>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                toggleCheckIn(guest.id, guest.checked_in)
-                              }}
-                              className={cn(
-                                'w-8 h-8 rounded-[var(--radius-md)] flex items-center justify-center transition-colors border',
-                                guest.checked_in
-                                  ? 'bg-accent text-white border-accent'
-                                  : 'bg-surface text-text-dim border-border hover:border-border-hover',
-                              )}
-                              aria-label={guest.checked_in ? 'Check out' : 'Check in'}
-                            >
-                              {guest.checked_in ? <Check size={14} /> : <XIcon size={14} />}
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleCheckIn(guest.id, guest.checked_in)
+                                }}
+                                className={cn(
+                                  'w-8 h-8 rounded-[var(--radius-md)] flex items-center justify-center transition-colors border',
+                                  guest.checked_in
+                                    ? 'bg-accent text-white border-accent'
+                                    : 'bg-surface text-text-dim border-border hover:border-border-hover',
+                                )}
+                                aria-label={guest.checked_in ? 'Check out' : 'Check in'}
+                                title={guest.checked_in ? 'Checked in — click to undo' : 'Check in'}
+                              >
+                                {guest.checked_in ? <Check size={14} /> : <XIcon size={14} />}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  markNoShow(guest.id)
+                                }}
+                                className={cn(
+                                  'h-8 px-2 rounded-[var(--radius-md)] flex items-center justify-center text-[10.5px] font-medium uppercase tracking-[0.12em] transition-colors border',
+                                  guest.attendance === 'no_show'
+                                    ? 'bg-accent-warm/15 text-accent-warm border-accent-warm/40'
+                                    : 'bg-surface text-text-dim border-border hover:border-border-hover',
+                                )}
+                                aria-label="Mark no-show"
+                                title="Mark as no-show"
+                              >
+                                No-show
+                              </button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -621,28 +695,44 @@ export function EventDetailPage() {
                               </span>
                             )}
                           </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleCheckIn(guest.id, guest.checked_in)
-                            }}
-                            className={cn(
-                              'inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-full border transition-colors',
-                              guest.checked_in
-                                ? 'bg-accent text-white border-accent'
-                                : 'bg-surface text-text-dim border-border',
-                            )}
-                          >
-                            {guest.checked_in ? (
-                              <>
-                                <Check size={11} /> Checked in
-                              </>
-                            ) : (
-                              <>
-                                <XIcon size={11} /> Not checked in
-                              </>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                toggleCheckIn(guest.id, guest.checked_in)
+                              }}
+                              className={cn(
+                                'inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-full border transition-colors',
+                                guest.checked_in
+                                  ? 'bg-accent text-white border-accent'
+                                  : 'bg-surface text-text-dim border-border',
+                              )}
+                            >
+                              {guest.checked_in ? (
+                                <>
+                                  <Check size={11} /> Checked in
+                                </>
+                              ) : (
+                                <>
+                                  <XIcon size={11} /> Not checked in
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                markNoShow(guest.id)
+                              }}
+                              className={cn(
+                                'inline-flex items-center px-2.5 py-1 text-[10px] uppercase tracking-[0.1em] rounded-full border transition-colors',
+                                guest.attendance === 'no_show'
+                                  ? 'bg-accent-warm/15 text-accent-warm border-accent-warm/40'
+                                  : 'bg-surface text-text-dim border-border',
+                              )}
+                            >
+                              No-show
+                            </button>
+                          </div>
                         </div>
                         {guest.dietary_requirements && (
                           <p className="mt-1.5 text-[11px] text-text-muted">
