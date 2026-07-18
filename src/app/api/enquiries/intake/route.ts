@@ -18,6 +18,7 @@ import type { Database } from '@/types/database'
 import { scoreEnquiry } from '@/lib/leads/scoring'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 import { notifyAdmins } from '@/lib/email/admin-notify'
+import { enrichEnquiry } from '@/lib/enrichment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -220,6 +221,16 @@ export async function POST(request: Request) {
     console.error('[enquiries/intake] task creation failed:', e)
   }
 
-  // ── (g) Done ────────────────────────────────────────────────────
+  // ── (g) Best-effort auto-enrich via the configured provider ─────
+  // Behind the provider interface (Apollo today). Never fails the enquiry —
+  // provider fetches are individually timeout-bounded and enrichEnquiry
+  // never throws.
+  try {
+    await enrichEnquiry(admin, enquiryId)
+  } catch (e) {
+    console.error('[enquiries/intake] enrichment failed:', e)
+  }
+
+  // ── (h) Done ────────────────────────────────────────────────────
   return Response.json({ ok: true, id: enquiryId })
 }

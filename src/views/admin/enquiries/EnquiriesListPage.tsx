@@ -37,6 +37,11 @@ import {
   Tag,
   ListTodo,
   Gauge,
+  Sparkles,
+  Users,
+  TrendingUp,
+  ExternalLink,
+  Briefcase,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -224,6 +229,45 @@ export function EnquiriesListPage() {
     setEnquiries((prev) => prev.filter((e) => e.id !== enquiry.id))
     setSelected(null)
     toast({ title: 'Enquiry deleted' })
+  }
+
+  // Run (or re-run) enrichment for one enquiry via the admin route. On success
+  // refetch just that row so the freshly-written enrichment fields show up.
+  async function runEnrich(id: string): Promise<void> {
+    try {
+      const res = await fetch('/api/admin/enquiries/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enquiryId: id }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        status?: string
+        error?: string
+      }
+      if (!res.ok || !json.ok) {
+        toast({
+          title: 'Enrichment failed',
+          description: json.error ?? 'Please try again.',
+          variant: 'destructive',
+        })
+        return
+      }
+      // Pull the updated row back so all enrichment_* fields refresh.
+      const { data } = await supabase.from('enquiries').select('*').eq('id', id).single()
+      if (data) {
+        const row = data as EnquiryRow
+        setEnquiries((prev) => prev.map((e) => (e.id === id ? row : e)))
+        setSelected((prev) => (prev?.id === id ? row : prev))
+      }
+      toast({ title: 'Enrichment complete', description: `Status: ${json.status ?? 'done'}.` })
+    } catch (e) {
+      toast({
+        title: 'Enrichment failed',
+        description: e instanceof Error ? e.message : 'Network error.',
+        variant: 'destructive',
+      })
+    }
   }
 
   // When a reply is sent through the in-app composer, reflect it locally
@@ -419,6 +463,7 @@ export function EnquiriesListPage() {
           onNotesChange={(notes) => saveNotes(selected.id, notes)}
           onReply={() => setComposing(selected)}
           onDelete={() => handleDelete(selected)}
+          onEnrich={() => runEnrich(selected.id)}
         />
       )}
 
@@ -555,6 +600,7 @@ function EnquiryDetailModal({
   onNotesChange,
   onReply,
   onDelete,
+  onEnrich,
 }: {
   enquiry: EnquiryRow
   onClose: () => void
@@ -562,9 +608,20 @@ function EnquiryDetailModal({
   onNotesChange: (notes: string) => void
   onReply: () => void
   onDelete: () => void
+  onEnrich: () => Promise<void>
 }) {
   const [notes, setNotes] = useState(enquiry.admin_notes ?? '')
+  const [enriching, setEnriching] = useState(false)
   const status = (enquiry.status as EnquiryStatus) ?? 'new'
+
+  async function handleEnrich() {
+    setEnriching(true)
+    try {
+      await onEnrich()
+    } finally {
+      setEnriching(false)
+    }
+  }
 
   // Persist notes ~700ms after the admin stops typing.
   useEffect(() => {
@@ -650,6 +707,13 @@ function EnquiryDetailModal({
           </div>
         )}
 
+        {/* Company / person enrichment */}
+        <EnrichmentPanel
+          enquiry={enquiry}
+          enriching={enriching}
+          onEnrich={handleEnrich}
+        />
+
         {/* Message */}
         <div>
           <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
@@ -721,6 +785,161 @@ function EnquiryDetailModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ─── Enrichment panel — Apollo (or any provider) company + person data ──
+
+const ENRICHMENT_LABELS: Record<string, string> = {
+  enriched: 'Enriched',
+  partial: 'Company found',
+  no_domain: 'No business domain',
+  not_found: 'Not found',
+  failed: 'Enrichment failed',
+}
+
+const ENRICHMENT_BADGE: Record<string, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
+  enriched: 'active',
+  partial: 'info',
+  no_domain: 'draft',
+  not_found: 'draft',
+  failed: 'urgent',
+}
+
+function EnrichmentPanel({
+  enquiry,
+  enriching,
+  onEnrich,
+}: {
+  enquiry: EnquiryRow
+  enriching: boolean
+  onEnrich: () => void
+}) {
+  const hasCompany =
+    !!enquiry.company_website ||
+    !!enquiry.company_industry ||
+    !!enquiry.company_linkedin_url ||
+    enquiry.company_employee_count != null ||
+    !!enquiry.company_revenue_printed
+  const hasPerson =
+    !!enquiry.person_title || !!enquiry.person_seniority || !!enquiry.person_linkedin_url
+  const st = enquiry.enrichment_status
+
+  return (
+    <div className="border border-border rounded-md px-4 py-3 bg-surface-2/40">
+      <div className="flex items-center gap-1.5 text-text-muted mb-3">
+        <Sparkles size={13} />
+        <span className="text-[10px] font-medium uppercase tracking-[0.16em]">
+          Lead enrichment
+        </span>
+        {st && (
+          <Badge variant={ENRICHMENT_BADGE[st] ?? 'info'} className="ml-1 capitalize">
+            {ENRICHMENT_LABELS[st] ?? st}
+          </Badge>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {enquiry.enriched_at && (
+            <span className="text-[11px] text-text-dim">
+              {enquiry.enrichment_source ? `${enquiry.enrichment_source} · ` : ''}
+              {formatDateTime(enquiry.enriched_at)}
+            </span>
+          )}
+          <Button size="sm" variant="secondary" onClick={onEnrich} disabled={enriching}>
+            <Sparkles size={13} />
+            {enriching ? 'Enriching…' : enquiry.enriched_at ? 'Re-enrich' : 'Enrich'}
+          </Button>
+        </div>
+      </div>
+
+      {!hasCompany && !hasPerson ? (
+        <p className="text-xs text-text-dim">
+          {st === 'no_domain'
+            ? 'A personal/free email — no company domain to enrich against.'
+            : st
+              ? 'No enrichment data was found.'
+              : 'Not yet enriched. Run enrichment to pull company and person details.'}
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {enquiry.company_industry && (
+            <EnrichFact icon={<Building2 size={12} />} label="Industry" value={enquiry.company_industry} />
+          )}
+          {enquiry.company_employee_count != null && (
+            <EnrichFact
+              icon={<Users size={12} />}
+              label="Employees"
+              value={enquiry.company_employee_count.toLocaleString()}
+            />
+          )}
+          {enquiry.company_revenue_printed && (
+            <EnrichFact
+              icon={<TrendingUp size={12} />}
+              label="Est. revenue"
+              value={`$${enquiry.company_revenue_printed}`}
+            />
+          )}
+          {(enquiry.person_seniority || enquiry.person_title) && (
+            <EnrichFact
+              icon={<Briefcase size={12} />}
+              label="Seniority"
+              value={
+                [enquiry.person_title, enquiry.person_seniority]
+                  .filter(Boolean)
+                  .join(' · ') || '—'
+              }
+            />
+          )}
+          {(enquiry.company_website || enquiry.company_linkedin_url || enquiry.person_linkedin_url) && (
+            <div className="md:col-span-2 flex flex-wrap items-center gap-3 pt-1">
+              {enquiry.company_website && (
+                <EnrichLink href={enquiry.company_website} label="Website" />
+              )}
+              {enquiry.company_linkedin_url && (
+                <EnrichLink href={enquiry.company_linkedin_url} label="Company LinkedIn" />
+              )}
+              {enquiry.person_linkedin_url && (
+                <EnrichLink href={enquiry.person_linkedin_url} label="Person LinkedIn" />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EnrichFact({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-sm">
+      <span className="text-text-muted">{icon}</span>
+      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted">
+        {label}
+      </span>
+      <span className="text-text ml-auto">{value}</span>
+    </div>
+  )
+}
+
+function EnrichLink({ href, label }: { href: string; label: string }) {
+  const url = href.startsWith('http') ? href : `https://${href}`
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-xs text-gold hover:text-gold/80 transition-colors"
+    >
+      {label}
+      <ExternalLink size={11} />
+    </a>
   )
 }
 

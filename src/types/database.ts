@@ -882,14 +882,28 @@ export type Database = {
           admin_notes: string | null
           assigned_to: string | null
           company: string | null
+          company_domain: string | null
+          company_employee_count: number | null
+          company_industry: string | null
+          company_linkedin_url: string | null
+          company_revenue: number | null
+          company_revenue_printed: string | null
+          company_website: string | null
           created_at: string
           email: string
+          enriched_at: string | null
+          enrichment_raw: Json | null
+          enrichment_source: string | null
+          enrichment_status: string | null
           first_name: string
           id: string
           intent: string[] | null
           last_name: string
           lead_score: number | null
           message: string
+          person_linkedin_url: string | null
+          person_seniority: string | null
+          person_title: string | null
           phone: string | null
           position: string | null
           related_task_id: string | null
@@ -906,14 +920,28 @@ export type Database = {
           admin_notes?: string | null
           assigned_to?: string | null
           company?: string | null
+          company_domain?: string | null
+          company_employee_count?: number | null
+          company_industry?: string | null
+          company_linkedin_url?: string | null
+          company_revenue?: number | null
+          company_revenue_printed?: string | null
+          company_website?: string | null
           created_at?: string
           email: string
+          enriched_at?: string | null
+          enrichment_raw?: Json | null
+          enrichment_source?: string | null
+          enrichment_status?: string | null
           first_name: string
           id?: string
           intent?: string[] | null
           last_name: string
           lead_score?: number | null
           message: string
+          person_linkedin_url?: string | null
+          person_seniority?: string | null
+          person_title?: string | null
           phone?: string | null
           position?: string | null
           related_task_id?: string | null
@@ -930,14 +958,28 @@ export type Database = {
           admin_notes?: string | null
           assigned_to?: string | null
           company?: string | null
+          company_domain?: string | null
+          company_employee_count?: number | null
+          company_industry?: string | null
+          company_linkedin_url?: string | null
+          company_revenue?: number | null
+          company_revenue_printed?: string | null
+          company_website?: string | null
           created_at?: string
           email?: string
+          enriched_at?: string | null
+          enrichment_raw?: Json | null
+          enrichment_source?: string | null
+          enrichment_status?: string | null
           first_name?: string
           id?: string
           intent?: string[] | null
           last_name?: string
           lead_score?: number | null
           message?: string
+          person_linkedin_url?: string | null
+          person_seniority?: string | null
+          person_title?: string | null
           phone?: string | null
           position?: string | null
           related_task_id?: string | null
