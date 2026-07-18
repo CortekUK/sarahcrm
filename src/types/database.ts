@@ -615,6 +615,56 @@ export type Database = {
           },
         ]
       }
+      whatsapp_log: {
+        Row: {
+          body: string | null
+          category: string | null
+          created_at: string
+          direction: string
+          error: string | null
+          id: string
+          member_id: string | null
+          status: string
+          template_name: string | null
+          to_phone: string
+          whatsapp_message_id: string | null
+        }
+        Insert: {
+          body?: string | null
+          category?: string | null
+          created_at?: string
+          direction?: string
+          error?: string | null
+          id?: string
+          member_id?: string | null
+          status?: string
+          template_name?: string | null
+          to_phone: string
+          whatsapp_message_id?: string | null
+        }
+        Update: {
+          body?: string | null
+          category?: string | null
+          created_at?: string
+          direction?: string
+          error?: string | null
+          id?: string
+          member_id?: string | null
+          status?: string
+          template_name?: string | null
+          to_phone?: string
+          whatsapp_message_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_log_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contract_ai_chats: {
         Row: {
           contract_id: string | null

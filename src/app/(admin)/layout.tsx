@@ -38,6 +38,7 @@ import {
   Coins,
   KanbanSquare,
   Gauge,
+  MessageCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -142,6 +143,7 @@ const NAV_SECTIONS: NavSection[] = [
       },
       { to: '/dashboard/finance', label: 'Finance', icon: PoundSterling },
       { to: '/dashboard/commissions', label: 'Commissions', icon: Coins },
+      { to: '/dashboard/whatsapp', label: 'WhatsApp', icon: MessageCircle },
       { to: '/dashboard/automations', label: 'Automations', icon: Zap },
     ],
   },
