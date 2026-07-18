@@ -12,7 +12,8 @@ import { Avatar } from '@/components/ui/Avatar'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, Trash2, Handshake, Copy, Send, Check, Ticket } from 'lucide-react'
+import { Plus, Trash2, Handshake, Copy, Send, Check, Ticket, Settings2 } from 'lucide-react'
+import { SponsorManageModal, type ManageSponsor } from './SponsorManageModal'
 
 // Sponsorship management for a single event. Lives on the event detail page.
 //
@@ -36,6 +37,9 @@ interface SponsorRow {
   showcase_slot: string | null
   brand_alignment: string | null
   booking_token: string
+  proposal_html: string | null
+  roi_report_html: string | null
+  roi_reach: number | null
   invite_sent_at: string | null
   member_id: string | null
   sponsor_name: string | null
@@ -129,6 +133,9 @@ export function SponsorsPanel({
   const [showcaseSlot, setShowcaseSlot] = useState('')
   const [brandAlignment, setBrandAlignment] = useState('')
 
+  // Manage-modal state (delivery checklist + proposal/ROI + portal link)
+  const [manageFor, setManageFor] = useState<ManageSponsor | null>(null)
+
   // Invite-modal state
   const [inviteFor, setInviteFor] = useState<SponsorRow | null>(null)
   const [inviteTemplateId, setInviteTemplateId] = useState('')
@@ -144,7 +151,7 @@ export function SponsorsPanel({
       supabase
         .from('sponsorships')
         .select(
-          'id, package_name, amount_pence, event_price_pence, status, showcase_slot, brand_alignment, booking_token, invite_sent_at, member_id, sponsor_name, sponsor_email, sponsor_company, members(id, profiles(first_name, last_name, company_name, avatar_url))',
+          'id, package_name, amount_pence, event_price_pence, status, showcase_slot, brand_alignment, booking_token, proposal_html, roi_report_html, roi_reach, invite_sent_at, member_id, sponsor_name, sponsor_email, sponsor_company, members(id, profiles(first_name, last_name, company_name, avatar_url))',
         )
         .eq('event_id', eventId)
         .order('created_at', { ascending: true }),
@@ -410,6 +417,21 @@ export function SponsorsPanel({
                   >
                     <Send size={13} /> Send invite
                   </button>
+                  <button
+                    onClick={() =>
+                      setManageFor({
+                        id: s.id,
+                        booking_token: s.booking_token,
+                        sponsor_label: memberName(s),
+                        proposal_html: s.proposal_html,
+                        roi_report_html: s.roi_report_html,
+                        roi_reach: s.roi_reach,
+                      })
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-md)] text-xs text-text-muted bg-surface-2 hover:text-text hover:bg-surface-3 transition-colors"
+                  >
+                    <Settings2 size={13} /> Manage
+                  </button>
                   {s.invite_sent_at && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-text-dim">
                       <Check size={12} className="text-[#5C8A6B]" />
@@ -603,6 +625,9 @@ export function SponsorsPanel({
           </Button>
         </div>
       </Modal>
+
+      {/* ── Manage sponsor modal (checklist + proposal/ROI + portal) ─ */}
+      <SponsorManageModal sponsor={manageFor} onClose={() => setManageFor(null)} />
     </Card>
   )
 }

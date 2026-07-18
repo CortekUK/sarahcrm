@@ -2665,6 +2665,94 @@ export type Database = {
           },
         ]
       }
+      sponsor_deliverables: {
+        Row: {
+          category: string | null
+          created_at: string
+          due_date: string | null
+          file_name: string | null
+          file_path: string | null
+          file_size: number | null
+          id: string
+          label: string
+          notes: string | null
+          sponsor_note: string | null
+          sponsorship_id: string
+          status: string
+          submitted_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          due_date?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          label: string
+          notes?: string | null
+          sponsor_note?: string | null
+          sponsorship_id: string
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          due_date?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          label?: string
+          notes?: string | null
+          sponsor_note?: string | null
+          sponsorship_id?: string
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sponsor_deliverables_sponsorship_id_fkey"
+            columns: ["sponsorship_id"]
+            isOneToOne: false
+            referencedRelation: "sponsorships"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sponsor_comms_sent: {
+        Row: {
+          id: string
+          kind: string
+          sent_at: string
+          sponsorship_id: string
+        }
+        Insert: {
+          id?: string
+          kind: string
+          sent_at?: string
+          sponsorship_id: string
+        }
+        Update: {
+          id?: string
+          kind?: string
+          sent_at?: string
+          sponsorship_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sponsor_comms_sent_sponsorship_id_fkey"
+            columns: ["sponsorship_id"]
+            isOneToOne: false
+            referencedRelation: "sponsorships"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sponsorships: {
         Row: {
           amount_pence: number
@@ -2678,6 +2766,9 @@ export type Database = {
           invite_sent_at: string | null
           member_id: string | null
           package_name: string
+          proposal_html: string | null
+          roi_reach: number | null
+          roi_report_html: string | null
           showcase_slot: string | null
           sponsor_company: string | null
           sponsor_email: string | null
@@ -2697,6 +2788,9 @@ export type Database = {
           invite_sent_at?: string | null
           member_id?: string | null
           package_name: string
+          proposal_html?: string | null
+          roi_reach?: number | null
+          roi_report_html?: string | null
           showcase_slot?: string | null
           sponsor_company?: string | null
           sponsor_email?: string | null
@@ -2716,6 +2810,9 @@ export type Database = {
           invite_sent_at?: string | null
           member_id?: string | null
           package_name?: string
+          proposal_html?: string | null
+          roi_reach?: number | null
+          roi_report_html?: string | null
           showcase_slot?: string | null
           sponsor_company?: string | null
           sponsor_email?: string | null

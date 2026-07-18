@@ -38,6 +38,7 @@ const FLOW_HELP: Record<string, string> = {
   guest_nurture: 'Past guests who aren’t members yet — a gentle invitation.',
   invoice_chasing: 'Members with an overdue or past-due balance.',
   intro_scheduled: 'Both members of a scheduled introduction.',
+  sponsor_followup: 'Sponsors still in the proposed stage — staged chasers at 3 / 7 / 14 days after the sponsorship was created.',
 }
 
 export function AutomationsPage() {

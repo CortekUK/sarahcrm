@@ -342,6 +342,158 @@ async function processMemberComms(
   }
 }
 
+// ── Sponsor comms: once-only send backed by sponsor_comms_sent ────────
+// The sponsorship follow-up sequence dedups per (sponsorship, kind) via the
+// sponsor_comms_sent table (mirrors member_comms_sent), so each STAGE fires
+// exactly once even if the cron runs late/twice. The (sponsorship_id, kind)
+// UNIQUE index is the hard guarantee.
+interface SponsorCommsItem {
+  sponsorshipId: string
+  kind: string
+  to: string | null | undefined
+  subject: string
+  html: string
+  detail: string
+}
+
+async function loadSponsorCommsSent(admin: Admin, sponsorshipIds: string[]): Promise<Set<string>> {
+  const sent = new Set<string>()
+  if (sponsorshipIds.length === 0) return sent
+  const { data } = await admin
+    .from('sponsor_comms_sent')
+    .select('sponsorship_id, kind')
+    .in('sponsorship_id', sponsorshipIds)
+  for (const r of (data ?? []) as { sponsorship_id: string; kind: string }[]) {
+    sent.add(`${r.sponsorship_id}:${r.kind}`)
+  }
+  return sent
+}
+
+async function processSponsorComms(
+  admin: Admin,
+  flow: string,
+  label: string,
+  dryRun: boolean,
+  items: SponsorCommsItem[],
+  alreadySent: Set<string>,
+): Promise<FlowResult> {
+  const valid = items.filter((i) => i.to)
+  const pending = valid.filter((i) => !alreadySent.has(`${i.sponsorshipId}:${i.kind}`))
+  const out: FlowResult['items'] = []
+  let sent = 0
+  let failed = 0
+
+  for (const it of pending) {
+    const ref = `${it.sponsorshipId}:${it.kind}`
+    if (dryRun) {
+      out.push({ ref_id: ref, to: it.to as string, detail: it.detail, status: 'would_send' })
+      continue
+    }
+    const r = await sendClubEmail({
+      to: it.to as string,
+      subject: it.subject,
+      html: it.html,
+      category: `automation:${it.kind}`,
+    })
+    if (r.sent) {
+      await admin.from('sponsor_comms_sent').insert({ sponsorship_id: it.sponsorshipId, kind: it.kind })
+      sent++
+    } else {
+      failed++
+    }
+    out.push({
+      ref_id: ref,
+      to: it.to as string,
+      detail: it.detail,
+      status: r.sent ? 'sent' : 'failed',
+      error: r.error,
+    })
+  }
+
+  return {
+    flow,
+    label,
+    candidates: valid.length,
+    alreadyHandled: valid.length - pending.length,
+    pending: pending.length,
+    sent,
+    failed,
+    items: out,
+  }
+}
+
+// ── Sponsorship follow-up sequence ────────────────────────────────────
+// Staged chasers for sponsorships still in the OPEN 'proposed' status, at
+// 3 / 7 / 14 days after the sponsorship was created. daysSince maps each
+// sponsorship to at most one non-overlapping band, so a daily cron sends the
+// right single stage per run; once-only per (sponsorship, kind) via
+// sponsor_comms_sent. The recipient is the external sponsor's email, or the
+// linked member's profile email. Confirmed/invoiced/paid/declined sponsors
+// have left the open pipeline and are never chased.
+//
+// DEFERRED (blocked): "AI finds ideal sponsors / matches guestlist to brands"
+// needs the lead-enrichment vendor (Apollo/Clay) — not built here.
+const SPONSOR_FOLLOWUP_STAGES: { kind: string; minD: number; maxD: number; eyebrow: string }[] = [
+  { kind: 'followup_3d', minD: 3, maxD: 7, eyebrow: 'A gentle follow-up' },
+  { kind: 'followup_7d', minD: 7, maxD: 14, eyebrow: 'Still keen to partner' },
+  { kind: 'followup_14d', minD: 14, maxD: 21, eyebrow: 'One last note' },
+]
+
+async function sponsorFollowUps(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+  const { data } = await admin
+    .from('sponsorships')
+    .select(
+      'id, created_at, status, package_name, sponsor_name, sponsor_email, sponsor_company, member_id, events(title, start_date), members(profiles(first_name, email))',
+    )
+    .eq('status', 'proposed')
+    .gte('created_at', daysAgoIso(22))
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  const ids = rows.map((r) => r.id as string)
+  const sent = await loadSponsorCommsSent(admin, ids)
+
+  const items: SponsorCommsItem[] = []
+  for (const r of rows) {
+    const id = r.id as string
+    const d = daysSince(r.created_at as string)
+    const stage = SPONSOR_FOLLOWUP_STAGES.find((s) => d >= s.minD && d < s.maxD)
+    if (!stage) continue
+
+    // Recipient: external sponsor email, else the linked member's email.
+    const prof = one((one(r.members as { profiles?: unknown } | null))?.profiles as {
+      first_name?: string; email?: string
+    } | null)
+    const to = (r.sponsor_email as string) || prof?.email
+    const name =
+      (r.sponsor_name as string) ||
+      (r.sponsor_company as string) ||
+      prof?.first_name ||
+      'there'
+    const ev = one(r.events as { title?: string; start_date?: string } | null)
+    const eventTitle = ev?.title ?? 'our upcoming event'
+    const pkg = r.package_name as string
+
+    items.push({
+      sponsorshipId: id,
+      kind: stage.kind,
+      to,
+      subject: `Following up — sponsoring ${eventTitle}`,
+      detail: `${stage.kind} · ${eventTitle} — ${name}`,
+      html: renderClubEmail({
+        eyebrow: stage.eyebrow,
+        heading: `Partnering on ${eventTitle}.`,
+        paragraphs: [
+          `Hello ${name},`,
+          `We wanted to follow up on the <strong style="color:#B8975A;">${pkg}</strong> sponsorship of <strong style="color:#B8975A;">${eventTitle}</strong>. We think your brand would be a wonderful fit for the evening and the audience it brings together.`,
+          `If it would help, simply reply to this email and we'll talk it through — or send over any questions and we'll take care of the details.`,
+        ],
+      }),
+    })
+  }
+
+  return processSponsorComms(admin, 'sponsor_followup', 'Sponsorship follow-ups', dryRun, items, sent)
+}
+
 // ── 1. Welcome journey ────────────────────────────────────────────────
 // A staged onboarding sequence keyed off membership_start_date for `active`
 // members. daysSince maps each member to at most one non-overlapping band,
@@ -1407,6 +1559,7 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
     await postEventConversion(admin, dryRun, pastEvents, commsSent),
     await invoiceChasing(admin, dryRun),
     await scheduledIntroductions(admin, dryRun),
+    await sponsorFollowUps(admin, dryRun),
   ]
   const totals = flows.reduce(
     (acc, f) => ({
