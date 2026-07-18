@@ -8,9 +8,19 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+function getAdminDb() {
+  return createAdminClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  )
+}
 
 export async function GET() {
   const supabase = await createClient()
@@ -37,6 +47,28 @@ export async function GET() {
   const resendFrom = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL || ''
   const resendDomain = resendFrom.includes('@') ? resendFrom.split('@')[1] : null
 
+  // Xero connection is real: tokens are stored in app_settings once an admin
+  // completes the OAuth2 flow. Report actual presence + the connected tenant.
+  let xeroConnected = false
+  let xeroDetail: string | null = null
+  try {
+    const { data } = await getAdminDb()
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'xero_oauth')
+      .maybeSingle()
+    const value = (data?.value ?? null) as {
+      access_token?: string
+      tenant_name?: string
+    } | null
+    if (value?.access_token) {
+      xeroConnected = true
+      xeroDetail = value.tenant_name ?? null
+    }
+  } catch {
+    /* leave disconnected on any read error */
+  }
+
   return NextResponse.json({
     stripe: {
       connected: !!stripeKey,
@@ -49,8 +81,8 @@ export async function GET() {
       detail: null,
     },
     xero: {
-      connected: !!(process.env.XERO_CLIENT_ID || process.env.XERO_ACCESS_TOKEN),
-      detail: null,
+      connected: xeroConnected,
+      detail: xeroDetail,
     },
     resend: {
       connected: !!process.env.RESEND_API_KEY,

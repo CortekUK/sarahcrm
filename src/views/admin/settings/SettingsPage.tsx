@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
+import { toast } from '@/lib/hooks/use-toast'
 import { planForSlug } from '@/lib/membership/plans'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -99,25 +100,60 @@ export function SettingsPage() {
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   const [integrations, setIntegrations] = useState<IntegrationState | null>(null)
+  const [xeroDisconnecting, setXeroDisconnecting] = useState(false)
 
   // Real integration connection status — reflects whether each provider's
   // credentials are actually configured in this environment.
-  useEffect(() => {
-    let active = true
-    ;(async () => {
-      try {
-        const res = await fetch('/api/admin/integrations/status')
-        if (!res.ok) return
-        const json = (await res.json()) as IntegrationState
-        if (active) setIntegrations(json)
-      } catch {
-        /* leave null → cards show "Checking…" then nothing actionable */
-      }
-    })()
-    return () => {
-      active = false
+  const refreshIntegrations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/integrations/status')
+      if (!res.ok) return
+      const json = (await res.json()) as IntegrationState
+      setIntegrations(json)
+    } catch {
+      /* leave null → cards show "Checking…" then nothing actionable */
     }
   }, [])
+
+  useEffect(() => {
+    void refreshIntegrations()
+  }, [refreshIntegrations])
+
+  // Reflect the outcome of the Xero OAuth redirect (?xero=connected|error|forbidden).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const outcome = params.get('xero')
+    if (!outcome) return
+    if (outcome === 'connected') {
+      toast({ title: 'Xero connected', description: 'Accounting integration is now active.' })
+    } else if (outcome === 'forbidden') {
+      toast({ title: 'Admin only', description: 'You must be an admin to connect Xero.', variant: 'destructive' })
+    } else if (outcome === 'error') {
+      const reason = params.get('reason')
+      toast({
+        title: 'Xero connection failed',
+        description: reason ? `Reason: ${reason}` : 'Please try connecting again.',
+        variant: 'destructive',
+      })
+    }
+    // Clean the query string so the toast doesn't re-fire on refresh.
+    const clean = window.location.pathname
+    window.history.replaceState(null, '', clean)
+  }, [])
+
+  async function handleXeroDisconnect() {
+    setXeroDisconnecting(true)
+    try {
+      const res = await fetch('/api/admin/xero/disconnect', { method: 'POST' })
+      if (!res.ok) throw new Error('disconnect failed')
+      await refreshIntegrations()
+      toast({ title: 'Xero disconnected' })
+    } catch {
+      toast({ title: 'Could not disconnect Xero', variant: 'destructive' })
+    } finally {
+      setXeroDisconnecting(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -329,6 +365,29 @@ export function SettingsPage() {
                     <p className="text-xs text-text-dim leading-relaxed">{integration.description}</p>
                     {connected && status?.detail && (
                       <p className="text-[11px] text-text-muted mt-1">{status.detail}</p>
+                    )}
+                    {integration.key === 'xero' && !checking && (
+                      <div className="mt-2.5">
+                        {connected ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={xeroDisconnecting}
+                            onClick={handleXeroDisconnect}
+                          >
+                            Disconnect
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              window.location.href = '/api/admin/xero/connect'
+                            }}
+                          >
+                            Connect
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
