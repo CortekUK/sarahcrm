@@ -615,6 +615,53 @@ export type Database = {
           },
         ]
       }
+      whatsapp_contacts: {
+        Row: {
+          admin_read_at: string | null
+          created_at: string
+          display_name: string | null
+          last_direction: string | null
+          last_message_at: string | null
+          last_message_preview: string | null
+          member_id: string | null
+          phone: string
+          unread_count: number
+          updated_at: string
+        }
+        Insert: {
+          admin_read_at?: string | null
+          created_at?: string
+          display_name?: string | null
+          last_direction?: string | null
+          last_message_at?: string | null
+          last_message_preview?: string | null
+          member_id?: string | null
+          phone: string
+          unread_count?: number
+          updated_at?: string
+        }
+        Update: {
+          admin_read_at?: string | null
+          created_at?: string
+          display_name?: string | null
+          last_direction?: string | null
+          last_message_at?: string | null
+          last_message_preview?: string | null
+          member_id?: string | null
+          phone?: string
+          unread_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_contacts_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_log: {
         Row: {
           body: string | null
