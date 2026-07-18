@@ -20,6 +20,8 @@ interface ApolloOrg {
   estimated_num_employees?: number | null
   annual_revenue?: number | null
   annual_revenue_printed?: string | null
+  short_description?: string | null
+  seo_description?: string | null
 }
 
 interface ApolloPerson {
@@ -77,6 +79,7 @@ export class ApolloProvider implements EnrichmentProvider {
                 : null,
             revenue: typeof org.annual_revenue === 'number' ? org.annual_revenue : null,
             revenuePrinted: org.annual_revenue_printed ?? null,
+            description: org.short_description ?? org.seo_description ?? null,
           }
         }
       } else {

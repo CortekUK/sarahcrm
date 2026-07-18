@@ -23,13 +23,13 @@ Single Supabase project (ref `owjnsljovmaaxgxpxxtw`).
 | 4 | Google Drive gallery link | ⛔ Blocked — needs client Google account |
 | 5 | Sales pipeline dashboard | ✅ Done |
 | 6 | Commission tracker | ✅ Done |
-| 7 | AI lead enrichment (Clay/Apollo/Clearbit) | ⛔ Blocked — needs enrichment vendor API key |
+| 7 | **AI lead enrichment (Apollo)** | ✅ **Done** (this build) — company data live; person/seniority on client's paid key |
 | 8 | Lead scoring & enquiry routing | ✅ Done |
 
 **Plus (from the detailed brief, not the 8 headlines): WhatsApp channel** — built this cycle (see §2).
 
-Every *buildable* headline is complete. The three remaining (#3, #4, #7) are blocked only on the client
-handing over external accounts.
+Every *buildable* headline is complete. **The only remaining headlines are #3 Gmail and #4 Google Drive** —
+both blocked solely on the client providing a Google account (OAuth app + restricted-scope review).
 
 ---
 
@@ -128,6 +128,41 @@ timestamp. Appears once a spend-sync has run.
 
 ---
 
+### 2D. AI Lead Enrichment (Apollo — Headline #7)
+
+Automatically enriches enquiries and members with company data (turnover, headcount, industry, website,
+LinkedIn) and — on a paid key — person data (seniority, personal LinkedIn). Built **behind a provider
+interface** so Clay/Clearbit could swap in later.
+
+**What it does**
+- **New enquiries auto-enrich** — the public intake route derives the company domain from the enquirer's email
+  and pulls Apollo company data (best-effort; never blocks or fails the enquiry). A manual **"Enrich"** button
+  is on each enquiry, with a data panel (industry, employees, revenue, website/LinkedIn) + status badge.
+- **Member profiles** — an **"Enrich"** button on the member's *Relationship intelligence* card **autofills
+  empty company fields only** (turnover, employees, sector, website, LinkedIn, description) — it **never
+  overwrites** admin-entered data. Person LinkedIn fills on the paid key.
+- **Free-email addresses** (gmail, outlook, etc.) are flagged "no company domain" rather than failing.
+- Every enrichment stores the raw Apollo payload (`enrichment_raw`) for audit + a status
+  (`enriched` / `partial` / `not_found` / `no_domain` / `failed`).
+
+**Key files**
+- `src/lib/enrichment/` — `provider.ts` (interface), `apollo.ts` (Apollo provider), `stub.ts` (fallback),
+  `index.ts` (`getEnrichmentProvider()`), `enrich.ts` (`enrichEnquiry`), `enrich-member.ts` (`enrichMember`).
+- Routes: `src/app/api/admin/enquiries/enrich`, `src/app/api/admin/members/enrich`. Auto-enrich wired into
+  `src/app/api/enquiries/intake/route.ts`.
+- UI: enrichment panel in `EnquiriesListPage`; Enrich button in `MemberDetailPage`.
+
+**Apollo reality (verified):** organization enrichment (turnover, headcount, industry, website, company
+LinkedIn) **works on the free key**. People enrichment (**seniority + personal LinkedIn**) is **gated to paid
+plans** — the code calls it and degrades gracefully to null on free.
+
+**Go-live TODO (client's side, not code):** swap `APOLLO_API_KEY` for the client's **paid** key (unlocks person
+data + real credit volume). GDPR: the client is the data controller — a lawful basis + a privacy-notice line is
+advisable, since enrichment processes third-party personal data. Note: *estimated profit* is not available from
+Apollo (Companies House would be a future complement).
+
+---
+
 ## 3. Automations & Cron System
 
 A single cron endpoint drives all time-based communications. It is **safe to preview** and each stage sends
@@ -197,9 +232,13 @@ Delivered across the V2 build (the headlines + half-built sections completed):
 | `20260719_whatsapp_contacts.sql` | `whatsapp_contacts` table + AFTER-INSERT trigger (keeps the inbox thread list + unread counts in sync) |
 | `20260719_xero_sync_columns.sql` | `xero_invoice_id` on sponsorships / concierge_requests / introductions; `xero_bill_id` on reward_referrals |
 | `20260720_member_xero_spend.sql` | `members.xero_spend_pence` + `members.xero_spend_synced_at` |
+| `20260720_enquiry_enrichment.sql` | 14 enrichment columns on `enquiries` (status, source, company_*, person_*, raw jsonb) |
+| `20260720_member_enrichment.sql` | `members` enrichment tracking columns (status, enriched_at, source, raw) |
 
-Existing columns reused: `members.xero_contact_id`, `payments.xero_invoice_id` (were pre-provisioned).
-Xero OAuth tokens + the guest-contact id are stored in the existing `app_settings` table.
+Existing columns reused: `members.xero_contact_id`, `payments.xero_invoice_id` (were pre-provisioned for Xero);
+`members.annual_turnover / employee_count / sector / company_website / company_linkedin_url / company_description`
+(existing text fields, autofilled by enrichment). Xero OAuth tokens, the guest-contact id, and the Apollo guest
+data live in the existing `app_settings` table.
 
 ---
 
@@ -214,6 +253,8 @@ Stored in `.env` (and to be mirrored in Vercel for production):
     accounting.invoices accounting.payments accounting.settings offline_access`.
   - Registered redirect URIs in the Xero app: `http://localhost:3000/api/xero/callback` and
     `https://sarahcrm.vercel.app/api/xero/callback`.
+- **Apollo (enrichment):** `ENRICHMENT_PROVIDER=apollo`, `APOLLO_API_KEY` (currently a **free** dev key —
+  company data only; swap for the client's **paid** key to unlock person/seniority data).
 
 Already present: Stripe, Resend, OpenAI, DocuSign, Supabase, `CRON_SECRET`.
 
@@ -224,7 +265,8 @@ Already present: Stripe, Resend, OpenAI, DocuSign, Supabase, `CRON_SECRET`.
 - **WhatsApp inbox:** `/dashboard/whatsapp` (Engage section)
 - **Xero + integrations:** `/dashboard/settings` → Integrations
 - **Finance (+ Xero spend, From-Xero card):** `/dashboard/finance`
-- **Enquiries / lead scoring:** `/dashboard/enquiries`
+- **Enquiries / lead scoring / enrichment:** `/dashboard/enquiries` (enrichment panel + Enrich button per enquiry)
+- **Member enrichment:** member detail page → "Relationship intelligence" card → Enrich button
 - **Commissions:** `/dashboard/commissions`
 - **Pipeline:** `/dashboard/pipeline`
 - **Sponsor Portal (public, token):** `/sponsor/<booking_token>`
@@ -234,12 +276,19 @@ Already present: Stripe, Resend, OpenAI, DocuSign, Supabase, `CRON_SECRET`.
 
 ## 8. Still Blocked — Needs the Client's External Accounts
 
+**Headlines still unbuilt (need the client's Google account):**
+
 | Item | What's needed |
 |---|---|
 | **Gmail ↔ CRM (#3)** | Client Google account + Google OAuth app + restricted-scope review |
 | **Google Drive gallery (#4)** | Same Google account dependency |
-| **AI lead enrichment (#7)** | An Apollo / Clay / Clearbit API key |
-| **WhatsApp — real inbound & production sends** | Publish the Meta app + business verification + permanent token |
+
+**Built, but a client-side swap unlocks the full/production experience (no code change):**
+
+| Item | What's needed |
+|---|---|
+| **AI lead enrichment — person/seniority data (#7)** | Swap `APOLLO_API_KEY` for the client's **paid** Apollo key (company data already live on the free key) |
+| **WhatsApp — real inbound & production sends** | Publish the Meta app + business verification + permanent System-User token |
 | **Xero — live figures in £** | Reconnect to the client's real GBP Xero organisation |
 
 None of these are code-blocked — they wait on account/access provisioning, then it's an env swap or a
@@ -248,4 +297,4 @@ reconnect.
 ---
 
 *Generated from the build session. For the authoritative code, see `src/lib/whatsapp/*`, `src/lib/xero/*`,
-`src/lib/automations/run.ts`, and `supabase/migrations/`.*
+`src/lib/enrichment/*`, `src/lib/automations/run.ts`, and `supabase/migrations/`.*

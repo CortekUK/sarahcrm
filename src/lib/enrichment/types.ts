@@ -9,6 +9,7 @@ export interface EnrichmentCompany {
   employeeCount: number | null
   revenue: number | null // whole USD units (Apollo `annual_revenue`)
   revenuePrinted: string | null // e.g. "6.9B"
+  description: string | null // company blurb (Apollo `short_description`)
 }
 
 export interface EnrichmentPerson {

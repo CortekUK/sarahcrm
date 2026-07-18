@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
-import { formatDate, formatCurrency, cn } from '@/lib/utils'
+import { formatDate, formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import { MemberMatchesPanel } from './MemberMatchesPanel'
 import { MemberDocumentsPanel } from './MemberDocumentsPanel'
 import { MemberRoiPanel } from '@/components/admin/MemberRoiPanel'
@@ -123,6 +123,11 @@ interface MemberDetail {
   parent_member_id: string | null
   is_primary_rep: boolean
   rep_role: string | null
+  company_linkedin_url: string | null
+  // Enrichment tracking (autofilled company fields + provenance)
+  enrichment_status: string | null
+  enriched_at: string | null
+  enrichment_source: string | null
   profiles: {
     first_name: string | null
     last_name: string | null
@@ -321,6 +326,22 @@ const CATEGORY_STYLES: Record<string, string> = {
   interest: 'bg-[rgba(90,123,150,0.1)] text-[#5A7B96] border border-[rgba(90,123,150,0.25)]',
   need: 'bg-[rgba(111,143,122,0.1)] text-[#5C8A6B] border border-[rgba(111,143,122,0.3)]',
 }
+// ── Lead-enrichment status vocabulary (mirrors the enquiry panel) ──
+const ENRICHMENT_LABELS: Record<string, string> = {
+  enriched: 'Enriched',
+  partial: 'Company found',
+  no_domain: 'No business domain',
+  not_found: 'Not found',
+  failed: 'Enrichment failed',
+}
+const ENRICHMENT_BADGE: Record<string, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
+  enriched: 'active',
+  partial: 'info',
+  no_domain: 'draft',
+  not_found: 'draft',
+  failed: 'urgent',
+}
+
 const statusOptions = [
   { value: 'active', label: 'Active' },
   { value: 'paused', label: 'Paused' },
@@ -351,6 +372,7 @@ export function MemberDetailPage() {
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'events' | 'payments'>('events')
   const [actionPending, setActionPending] = useState<'cancel' | 'delete' | 'resend' | null>(null)
+  const [enriching, setEnriching] = useState(false)
   // Bumped after a save so the suggested-introductions panel recomputes
   // against the freshly-saved tags.
   const [refreshKey, setRefreshKey] = useState(0)
@@ -651,6 +673,47 @@ export function MemberDetailPage() {
     setNewTagName('')
     setRefreshKey((k) => k + 1)
     toast({ title: 'Tag created', description: `"${name}" added and applied.` })
+  }
+
+  // Run (or re-run) Apollo enrichment for this member via the admin route.
+  // Autofills gaps only; on success we refetch so the freshly-written company
+  // fields (turnover, employees, sector, LinkedIn, website) visibly update.
+  async function runEnrich() {
+    if (!member || !id) return
+    setEnriching(true)
+    try {
+      const res = await fetch('/api/admin/members/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId: member.id }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        status?: string
+        error?: string
+      }
+      if (!res.ok || !json.ok) {
+        toast({
+          title: 'Enrichment failed',
+          description: json.error ?? 'Please try again.',
+          variant: 'destructive',
+        })
+        return
+      }
+      await fetchAll(id)
+      toast({
+        title: 'Enrichment complete',
+        description: `Status: ${ENRICHMENT_LABELS[json.status ?? ''] ?? json.status ?? 'done'}.`,
+      })
+    } catch (e) {
+      toast({
+        title: 'Enrichment failed',
+        description: e instanceof Error ? e.message : 'Network error.',
+        variant: 'destructive',
+      })
+    } finally {
+      setEnriching(false)
+    }
   }
 
   async function handleCancelMembership() {
@@ -1075,10 +1138,41 @@ export function MemberDetailPage() {
           has been filled in. */}
       <Card className="mb-6">
         <CardHeader>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Sparkles size={16} className="text-gold" />
             <CardTitle>Relationship intelligence</CardTitle>
+            {member.enrichment_status && (
+              <Badge
+                variant={ENRICHMENT_BADGE[member.enrichment_status] ?? 'info'}
+                className="capitalize"
+              >
+                {ENRICHMENT_LABELS[member.enrichment_status] ?? member.enrichment_status}
+              </Badge>
+            )}
+            {!editing && (
+              <div className="ml-auto flex items-center gap-2">
+                {member.enriched_at && (
+                  <span className="text-[11px] text-text-dim">
+                    {member.enrichment_source ? `${member.enrichment_source} · ` : ''}
+                    {formatDateTime(member.enriched_at)}
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<Sparkles size={13} />}
+                  loading={enriching}
+                  onClick={runEnrich}
+                >
+                  {enriching ? 'Enriching…' : member.enriched_at ? 'Re-enrich' : 'Enrich'}
+                </Button>
+              </div>
+            )}
           </div>
+          <p className="text-xs text-text-dim mt-1.5">
+            Autofills empty company fields (sector, turnover, employees, website, LinkedIn) from the
+            enrichment provider — existing entries are never overwritten.
+          </p>
         </CardHeader>
         <CardContent className="space-y-7">
           {RI_GROUPS.map((group) => (

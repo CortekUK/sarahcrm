@@ -1866,6 +1866,10 @@ export type Database = {
           xero_contact_id: string | null
           xero_spend_pence: number | null
           xero_spend_synced_at: string | null
+          enrichment_status: string | null
+          enriched_at: string | null
+          enrichment_source: string | null
+          enrichment_raw: Json | null
         }
         Insert: {
           accounts_contact_email?: string | null
@@ -1963,6 +1967,10 @@ export type Database = {
           xero_contact_id?: string | null
           xero_spend_pence?: number | null
           xero_spend_synced_at?: string | null
+          enrichment_status?: string | null
+          enriched_at?: string | null
+          enrichment_source?: string | null
+          enrichment_raw?: Json | null
         }
         Update: {
           accounts_contact_email?: string | null
@@ -2060,6 +2068,10 @@ export type Database = {
           xero_contact_id?: string | null
           xero_spend_pence?: number | null
           xero_spend_synced_at?: string | null
+          enrichment_status?: string | null
+          enriched_at?: string | null
+          enrichment_source?: string | null
+          enrichment_raw?: Json | null
         }
         Relationships: [
           {
