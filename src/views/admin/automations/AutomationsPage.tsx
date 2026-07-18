@@ -30,7 +30,8 @@ interface RunResult {
 // What each flow does, in plain language — shown so the admin understands
 // the machine without reading code.
 const FLOW_HELP: Record<string, string> = {
-  renewal_reminder: 'Members whose membership renews within 7 days.',
+  welcome_journey: 'New members at day 2 / 10 / 14 of membership — onboarding, intro targets, then an AI opportunity report.',
+  renewal_cadence: 'Members renewing in 90 / 60 / 30 / 7 days — staged reminders; the final stage auto-renews or raises a retention task.',
   failed_payment: 'Members whose card payment failed — asks them to update it.',
   event_reminder: 'Attendees of an event happening soon — a pre-event reminder.',
   post_event_followup: 'Attendees of an event that finished 1–3 days ago.',

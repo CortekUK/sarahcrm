@@ -7,10 +7,11 @@
 // who meets whom or approves anyone; it only sends lifecycle emails.
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import OpenAI from 'openai'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 import { renderIntroEmail } from '@/lib/introductions/intro-email'
 import { generateSuggestions, pairKey } from '@/lib/introductions/suggest'
-import type { MatchCandidate } from '@/lib/introductions/matching'
+import { scorePairForSuggestion, type MatchCandidate } from '@/lib/introductions/matching'
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL || process.env.SITE_URL || 'https://sarahcrm.vercel.app'
@@ -58,6 +59,16 @@ function todayDate(): string {
 // Whole hours from `now` until an ISO instant (negative once it has passed).
 function hoursUntil(iso: string): number {
   return (new Date(iso).getTime() - Date.now()) / 3_600_000
+}
+// Fractional days SINCE a date (positive once it has passed) — for the
+// membership_start_date-driven welcome journey bands.
+function daysSince(dateStr: string): number {
+  return (Date.now() - new Date(dateStr).getTime()) / 86_400_000
+}
+// Fractional days UNTIL a date (positive while still ahead) — for the
+// renewal_date-driven cadence bands.
+function daysUntil(dateStr: string): number {
+  return (new Date(dateStr).getTime() - Date.now()) / 86_400_000
 }
 
 interface FlowItem {
@@ -247,36 +258,513 @@ function bookingRecipient(bk: Record<string, unknown>): { to: string | undefined
   return { to, name }
 }
 
-// ── 1. Renewal reminders ──────────────────────────────────────────────
-async function renewalReminders(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+// ── Member comms: once-only send backed by member_comms_sent ──────────
+// The welcome journey + renewal cadence dedup per (member, kind) via the
+// member_comms_sent table (mirrors event_comms_sent for events), so each
+// STAGE of a multi-stage journey fires exactly once even if the cron runs
+// late/twice. The (member_id, kind) UNIQUE index is the hard guarantee.
+interface MemberCommsItem {
+  memberId: string
+  kind: string
+  to: string | null | undefined
+  subject: string
+  html: string
+  detail: string
+}
+
+// Which (member_id, kind) pairs have already been sent for these members.
+async function loadMemberCommsSent(admin: Admin, memberIds: string[]): Promise<Set<string>> {
+  const sent = new Set<string>()
+  if (memberIds.length === 0) return sent
+  const { data } = await admin
+    .from('member_comms_sent')
+    .select('member_id, kind')
+    .in('member_id', memberIds)
+  for (const r of (data ?? []) as { member_id: string; kind: string }[]) {
+    sent.add(`${r.member_id}:${r.kind}`)
+  }
+  return sent
+}
+
+// Shared dedup + send + log step for member-comms items. Mirrors
+// processEventComms but records into member_comms_sent.
+async function processMemberComms(
+  admin: Admin,
+  flow: string,
+  label: string,
+  dryRun: boolean,
+  items: MemberCommsItem[],
+  alreadySent: Set<string>,
+): Promise<FlowResult> {
+  const valid = items.filter((i) => i.to)
+  const pending = valid.filter((i) => !alreadySent.has(`${i.memberId}:${i.kind}`))
+  const out: FlowResult['items'] = []
+  let sent = 0
+  let failed = 0
+
+  for (const it of pending) {
+    const ref = `${it.memberId}:${it.kind}`
+    if (dryRun) {
+      out.push({ ref_id: ref, to: it.to as string, detail: it.detail, status: 'would_send' })
+      continue
+    }
+    const r = await sendClubEmail({
+      to: it.to as string,
+      subject: it.subject,
+      html: it.html,
+      category: `automation:${it.kind}`,
+      memberId: it.memberId,
+    })
+    if (r.sent) {
+      await admin.from('member_comms_sent').insert({ member_id: it.memberId, kind: it.kind })
+      sent++
+    } else {
+      failed++
+    }
+    out.push({
+      ref_id: ref,
+      to: it.to as string,
+      detail: it.detail,
+      status: r.sent ? 'sent' : 'failed',
+      error: r.error,
+    })
+  }
+
+  return {
+    flow,
+    label,
+    candidates: valid.length,
+    alreadyHandled: valid.length - pending.length,
+    pending: pending.length,
+    sent,
+    failed,
+    items: out,
+  }
+}
+
+// ── 1. Welcome journey ────────────────────────────────────────────────
+// A staged onboarding sequence keyed off membership_start_date for `active`
+// members. daysSince maps each member to at most one non-overlapping band,
+// so a daily cron sends the right single stage per run; once-only per
+// (member, kind) is guaranteed by member_comms_sent.
+//   • Day 2  → book onboarding call + finish profile
+//   • Day 10 → submit introduction targets
+//   • Day 14 → AI opportunity report (OpenAI + the suggestion engine)
+async function welcomeJourney(admin: Admin, dryRun: boolean): Promise<FlowResult> {
   const { data } = await admin
     .from('members')
-    .select('id, renewal_date, profiles(first_name, email)')
+    .select(
+      'id, membership_start_date, company_name, sector, sub_sector, intro_target_types, intro_target_criteria, dream_introductions, what_they_can_offer, business_objectives, profiles(first_name, email)',
+    )
     .eq('membership_status', 'active')
-    .gte('renewal_date', todayDate())
-    .lte('renewal_date', daysAheadDate(7))
+    .not('membership_start_date', 'is', null)
+    .gte('membership_start_date', daysAgoIso(16))
+    .lte('membership_start_date', todayDate())
 
-  const items: FlowItem[] = (data ?? []).map((m: Record<string, unknown>) => {
+  const members = (data ?? []) as Record<string, unknown>[]
+  const memberIds = members.map((m) => m.id as string)
+  const sent = await loadMemberCommsSent(admin, memberIds)
+
+  // Loaded lazily (and cached) only if a Day-14 report actually needs it —
+  // the suggestion candidate pool for the whole active membership.
+  let candidatePool: MatchCandidate[] | null = null
+  const getPool = async (): Promise<MatchCandidate[]> => {
+    if (candidatePool === null) candidatePool = await loadActiveCandidates(admin)
+    return candidatePool
+  }
+
+  const items: MemberCommsItem[] = []
+  for (const m of members) {
+    const id = m.id as string
+    const d = daysSince(m.membership_start_date as string)
     const prof = one(m.profiles as { first_name?: string; email?: string } | null)
     const name = prof?.first_name || 'there'
-    const renews = fmtDate(m.renewal_date as string)
-    return {
-      ref_id: `${m.id}:${m.renewal_date}`,
+    const to = prof?.email
+
+    // Day 2 — onboarding call + finish profile.
+    if (d >= 2 && d < 3) {
+      items.push({
+        memberId: id,
+        kind: 'welcome_day2',
+        to,
+        subject: 'Welcome to The Club — your first steps',
+        detail: `Day 2 welcome — ${name}`,
+        html: renderClubEmail({
+          eyebrow: 'Welcome',
+          heading: 'Let’s get you settled in.',
+          paragraphs: [
+            `Hello ${name},`,
+            `We’re delighted to have you with us. To make the most of your first weeks, we’d love to book you a short <strong style="color:#B8975A;">onboarding call</strong> — and to have you finish your member profile, which is what powers your introductions.`,
+            `Do explore the events calendar and your concierge service in the portal too — both are there whenever you need them.`,
+          ],
+          cta: { label: 'Complete your profile', url: `${APP_URL}/portal/profile` },
+        }),
+      })
+    }
+    // Day 10 — submit introduction targets.
+    else if (d >= 10 && d < 11) {
+      items.push({
+        memberId: id,
+        kind: 'welcome_day10',
+        to,
+        subject: 'Who would you like us to introduce you to?',
+        detail: `Day 10 intro targets — ${name}`,
+        html: renderClubEmail({
+          eyebrow: 'Introductions',
+          heading: 'Tell us who you’d like to meet.',
+          paragraphs: [
+            `Hello ${name},`,
+            `The introductions we make are only as good as the targets you give us. Take a moment to submit your <strong style="color:#B8975A;">introduction targets</strong> — the people, roles and companies you’d most like to meet — in the introductions section of your profile.`,
+            `The more specific you are, the more precisely we can match you.`,
+          ],
+          cta: { label: 'Set your introduction targets', url: `${APP_URL}/portal/profile` },
+        }),
+      })
+    }
+    // Day 14 — AI opportunity report. Skip early if already sent so we never
+    // pay for an OpenAI call we won't use; skip the model call entirely on a
+    // dry-run preview.
+    else if (d >= 14 && d < 15) {
+      if (sent.has(`${id}:welcome_day14`)) continue
+      let html = ''
+      if (!dryRun) {
+        html = await buildOpportunityReport(admin, m, name, await getPool())
+      }
+      items.push({
+        memberId: id,
+        kind: 'welcome_day14',
+        to,
+        subject: 'Your Club opportunity report',
+        detail: `Day 14 AI opportunity report — ${name}`,
+        html,
+      })
+    }
+  }
+  return processMemberComms(admin, 'welcome_journey', 'Welcome journey', dryRun, items, sent)
+}
+
+// Load ALL active members as suggestion candidates (mirrors the shape
+// buildAttendeeSuggestions builds, but across the whole membership) so the
+// Day-14 report can rank a member against everyone via scorePairForSuggestion.
+async function loadActiveCandidates(admin: Admin): Promise<MatchCandidate[]> {
+  const [membersRes, tagsRes] = await Promise.all([
+    admin
+      .from('members')
+      .select(
+        'id, company_name, sector, sub_sector, intro_target_types, intro_target_criteria, what_they_can_offer, profiles(first_name, last_name, company_name, email)',
+      )
+      .eq('membership_status', 'active')
+      .is('deleted_at', null),
+    admin.from('member_tags').select('member_id, tag_id, tags(name, category)'),
+  ])
+
+  const tagMap = new Map<string, { tagId: string; name: string; category: string }[]>()
+  for (const row of (tagsRes.data ?? []) as unknown as Array<{
+    member_id: string
+    tag_id: string
+    tags: { name: string; category: string } | null
+  }>) {
+    if (!row.tags) continue
+    const arr = tagMap.get(row.member_id) ?? []
+    arr.push({ tagId: row.tag_id, name: row.tags.name, category: row.tags.category })
+    tagMap.set(row.member_id, arr)
+  }
+
+  return (
+    (membersRes.data ?? []) as unknown as Array<{
+      id: string
+      company_name: string | null
+      sector: string | null
+      sub_sector: string | null
+      intro_target_types: string | null
+      intro_target_criteria: string | null
+      what_they_can_offer: string | null
+      profiles: { first_name: string | null; last_name: string | null; company_name: string | null; email: string | null } | null
+    }>
+  ).map((m) => ({
+    id: m.id,
+    name: `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.trim() || 'A fellow member',
+    company: m.company_name ?? m.profiles?.company_name ?? null,
+    email: m.profiles?.email ?? null,
+    tags: tagMap.get(m.id) ?? [],
+    sector: m.sector,
+    subSector: m.sub_sector,
+    introTargetTypes: m.intro_target_types,
+    introTargetCriteria: m.intro_target_criteria,
+    whatTheyCanOffer: m.what_they_can_offer,
+  }))
+}
+
+// Top N suggested matches FOR one member — reuses the SAME deterministic
+// scorePairForSuggestion the admin "Generate suggestions" engine uses,
+// scored target-vs-everyone and ranked. Returns [] if the member isn't in
+// the active pool or has no signal.
+function topMatchesForMember(
+  memberId: string,
+  pool: MatchCandidate[],
+  n = 3,
+): { name: string; company: string | null; reason: string }[] {
+  const target = pool.find((c) => c.id === memberId)
+  if (!target) return []
+  const scored: { name: string; company: string | null; reason: string; score: number }[] = []
+  for (const other of pool) {
+    if (other.id === memberId) continue
+    const r = scorePairForSuggestion(target, other)
+    if (!r) continue
+    scored.push({ name: other.name, company: other.company, reason: r.matchReason, score: r.score })
+  }
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, n).map(({ name, company, reason }) => ({ name, company, reason }))
+}
+
+// Day-14 AI opportunity report. Reuses the repo's OpenAI setup (new
+// OpenAI({apiKey}), OPENAI_MODEL || gpt-4o, chat.completions) to write a
+// short warm report from the member's profile, and lists their top matches
+// pulled from the suggestion engine. If OpenAI/the key is unavailable, falls
+// back to a templated report built from the suggestions alone.
+async function buildOpportunityReport(
+  admin: Admin,
+  member: Record<string, unknown>,
+  name: string,
+  pool: MatchCandidate[],
+): Promise<string> {
+  const memberId = member.id as string
+  const matches = topMatchesForMember(memberId, pool)
+
+  // Suggested-matches panel (shared by the AI and fallback paths).
+  const matchesPanel = matches.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 18px 0;background:#FAFAF7;border:1px solid #EAE6DE;border-radius:6px;"><tr><td style="padding:20px 22px;">
+         <p style="margin:0 0 12px 0;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.24em;text-transform:uppercase;color:#B8975A;font-weight:600;">Members we’d suggest you meet</p>
+         ${matches
+           .map(
+             (m) =>
+               `<p style="margin:0 0 10px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">${m.name}</strong>${m.company ? ` — ${m.company}` : ''}${m.reason ? `<br/><span style="font-size:13px;color:#6B6560;">${m.reason}</span>` : ''}</p>`,
+           )
+           .join('')}
+       </td></tr></table>`
+    : ''
+
+  // Templated fallback report (used when OpenAI is unavailable). Commented so
+  // it's clear this is the no-AI path.
+  const fallbackParagraphs = [
+    `Hello ${name},`,
+    `Now that you’ve had a fortnight with us, here’s a short opportunity report to help you get the most from your membership.`,
+    matches.length
+      ? `Based on your profile, we’ve already spotted some members we think you should meet — you’ll find them below. Tell us which resonate and we’ll make warm introductions.`
+      : `Complete your introduction targets in the portal and we’ll start surfacing the members most worth your time.`,
+  ]
+
+  const apiKey = process.env.OPENAI_API_KEY
+  if (apiKey) {
+    try {
+      const openai = new OpenAI({ apiKey })
+      const model = process.env.OPENAI_MODEL || 'gpt-4o-2024-08-06'
+      const profileLines = [
+        `Name: ${name}`,
+        member.company_name ? `Company: ${member.company_name}` : '',
+        member.sector ? `Industry / sector: ${member.sector}` : '',
+        member.sub_sector ? `Sub-sector: ${member.sub_sector}` : '',
+        member.intro_target_types ? `Looking for: ${member.intro_target_types}` : '',
+        member.intro_target_criteria ? `Introduction criteria: ${member.intro_target_criteria}` : '',
+        member.dream_introductions ? `Dream introductions: ${member.dream_introductions}` : '',
+        member.what_they_can_offer ? `Can help with: ${member.what_they_can_offer}` : '',
+        member.business_objectives ? `Goals: ${member.business_objectives}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+      const matchLines = matches.length
+        ? matches.map((m) => `- ${m.name}${m.company ? ` (${m.company})` : ''}: ${m.reason}`).join('\n')
+        : '(no strong matches surfaced yet)'
+
+      const completion = await openai.chat.completions.create({
+        model,
+        temperature: 0.6,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You write for The Club by Sarah Restrick, a private members’ business club. Voice: warm, considered, intimate, British English — never corporate or flowery. You are writing a short "opportunity report" body for a member at day 14 of membership. Return 2–3 short paragraphs of plain prose (no headings, no lists, no greeting line, no sign-off — those are added around your text). Speak directly to the member about the specific opportunities their profile points to, and reference that we have suggested members for them to meet (listed separately below your text).',
+          },
+          {
+            role: 'user',
+            content: `Member profile:\n${profileLines || '(sparse profile)'}\n\nTop suggested matches we will show them:\n${matchLines}\n\nWrite the opportunity report body.`,
+          },
+        ],
+      })
+      const text = completion.choices[0]?.message?.content?.trim()
+      if (text) {
+        const paragraphs = [
+          `Hello ${name},`,
+          ...text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
+        ]
+        return renderClubEmail({
+          eyebrow: 'Opportunity report',
+          heading: 'Where your membership can take you.',
+          paragraphs,
+          panelHtml: matchesPanel,
+          cta: { label: 'Review your introductions', url: `${APP_URL}/portal/profile` },
+          ctaAfterIndex: paragraphs.length,
+        })
+      }
+    } catch (e) {
+      console.error('[welcome_day14] OpenAI report failed, using fallback:', e)
+      // Fall through to the templated fallback below.
+    }
+  }
+
+  // Fallback: templated report from the suggestions alone (no OpenAI).
+  return renderClubEmail({
+    eyebrow: 'Opportunity report',
+    heading: 'Where your membership can take you.',
+    paragraphs: fallbackParagraphs,
+    panelHtml: matchesPanel,
+    cta: { label: 'Review your introductions', url: `${APP_URL}/portal/profile` },
+    ctaAfterIndex: fallbackParagraphs.length,
+  })
+}
+
+// ── 2. Renewal cadence ────────────────────────────────────────────────
+// Staged renewal reminders at 90 / 60 / 30 / 7 days before renewal_date for
+// `active` members. daysUntil maps each member to exactly one contiguous,
+// non-overlapping band, so a daily cron sends the right single stage per run;
+// once-only per (member, kind) via member_comms_sent. (Absorbs the old
+// single 7-day renewalReminders flow — do not run both.)
+//
+// At the FINAL stage (7d) the auto-renew-vs-retention branch fires:
+//   • live auto-renew (stripe_subscription_id set, or a recurring
+//     payment_frequency) → the email notes Stripe will renew automatically,
+//     no action needed.
+//   • otherwise → a retention `tasks` row is created (category 'sales',
+//     assigned to an admin, due ~renewal_date) so the team chases it. The
+//     task is guarded by its own member_comms_sent kind so it’s created once.
+const RENEWAL_STAGES: { kind: string; minD: number; maxD: number }[] = [
+  { kind: 'renewal_90d', minD: 60, maxD: 90 },
+  { kind: 'renewal_60d', minD: 30, maxD: 60 },
+  { kind: 'renewal_30d', minD: 7, maxD: 30 },
+  { kind: 'renewal_7d', minD: 0, maxD: 7 },
+]
+// A payment_frequency value that implies a recurring (auto-renewing) charge.
+const RECURRING_FREQUENCIES = new Set(['monthly', 'quarterly', 'annual', 'annually', 'yearly'])
+
+async function renewalCadence(admin: Admin, dryRun: boolean): Promise<FlowResult> {
+  const { data } = await admin
+    .from('members')
+    .select('id, renewal_date, payment_frequency, stripe_subscription_id, profiles(first_name, email)')
+    .eq('membership_status', 'active')
+    .not('renewal_date', 'is', null)
+    .gte('renewal_date', todayDate())
+    .lte('renewal_date', daysAheadDate(90))
+
+  const members = (data ?? []) as Record<string, unknown>[]
+  const memberIds = members.map((m) => m.id as string)
+  const sent = await loadMemberCommsSent(admin, memberIds)
+
+  const items: MemberCommsItem[] = []
+  // Members hitting the final (7d) stage with NO live auto-renew — candidates
+  // for a retention task.
+  const retentionCandidates: { id: string; name: string; renewalDate: string }[] = []
+
+  for (const m of members) {
+    const id = m.id as string
+    const renewalDate = m.renewal_date as string
+    const d = daysUntil(renewalDate)
+    // The single contiguous band this member currently sits in.
+    const stage = RENEWAL_STAGES.find((s) => d > s.minD && d <= s.maxD)
+    if (!stage) continue
+
+    const prof = one(m.profiles as { first_name?: string; email?: string } | null)
+    const name = prof?.first_name || 'there'
+    const renews = fmtDate(renewalDate)
+    const freq = String(m.payment_frequency ?? '').trim().toLowerCase()
+    const autoRenew = Boolean(m.stripe_subscription_id) || RECURRING_FREQUENCIES.has(freq)
+    const isFinal = stage.kind === 'renewal_7d'
+
+    // 7-day stage messaging forks on auto-renew; earlier stages are a gentle
+    // heads-up regardless.
+    const paragraphs = isFinal
+      ? autoRenew
+        ? [
+            `Hello ${name},`,
+            `Your membership renews on <strong style="color:#B8975A;">${renews}</strong>. There’s nothing you need to do — it will renew automatically.`,
+            `If you’d like to make any changes before then, simply reply to this email.`,
+          ]
+        : [
+            `Hello ${name},`,
+            `Your membership is due to renew on <strong style="color:#B8975A;">${renews}</strong>. We’d love to keep you with us for another year.`,
+            `A member of the team will be in touch shortly to take care of the details — or simply reply to this email and we’ll arrange everything.`,
+          ]
+      : [
+          `Hello ${name},`,
+          `A gentle note that your membership renews on <strong style="color:#B8975A;">${renews}</strong>.`,
+          autoRenew
+            ? `There’s nothing you need to do — it will continue automatically. If you’d like to make any changes, just reply to this email.`
+            : `If you’d like to continue, simply reply to this email and we’ll take care of everything.`,
+        ]
+
+    items.push({
+      memberId: id,
+      kind: stage.kind,
       to: prof?.email,
       subject: 'Your Club membership renews soon',
-      detail: `Renews ${renews} — ${name}`,
-      html: renderClubEmail({
-        eyebrow: 'Membership',
-        heading: 'Your membership renews soon.',
-        paragraphs: [
-          `Hello ${name},`,
-          `A gentle note that your membership renews on <strong style="color:#F0EBE0;">${renews}</strong>.`,
-          `There's nothing you need to do — it will continue automatically. If you'd like to make any changes, simply reply to this email.`,
-        ],
-      }),
+      detail: `${stage.kind} · renews ${renews} — ${name}`,
+      html: renderClubEmail({ eyebrow: 'Membership', heading: 'Your membership renews soon.', paragraphs }),
+    })
+
+    if (isFinal && !autoRenew) {
+      retentionCandidates.push({ id, name, renewalDate })
     }
-  })
-  return processFlow(admin, 'renewal_reminder', 'Renewal reminders', dryRun, items)
+  }
+
+  const result = await processMemberComms(admin, 'renewal_cadence', 'Renewal cadence', dryRun, items, sent)
+
+  // Retention branch: create a sales task once per member (guarded by its own
+  // kind in member_comms_sent) for non-auto-renew members at the final stage.
+  let adminId: string | null | undefined
+  for (const rc of retentionCandidates) {
+    if (sent.has(`${rc.id}:renewal_retention_task`)) continue
+    if (dryRun) {
+      result.items.push({
+        ref_id: `${rc.id}:renewal_retention_task`,
+        to: '',
+        detail: `Retention task — ${rc.name} (renews ${fmtDate(rc.renewalDate)})`,
+        status: 'would_send',
+      })
+      continue
+    }
+    if (adminId === undefined) adminId = await firstAdminId(admin)
+    await admin.from('tasks').insert({
+      title: `Renewal follow-up: ${rc.name}`,
+      description: `Membership renews ${fmtDate(rc.renewalDate)} with no live auto-renew — reach out to secure the renewal.`,
+      status: 'todo',
+      priority: 'high',
+      category: 'sales',
+      assigned_to: adminId ?? null,
+      due_date: rc.renewalDate,
+      related_member_id: rc.id,
+    })
+    await admin.from('member_comms_sent').insert({ member_id: rc.id, kind: 'renewal_retention_task' })
+    result.items.push({
+      ref_id: `${rc.id}:renewal_retention_task`,
+      to: '',
+      detail: `Retention task created — ${rc.name}`,
+      status: 'sent',
+    })
+    result.sent++
+  }
+
+  return result
+}
+
+// First admin profile id — the default owner for auto-created retention tasks.
+async function firstAdminId(admin: Admin): Promise<string | null> {
+  const { data } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('role', 'admin')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  return (data?.id as string) ?? null
 }
 
 // ── 2. Failed payment (dunning) ───────────────────────────────────────
@@ -909,7 +1397,8 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
   const pastEvents = await loadRecentlyEndedEvents(admin)
 
   const flows = [
-    await renewalReminders(admin, dryRun),
+    await welcomeJourney(admin, dryRun),
+    await renewalCadence(admin, dryRun),
     await failedPayments(admin, dryRun),
     await eventReminderSequence(admin, dryRun, commsSent),
     await postEventThankYou(admin, dryRun, pastEvents, commsSent),

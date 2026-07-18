@@ -1038,6 +1038,35 @@ export type Database = {
           },
         ]
       }
+      member_comms_sent: {
+        Row: {
+          id: string
+          member_id: string
+          kind: string
+          sent_at: string
+        }
+        Insert: {
+          id?: string
+          member_id: string
+          kind: string
+          sent_at?: string
+        }
+        Update: {
+          id?: string
+          member_id?: string
+          kind?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_comms_sent_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_invitations: {
         Row: {
           booking_id: string | null
