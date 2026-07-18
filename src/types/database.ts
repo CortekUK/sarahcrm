@@ -346,6 +346,7 @@ export type Database = {
           supplier_cost_pence: number | null
           supplier_name: string | null
           updated_at: string
+          xero_invoice_id: string | null
         }
         Insert: {
           assigned_to?: string | null
@@ -374,6 +375,7 @@ export type Database = {
           supplier_cost_pence?: number | null
           supplier_name?: string | null
           updated_at?: string
+          xero_invoice_id?: string | null
         }
         Update: {
           assigned_to?: string | null
@@ -402,6 +404,7 @@ export type Database = {
           supplier_cost_pence?: number | null
           supplier_name?: string | null
           updated_at?: string
+          xero_invoice_id?: string | null
         }
         Relationships: [
           {
@@ -1479,6 +1482,7 @@ export type Database = {
           status: Database["public"]["Enums"]["intro_status"]
           suggested_at: string
           updated_at: string
+          xero_invoice_id: string | null
         }
         Insert: {
           accepted_at?: string | null
@@ -1528,6 +1532,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["intro_status"]
           suggested_at?: string
           updated_at?: string
+          xero_invoice_id?: string | null
         }
         Update: {
           accepted_at?: string | null
@@ -1577,6 +1582,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["intro_status"]
           suggested_at?: string
           updated_at?: string
+          xero_invoice_id?: string | null
         }
         Relationships: [
           {
@@ -1816,6 +1822,8 @@ export type Database = {
           upgrade_potential: number | null
           what_they_can_offer: string | null
           xero_contact_id: string | null
+          xero_spend_pence: number | null
+          xero_spend_synced_at: string | null
         }
         Insert: {
           accounts_contact_email?: string | null
@@ -1911,6 +1919,8 @@ export type Database = {
           upgrade_potential?: number | null
           what_they_can_offer?: string | null
           xero_contact_id?: string | null
+          xero_spend_pence?: number | null
+          xero_spend_synced_at?: string | null
         }
         Update: {
           accounts_contact_email?: string | null
@@ -2006,6 +2016,8 @@ export type Database = {
           upgrade_potential?: number | null
           what_they_can_offer?: string | null
           xero_contact_id?: string | null
+          xero_spend_pence?: number | null
+          xero_spend_synced_at?: string | null
         }
         Relationships: [
           {
@@ -2664,6 +2676,7 @@ export type Database = {
           status: string
           created_at: string
           updated_at: string
+          xero_bill_id: string | null
         }
         Insert: {
           id?: string
@@ -2675,6 +2688,7 @@ export type Database = {
           status?: string
           created_at?: string
           updated_at?: string
+          xero_bill_id?: string | null
         }
         Update: {
           id?: string
@@ -2686,6 +2700,7 @@ export type Database = {
           status?: string
           created_at?: string
           updated_at?: string
+          xero_bill_id?: string | null
         }
         Relationships: [
           {
@@ -2872,6 +2887,7 @@ export type Database = {
           sponsor_name: string | null
           status: string
           updated_at: string
+          xero_invoice_id: string | null
         }
         Insert: {
           amount_pence: number
@@ -2894,6 +2910,7 @@ export type Database = {
           sponsor_name?: string | null
           status?: string
           updated_at?: string
+          xero_invoice_id?: string | null
         }
         Update: {
           amount_pence?: number
@@ -2916,6 +2933,7 @@ export type Database = {
           sponsor_name?: string | null
           status?: string
           updated_at?: string
+          xero_invoice_id?: string | null
         }
         Relationships: [
           {

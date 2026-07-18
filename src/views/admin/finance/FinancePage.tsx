@@ -45,6 +45,7 @@ interface MemberRevenueRow {
   company: string | null
   revenuePaidPence: number
   ltvPence: number
+  xeroSpendPence: number | null
 }
 
 type PaymentStatus = Database['public']['Enums']['payment_status']
@@ -116,6 +117,13 @@ export function FinancePage() {
   const [renewalRate, setRenewalRate] = useState<RenewalRateResult | null>(null)
   const [eventPnl, setEventPnl] = useState<EventPnlRow[]>([])
   const [memberRevenue, setMemberRevenue] = useState<MemberRevenueRow[]>([])
+  // Aggregate of what we pulled FROM Xero (members.xero_spend_pence). Null
+  // lastSynced = a Xero spend-sync has never run, so the card is hidden.
+  const [xeroSummary, setXeroSummary] = useState<{
+    totalPence: number
+    membersWithSpend: number
+    lastSynced: string | null
+  }>({ totalPence: 0, membersWithSpend: 0, lastSynced: null })
   const [memberSort, setMemberSort] = useState<{ key: 'ltv' | 'revenue'; dir: 'asc' | 'desc' }>({
     key: 'ltv',
     dir: 'desc',
@@ -262,7 +270,7 @@ export function FinancePage() {
       supabase
         .from('members')
         .select(
-          'id, membership_status, renewal_date, lifetime_value_pence, company_name, profiles(first_name, last_name)',
+          'id, membership_status, renewal_date, lifetime_value_pence, xero_spend_pence, xero_spend_synced_at, company_name, profiles(first_name, last_name)',
         )
         .is('deleted_at', null),
 
@@ -536,9 +544,22 @@ export function FinancePage() {
       membership_status: string
       renewal_date: string | null
       lifetime_value_pence: number | null
+      xero_spend_pence: number | null
+      xero_spend_synced_at: string | null
       company_name: string | null
       profiles: { first_name: string | null; last_name: string | null } | null
     }>
+
+    // ── "From Xero" summary — aggregate of the historic spend we pulled ──
+    setXeroSummary({
+      totalPence: memberRows.reduce((s, m) => s + (m.xero_spend_pence ?? 0), 0),
+      membersWithSpend: memberRows.filter((m) => (m.xero_spend_pence ?? 0) > 0).length,
+      lastSynced: memberRows.reduce<string | null>((latest, m) => {
+        const t = m.xero_spend_synced_at
+        if (!t) return latest
+        return !latest || new Date(t) > new Date(latest) ? t : latest
+      }, null),
+    })
     setRenewalRate(
       computeRenewalRate(
         memberRows.map((m) => ({
@@ -608,6 +629,7 @@ export function FinancePage() {
         company: m.company_name,
         revenuePaidPence: revenueByMember.get(m.id) ?? 0,
         ltvPence: m.lifetime_value_pence ?? 0,
+        xeroSpendPence: m.xero_spend_pence,
       }))
     setMemberRevenue(memberRevenueRows)
 
@@ -737,6 +759,44 @@ export function FinancePage() {
           changeType="neutral"
         />
       </div>
+
+      {/* From Xero — summary of historic spend pulled from the accounting sync */}
+      {xeroSummary.lastSynced && (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>From Xero</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Historic spend pulled
+                </p>
+                <p className="text-lg text-text tabular-nums">
+                  {formatCurrency(xeroSummary.totalPence)}
+                </p>
+                <p className="text-xs text-text-dim">actual paid across all members</p>
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Members with spend
+                </p>
+                <p className="text-lg text-text tabular-nums">{xeroSummary.membersWithSpend}</p>
+                <p className="text-xs text-text-dim">have paid invoices in Xero</p>
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
+                  Last synced
+                </p>
+                <p className="text-lg text-text tabular-nums">
+                  {formatDateTime(xeroSummary.lastSynced)}
+                </p>
+                <p className="text-xs text-text-dim">from Xero accounting</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Revenue by source */}
       <Card className="mb-8">
@@ -930,6 +990,7 @@ export function FinancePage() {
                       <ArrowUpDown size={12} className={memberSort.key === 'ltv' ? 'text-gold' : ''} />
                     </button>
                   </TableHead>
+                  <TableHead className="text-right">Xero spend</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -949,6 +1010,9 @@ export function FinancePage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium text-text">
                       {formatCurrency(m.ltvPence)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-text-muted">
+                      {m.xeroSpendPence === null ? '—' : formatCurrency(m.xeroSpendPence)}
                     </TableCell>
                   </TableRow>
                 ))}

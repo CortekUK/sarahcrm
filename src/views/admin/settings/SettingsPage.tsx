@@ -101,6 +101,9 @@ export function SettingsPage() {
   const [plansLoading, setPlansLoading] = useState(true)
   const [integrations, setIntegrations] = useState<IntegrationState | null>(null)
   const [xeroDisconnecting, setXeroDisconnecting] = useState(false)
+  const [xeroSyncing, setXeroSyncing] = useState(false)
+  const [xeroInvoiceSyncing, setXeroInvoiceSyncing] = useState(false)
+  const [xeroSpendSyncing, setXeroSpendSyncing] = useState(false)
 
   // Real integration connection status — reflects whether each provider's
   // credentials are actually configured in this environment.
@@ -152,6 +155,119 @@ export function SettingsPage() {
       toast({ title: 'Could not disconnect Xero', variant: 'destructive' })
     } finally {
       setXeroDisconnecting(false)
+    }
+  }
+
+  async function handleXeroSync() {
+    setXeroSyncing(true)
+    try {
+      const res = await fetch('/api/admin/xero/sync-contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const json = (await res.json()) as {
+        ok: boolean
+        created?: number
+        matched?: number
+        failed?: number
+        error?: string
+      }
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Sync failed')
+      const parts = [`${json.created ?? 0} created`, `${json.matched ?? 0} matched`]
+      if (json.failed) parts.push(`${json.failed} failed`)
+      toast({ title: 'Contacts synced', description: `Synced: ${parts.join(', ')}` })
+    } catch (err) {
+      toast({
+        title: 'Xero sync failed',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setXeroSyncing(false)
+    }
+  }
+
+  async function handleXeroInvoiceSync() {
+    setXeroInvoiceSyncing(true)
+    try {
+      const res = await fetch('/api/admin/xero/sync-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      type StreamCounts = { created?: number; failed?: number }
+      const json = (await res.json()) as {
+        ok: boolean
+        payments?: StreamCounts
+        guestPayments?: StreamCounts
+        sponsorships?: StreamCounts
+        concierge?: StreamCounts
+        introCommissions?: StreamCounts
+        referralPayouts?: StreamCounts
+        error?: string
+      }
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Sync failed')
+
+      const streams: [string, StreamCounts | undefined][] = [
+        ['invoices', json.payments],
+        ['guest', json.guestPayments],
+        ['sponsorships', json.sponsorships],
+        ['concierge', json.concierge],
+        ['intro commissions', json.introCommissions],
+        ['referrals', json.referralPayouts],
+      ]
+      const created = streams
+        .filter(([, s]) => (s?.created ?? 0) > 0)
+        .map(([label, s]) => `${label} ${s?.created}`)
+      const totalFailed = streams.reduce((sum, [, s]) => sum + (s?.failed ?? 0), 0)
+
+      const summary = created.length ? created.join(', ') : 'nothing new to sync'
+      const description = totalFailed
+        ? `Synced — ${summary} (${totalFailed} failed)`
+        : `Synced — ${summary}`
+      toast({ title: 'Revenue synced', description })
+    } catch (err) {
+      toast({
+        title: 'Xero invoice sync failed',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setXeroInvoiceSyncing(false)
+    }
+  }
+
+  async function handleXeroSpendSync() {
+    setXeroSpendSyncing(true)
+    try {
+      const res = await fetch('/api/admin/xero/sync-spend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const json = (await res.json()) as {
+        ok: boolean
+        membersUpdated?: number
+        invoicesScanned?: number
+        contactsWithSpend?: number
+        error?: string
+      }
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Sync failed')
+      toast({
+        title: 'Spend synced',
+        description: `Synced spend for ${json.membersUpdated ?? 0} member${
+          json.membersUpdated === 1 ? '' : 's'
+        }`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Xero spend sync failed',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setXeroSpendSyncing(false)
     }
   }
 
@@ -367,16 +483,39 @@ export function SettingsPage() {
                       <p className="text-[11px] text-text-muted mt-1">{status.detail}</p>
                     )}
                     {integration.key === 'xero' && !checking && (
-                      <div className="mt-2.5">
+                      <div className="mt-2.5 flex items-center gap-2">
                         {connected ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            loading={xeroDisconnecting}
-                            onClick={handleXeroDisconnect}
-                          >
-                            Disconnect
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              loading={xeroSyncing}
+                              onClick={handleXeroSync}
+                            >
+                              Sync contacts
+                            </Button>
+                            <Button
+                              size="sm"
+                              loading={xeroInvoiceSyncing}
+                              onClick={handleXeroInvoiceSync}
+                            >
+                              Sync invoices
+                            </Button>
+                            <Button
+                              size="sm"
+                              loading={xeroSpendSyncing}
+                              onClick={handleXeroSpendSync}
+                            >
+                              Sync spend
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={xeroDisconnecting}
+                              onClick={handleXeroDisconnect}
+                            >
+                              Disconnect
+                            </Button>
+                          </>
                         ) : (
                           <Button
                             size="sm"
