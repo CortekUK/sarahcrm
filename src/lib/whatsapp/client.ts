@@ -31,7 +31,14 @@ export function normalizeE164(raw: string, defaultCountryCode = '44'): string | 
     // National trunk 0 → drop it and prepend the default country code.
     digits = defaultCountryCode + digits.slice(1)
   } else if (digits.startsWith(defaultCountryCode)) {
-    // Bare number already carrying the country code — leave as-is.
+    // Bare number already carrying the default country code — leave as-is.
+  } else if (digits.length >= 11) {
+    // Already a full international number carrying its OWN country code
+    // (e.g. a Pakistani 92… or US 1… number, 11–15 digits). Do NOT prepend
+    // the default — that was corrupting stored E.164 contacts
+    // (923371406125 → 44923371406125 → "not in allowed list"). A bare UK
+    // national number (no trunk 0) is at most 10 digits, so ≥11 digits with
+    // no leading 0/+ means the country code is already present.
   } else {
     // Bare national number without a trunk 0 — prepend the default code.
     digits = defaultCountryCode + digits
