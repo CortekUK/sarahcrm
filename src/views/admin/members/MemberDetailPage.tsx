@@ -29,6 +29,7 @@ import { toast } from '@/lib/hooks/use-toast'
 import { formatDate, formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import { MemberMatchesPanel } from './MemberMatchesPanel'
 import { MemberDocumentsPanel } from './MemberDocumentsPanel'
+import { GmailThreadPanel } from './GmailThreadPanel'
 import { MemberRoiPanel } from '@/components/admin/MemberRoiPanel'
 import { MemberScoresPanel } from '@/components/admin/MemberScoresPanel'
 import { MemberRecommendationsPanel } from '@/components/admin/MemberRecommendationsPanel'
@@ -1703,6 +1704,9 @@ export function MemberDetailPage() {
 
       {/* Suggested introductions (tag-matched) */}
       <MemberMatchesPanel memberId={id} memberName={memberFullName} refreshKey={refreshKey} />
+
+      {/* Gmail conversation history + AI-drafted replies */}
+      {!editing && <GmailThreadPanel memberId={member.id} />}
 
       {/* History tabs */}
       <Card>

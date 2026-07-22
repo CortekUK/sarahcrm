@@ -665,6 +665,110 @@ export type Database = {
           },
         ]
       }
+      gmail_messages: {
+        Row: {
+          body_text: string | null
+          counterpart_email: string | null
+          created_at: string
+          direction: string
+          from_email: string | null
+          gmail_message_id: string
+          gmail_thread_id: string
+          id: string
+          internal_date: string
+          member_id: string | null
+          snippet: string | null
+          subject: string | null
+          to_emails: string[]
+        }
+        Insert: {
+          body_text?: string | null
+          counterpart_email?: string | null
+          created_at?: string
+          direction: string
+          from_email?: string | null
+          gmail_message_id: string
+          gmail_thread_id: string
+          id?: string
+          internal_date: string
+          member_id?: string | null
+          snippet?: string | null
+          subject?: string | null
+          to_emails?: string[]
+        }
+        Update: {
+          body_text?: string | null
+          counterpart_email?: string | null
+          created_at?: string
+          direction?: string
+          from_email?: string | null
+          gmail_message_id?: string
+          gmail_thread_id?: string
+          id?: string
+          internal_date?: string
+          member_id?: string | null
+          snippet?: string | null
+          subject?: string | null
+          to_emails?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gmail_messages_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gmail_extractions: {
+        Row: {
+          created_at: string
+          gmail_message_id: string
+          id: string
+          kind: string
+          payload: Json
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          gmail_message_id: string
+          id?: string
+          kind: string
+          payload?: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          gmail_message_id?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gmail_extractions_gmail_message_id_fkey"
+            columns: ["gmail_message_id"]
+            isOneToOne: false
+            referencedRelation: "gmail_messages"
+            referencedColumns: ["gmail_message_id"]
+          },
+          {
+            foreignKeyName: "gmail_extractions_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_log: {
         Row: {
           body: string | null

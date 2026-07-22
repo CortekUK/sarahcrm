@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/Table'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
+import { GmailExtractionsPanel } from '@/components/admin/GmailExtractionsPanel'
 import { formatDateTime, cn } from '@/lib/utils'
 import { Search, Loader2, Mail, Eye } from 'lucide-react'
 
@@ -194,6 +195,9 @@ export function EmailLogPage() {
         description="Every email the platform has sent — automations, booking and application emails, rejections, invites and admin alerts. Open any one to read exactly what went out."
         meta={<span className="text-xs text-text-dim">{rows.length} logged</span>}
       />
+
+      {/* AI-detected new contacts / introductions from inbound email */}
+      <GmailExtractionsPanel />
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">

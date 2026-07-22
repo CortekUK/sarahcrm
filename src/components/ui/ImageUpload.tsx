@@ -3,8 +3,9 @@
 import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
-import { Upload, X, Loader2, AlertCircle, Image as ImageIcon } from 'lucide-react'
+import { Upload, X, Loader2, AlertCircle, Image as ImageIcon, HardDrive } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DriveGalleryPicker } from '@/components/admin/DriveGalleryPicker'
 
 // Buckets created in Supabase Storage. Each public folder is dedicated to
 // one website-content domain so admins can find their assets in the
@@ -54,6 +55,7 @@ export function ImageUpload({
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [internalError, setInternalError] = useState<string | null>(null)
+  const [driveOpen, setDriveOpen] = useState(false)
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -247,6 +249,27 @@ export function ImageUpload({
           disabled={disabled || uploading}
         />
       </div>
+
+      {/* Import from the connected Google Drive media library */}
+      {!hasImage && !disabled && (
+        <button
+          type="button"
+          onClick={() => setDriveOpen(true)}
+          className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-text-muted hover:text-gold transition-colors"
+        >
+          <HardDrive size={12} strokeWidth={1.7} />
+          Import from Google Drive
+        </button>
+      )}
+
+      <DriveGalleryPicker
+        open={driveOpen}
+        onClose={() => setDriveOpen(false)}
+        onSelect={(url) => {
+          onChange(url)
+          setDriveOpen(false)
+        }}
+      />
 
       {hint && !displayedError && (
         <p className="text-[11px] text-text-dim mt-1.5">{hint}</p>

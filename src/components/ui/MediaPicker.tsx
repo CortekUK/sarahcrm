@@ -13,9 +13,11 @@ import {
   AlertCircle,
   ExternalLink,
   RefreshCw,
+  HardDrive,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { StorageBucket } from './ImageUpload'
+import { DriveGalleryPicker } from '@/components/admin/DriveGalleryPicker'
 
 // Universal media picker for hero/CMS surfaces.
 //
@@ -31,7 +33,7 @@ import type { StorageBucket } from './ImageUpload'
 // heroes have a fallback frame before they autoplay.
 
 type MediaType = 'image' | 'video'
-type Source = 'upload' | 'link'
+type Source = 'upload' | 'link' | 'drive'
 
 interface MediaPickerProps {
   /** Current image/video URL. */
@@ -71,6 +73,7 @@ export function MediaPicker({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [driveOpen, setDriveOpen] = useState(false)
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -269,6 +272,12 @@ export function MediaPicker({
               active={source === 'link'}
               onClick={() => setSource('link')}
             />
+            <SourceTab
+              label="Google Drive"
+              icon={<HardDrive size={12} strokeWidth={1.7} />}
+              active={source === 'drive'}
+              onClick={() => setSource('drive')}
+            />
           </div>
 
           {/* Source panel */}
@@ -312,6 +321,23 @@ export function MediaPicker({
                   </>
                 )}
               </button>
+            </div>
+          ) : source === 'drive' ? (
+            <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 px-5 py-8 flex flex-col items-center justify-center gap-2 text-center">
+              <div className="w-12 h-12 rounded-full bg-surface-3 text-text-muted flex items-center justify-center mb-1">
+                <HardDrive size={20} strokeWidth={1.5} />
+              </div>
+              <button
+                type="button"
+                onClick={() => setDriveOpen(true)}
+                className="text-sm font-medium text-gold hover:underline"
+              >
+                Browse Google Drive media
+              </button>
+              <span className="text-[11px] text-text-dim">
+                Pick an image or video from the connected Drive — it&apos;s copied in and given a
+                shareable link.
+              </span>
             </div>
           ) : (
             <div className="space-y-2">
@@ -381,6 +407,16 @@ export function MediaPicker({
       )}
 
       {fileInput}
+
+      {/* Google Drive media library picker (copies chosen asset in → public URL) */}
+      <DriveGalleryPicker
+        open={driveOpen}
+        onClose={() => setDriveOpen(false)}
+        onSelect={(url) => {
+          onChange(url)
+          setDriveOpen(false)
+        }}
+      />
     </div>
   )
 }

@@ -30,6 +30,13 @@ dist-ssr
 .vercel
 .env*.local
 
+# Secrets — Google service-account keys (NEVER commit)
+*.json.key
+*service-account*.json
+the-club-by-sarah-restrick-*.json
+gcp-*.json
+credentials*.json
+
 # Tooling / build artifacts
 .claude/
 tsconfig.tsbuildinfo

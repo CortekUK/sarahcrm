@@ -4,6 +4,14 @@
     {
       "path": "/api/cron/automations",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/gmail-sync",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/admin/google/gmail/extract",
+      "schedule": "30 * * * *"
     }
   ]
 }
