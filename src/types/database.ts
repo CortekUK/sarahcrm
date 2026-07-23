@@ -2788,6 +2788,147 @@ export type Database = {
         }
         Relationships: []
       }
+      scorecard_targets: {
+        Row: {
+          id: string
+          staff_id: string
+          week_start: string
+          label: string
+          target_value: number
+          source: string
+          manual_actual: number
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          week_start: string
+          label: string
+          target_value?: number
+          source?: string
+          manual_actual?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          week_start?: string
+          label?: string
+          target_value?: number
+          source?: string
+          manual_actual?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      scorecard_summaries: {
+        Row: {
+          id: string
+          staff_id: string
+          week_start: string
+          performance_score: number | null
+          targets_met: number | null
+          targets_total: number | null
+          narrative: string | null
+          generated_at: string
+          generated_by: string | null
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          week_start: string
+          performance_score?: number | null
+          targets_met?: number | null
+          targets_total?: number | null
+          narrative?: string | null
+          generated_at?: string
+          generated_by?: string | null
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          week_start?: string
+          performance_score?: number | null
+          targets_met?: number | null
+          targets_total?: number | null
+          narrative?: string | null
+          generated_at?: string
+          generated_by?: string | null
+        }
+        Relationships: []
+      }
+      daily_handovers: {
+        Row: {
+          id: string
+          staff_id: string
+          handover_date: string
+          completed_today: string | null
+          working_tomorrow: string | null
+          blocked: string | null
+          support_needed: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          handover_date: string
+          completed_today?: string | null
+          working_tomorrow?: string | null
+          blocked?: string | null
+          support_needed?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          handover_date?: string
+          completed_today?: string | null
+          working_tomorrow?: string | null
+          blocked?: string | null
+          support_needed?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      daily_reports: {
+        Row: {
+          id: string
+          report_date: string
+          narrative: string | null
+          submitted_count: number | null
+          staff_total: number | null
+          generated_at: string
+          generated_by: string | null
+        }
+        Insert: {
+          id?: string
+          report_date: string
+          narrative?: string | null
+          submitted_count?: number | null
+          staff_total?: number | null
+          generated_at?: string
+          generated_by?: string | null
+        }
+        Update: {
+          id?: string
+          report_date?: string
+          narrative?: string | null
+          submitted_count?: number | null
+          staff_total?: number | null
+          generated_at?: string
+          generated_by?: string | null
+        }
+        Relationships: []
+      }
       accountability_task_comments: {
         Row: {
           id: string
