@@ -2929,6 +2929,143 @@ export type Database = {
         }
         Relationships: []
       }
+      finance_tasks: {
+        Row: {
+          id: string
+          title: string
+          cadence: string
+          due_day: number
+          accountant_name: string | null
+          accountant_email: string | null
+          escalation_name: string | null
+          escalation_email: string | null
+          final_name: string | null
+          final_email: string | null
+          active: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          cadence: string
+          due_day: number
+          accountant_name?: string | null
+          accountant_email?: string | null
+          escalation_name?: string | null
+          escalation_email?: string | null
+          final_name?: string | null
+          final_email?: string | null
+          active?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          cadence?: string
+          due_day?: number
+          accountant_name?: string | null
+          accountant_email?: string | null
+          escalation_name?: string | null
+          escalation_email?: string | null
+          final_name?: string | null
+          final_email?: string | null
+          active?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      finance_task_occurrences: {
+        Row: {
+          id: string
+          finance_task_id: string
+          period_label: string
+          due_date: string
+          status: string
+          completed_at: string | null
+          completed_by: string | null
+          escalation_level: number
+          last_notified_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          finance_task_id: string
+          period_label: string
+          due_date: string
+          status?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          escalation_level?: number
+          last_notified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          finance_task_id?: string
+          period_label?: string
+          due_date?: string
+          status?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          escalation_level?: number
+          last_notified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'finance_task_occurrences_finance_task_id_fkey'
+            columns: ['finance_task_id']
+            isOneToOne: false
+            referencedRelation: 'finance_tasks'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      sops: {
+        Row: {
+          id: string
+          title: string
+          category: string
+          body: string | null
+          status: string
+          created_by: string | null
+          updated_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          category?: string
+          body?: string | null
+          status?: string
+          created_by?: string | null
+          updated_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          category?: string
+          body?: string | null
+          status?: string
+          created_by?: string | null
+          updated_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       accountability_task_comments: {
         Row: {
           id: string

@@ -43,6 +43,7 @@ import {
   MessageCircle,
   ShieldCheck,
   UserCog,
+  BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -129,11 +130,14 @@ const NAV_SECTIONS: NavSection[] = [
         label: 'Accountability',
         icon: ShieldCheck,
         children: [
+          { to: '/dashboard/accountability/overview', label: 'Overview', icon: LayoutDashboard },
           { to: '/dashboard/accountability/tasks', label: 'Tasks', icon: ShieldCheck },
           { to: '/dashboard/accountability/team', label: 'Team Members', icon: UserCog },
           { to: '/dashboard/accountability/time', label: 'Time & Profitability', icon: Coins },
           { to: '/dashboard/accountability/scorecards', label: 'Scorecards', icon: Target },
           { to: '/dashboard/accountability/handover', label: 'Daily Handover', icon: ClipboardCheck },
+          { to: '/dashboard/accountability/finance', label: 'Finance Tasks', icon: PoundSterling },
+          { to: '/dashboard/accountability/sops', label: 'SOP Library', icon: BookOpen },
         ],
       },
       { to: '/dashboard/concierge', label: 'Concierge', icon: BellRing },

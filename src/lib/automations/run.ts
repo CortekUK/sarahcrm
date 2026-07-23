@@ -12,6 +12,7 @@ import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 import { renderIntroEmail } from '@/lib/introductions/intro-email'
 import { generateSuggestions, pairKey } from '@/lib/introductions/suggest'
 import { scorePairForSuggestion, type MatchCandidate } from '@/lib/introductions/matching'
+import { financeEscalation } from '@/lib/automations/finance-escalation'
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL || process.env.SITE_URL || 'https://sarahcrm.vercel.app'
@@ -1560,6 +1561,7 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
     await invoiceChasing(admin, dryRun),
     await scheduledIntroductions(admin, dryRun),
     await sponsorFollowUps(admin, dryRun),
+    await financeEscalation(admin, dryRun),
   ]
   const totals = flows.reduce(
     (acc, f) => ({

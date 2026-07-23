@@ -145,6 +145,128 @@ Both are built on the existing Next.js 15 (App Router) + Supabase stack, use the
 
 ---
 
+## Module 5 — Accountability Dashboard
+
+### What it does
+- A **team-only, admin-only, read-only** overview that **aggregates the existing accountability data** (tasks, time, scorecards, handovers) into one "what needs Sarah's attention" landing page. It does **not** duplicate the Executive dashboard (sales/finance/events/membership) — it is purely about the **team**.
+- All figures are scoped to the **current Monday→Sunday week** (via `mondayOf()`/`weekEnd()` from `src/lib/scorecards.ts`) and **today** (via `today()` from `src/lib/handover.ts`), and to **active staff only** (`role in team_member|freelancer` and `staff_status = active`) so the headline numbers match the per-staff table.
+
+**Headline StatCards:** active staff · open tasks (status ≠ done) · overdue tasks (deadline's date < today and status ≠ done) · blocked tasks · hours logged this week · handovers submitted today (x/total).
+
+**Sections:**
+1. **Task status breakdown** — a small house-styled proportion bar (not_started / in_progress / blocked / done) across active-staff tasks, with a legend + counts. (The optional visual; done with plain theme-token divs, no recharts, to stay clean.)
+2. **Needs attention** — four focused lists: overdue tasks (title + owner + days late, sorted worst-first), blocked tasks (title + owner), staff with **no handover today**, and staff whose scorecard is **below 50%** this week. Collapses to a single "Nothing needs attention" empty state when all four are clear.
+3. **Per-staff workload table** — each active staff member: open / overdue / blocked task counts, hours logged this week, tasks completed this week, this week's scorecard score, and a ✓/✗ for today's handover. The **scorecard score** prefers a generated `scorecard_summaries` row for the week; if none exists it is **computed live** from that week's `scorecard_targets` + auto metrics (`computeScore` / `tasksCompletedInWeek` / `hoursLoggedInWeek` from `scorecards.ts`). Staff with no targets show `—`.
+
+### Data model
+- **No new tables, columns, or migration.** This module is entirely read/aggregate over existing tables: `profiles`, `accountability_tasks`, `time_entries`, `scorecard_targets`, `scorecard_summaries`, `daily_handovers`.
+
+### Security (RLS)
+- **Admin-only** by placement under `/dashboard/*` (existing middleware gates the admin group). All reads use the **admin's session**, and admin RLS on every one of these tables already grants full read — **no new policies were added or needed**.
+
+### Efficiency
+- Six parallel queries in one `Promise.all` (staff, all tasks, this-week time entries, this-week targets, this-week summaries, today's handovers). No per-staff N+1 — everything is composed in JS with `useMemo` maps keyed by `staff_id`. Time entries and scorecard rows are date-filtered server-side to the current week; handovers to today.
+
+### Files
+- `src/views/admin/accountability/AccountabilityDashboardPage.tsx` — the dashboard view.
+- `src/app/(admin)/dashboard/accountability/overview/page.tsx` — thin page.
+- Nav: an **"Overview"** child (LayoutDashboard icon) was added **first** in the "Accountability" group in `src/app/(admin)/layout.tsx`, so it reads as the section landing. The other four children (Tasks, Team Members, Time & Profitability, Scorecards, Daily Handover) are unchanged.
+
+---
+
+## Module 6 — Accountant Auto-Escalation
+
+### What it does
+- Captures **recurring finance deliverables** (e.g. Monthly Management Accounts, VAT Return, Payroll, Cashflow Forecast) as reusable definitions, each with a **cadence** (monthly / quarterly / annual) and a **due day**.
+- Each definition carries **three assignable contacts — name + email only** (they need **not** be app users / have logins): an **accountant** (level 1), an **escalation contact / Finance Director** (level 2), and a **final contact / Sarah** (level 3).
+- Every period produces one **occurrence** with a computed **due_date**. When an occurrence goes **overdue**, the existing hourly automations cron **emails each level in turn, automatically** — "the system chases, not Sarah." Nothing is ever emailed twice (guarded by `escalation_level`).
+- Admins create/edit/deactivate the definitions, see each period's occurrence (status, due date, days late, current escalation level), and **Mark complete** — which stops the chasing.
+
+### Data model (added)
+- `finance_tasks` — `id, title, cadence text check ('monthly'|'quarterly'|'annual'), due_day int check (1–28), accountant_name, accountant_email, escalation_name, escalation_email, final_name, final_email, active boolean default true, created_by → profiles, created_at, updated_at`. `set_updated_at` trigger reuses `handle_updated_at()`.
+- `finance_task_occurrences` — `id, finance_task_id → finance_tasks (cascade), period_label text ('2026-07' | '2026-Q3' | '2026'), due_date date, status text check ('pending'|'completed') default 'pending', completed_at, completed_by → profiles, escalation_level int default 0 (0=none 1=accountant 2=FD 3=final), last_notified_at, created_at, updated_at`. **UNIQUE `(finance_task_id, period_label)`** (`uniq_finance_occurrence_task_period`, the upsert target); index `idx_finance_occurrences_status_due` on `(status, due_date)`.
+
+### Security (RLS)
+- **Admin-only on BOTH tables** — this is finance data, so staff/members have **no access**. There is a single `for all using (is_admin()) with check (is_admin())` policy on each table and **no non-admin policy at all**. Verified live: RLS enabled on both, only the two admin policies present.
+
+### Escalation engine + cron hook
+- New module `src/lib/automations/finance-escalation.ts` exports `financeEscalation(admin, dryRun)`, hooked into `runAllAutomations()` in `src/lib/automations/run.ts` (added to the `flows` array), so it runs on the existing hourly `/api/cron/automations` heartbeat with the **service-role** client. (The real batch fires once a day at the admin-configured send-hour, like every other flow; daily cadence is ample because the thresholds are measured in days.)
+- Each run: **(1)** for every `active` finance task, idempotently upserts the **current** period's occurrence (and the immediately-**previous** one, so a just-passed deadline is tracked) with the computed `due_date`; **(2)** for every `pending` occurrence whose `due_date` has passed, escalates by time overdue using named constants `ESCALATION_DAYS = { accountant: 0, director: 3, final: 7 }`:
+  - overdue ≥ 0d & level < 1 → email **accountant**, set level 1.
+  - overdue ≥ 3d & level < 2 → email **Finance Director**, set level 2.
+  - overdue ≥ 7d & level < 3 → email **Sarah (final)**, set level 3.
+- **Dedup / idempotency:** `escalation_level` **is** the ledger. A level is emailed only when the stored level is below it, and the advanced level is persisted immediately after the sends — so the hourly cron can never email the same level twice. Completed occurrences are excluded at the query (`status='pending'`). Emails go via `sendClubEmail` (logged to `email_log`) and clearly state the task, period, due date, and days late.
+- **Documented decision — one run can advance multiple levels:** an occurrence first seen already ≥7 days overdue fires all applicable levels in a single run (the deadlines really have passed), then never re-fires. A contact with **no email set** still "consumes" its level (so it isn't retried forever); `last_notified_at` is stamped only when an email actually sent.
+- **Documented decision — due_date month for quarterly/annual:** the spec gives only a day-of-month. Fixed rule: monthly → `due_day` of the period month; quarterly → `due_day` of the quarter's **final** month (Mar/Jun/Sep/Dec); annual → `due_day` of **December**. `due_day` is constrained 1–28 so it is valid in every month.
+
+### Files
+**Migration:** `supabase/migrations/20260727_finance_tasks.sql` (applied via `scripts/apply-finance-tasks-migration.mjs`; idempotent — run twice, verified; RLS admin-only verified).
+- `src/lib/finance-tasks.ts` — shared types, cadence options/labels, escalation-threshold + level-meta constants, contact-for-level resolver, and the pure period/due-date/days-late maths (used by both the UI and the engine).
+- `src/lib/automations/finance-escalation.ts` — the escalation engine (occurrence seeding + guarded per-level emailing); returns a `FlowResult`.
+- `src/lib/automations/run.ts` — hooked `financeEscalation` into the `flows` array in `runAllAutomations`.
+- `src/views/admin/accountability/FinanceTasksPage.tsx` — the **Finance Tasks** admin page: headline stats, a prominent **Overdue — being chased** section, per-task definition cards (cadence, due day, three contacts, Edit / Deactivate) with each period's occurrences (status, due date, days late, escalation-level badge, **Mark complete**), and a create/edit modal. Creating a task immediately seeds the current + previous occurrences (idempotently) so it is actionable before the next cron run.
+- `src/app/(admin)/dashboard/accountability/finance/page.tsx` — thin page; nav child "Finance Tasks" (PoundSterling icon) added under **Accountability** in `src/app/(admin)/layout.tsx`.
+- `src/types/database.ts` — added `finance_tasks` + `finance_task_occurrences` table types.
+
+### Test instructions (including escalation WITHOUT waiting for the cron)
+Admin dev login: `/admin/login` → `claude-admin@theclub.local` (password in `.env` `DEV_ADMIN_PASSWORD`). The page is at **Accountability → Finance Tasks** (`/dashboard/accountability/finance`).
+
+1. **UI CRUD:** Add a finance task (e.g. "Monthly Management Accounts", monthly, due day 7) with three name+email contacts. It appears immediately with its current + previous occurrences. Edit it, deactivate/reactivate it, and **Mark complete** an occurrence (status flips to Complete; it leaves the Overdue list).
+
+2. **Trigger escalation without waiting — safe DRY-RUN (sends nothing, writes nothing).** Create a task whose current period is already overdue (monthly, due day 7 → this month's occurrence is overdue after the 7th). Then, with the dev server running, preview the engine via the cron endpoint (dry-run is **not** gated to the send-hour):
+   ```bash
+   SECRET=$(grep '^CRON_SECRET=' .env | cut -d= -f2-)
+   curl -s "http://localhost:3000/api/cron/automations?dryRun=true" \
+     -H "Authorization: Bearer $SECRET" | jq '.flows[] | select(.flow=="finance_escalation")'
+   ```
+   The `finance_escalation` flow lists which levels **would_send**, to whom, for which period, with the days-overdue count. An occurrence already stored at level 1 shows only L2/L3 would_send (L1 is never re-sent); one at level 3 counts as `alreadyHandled`. (Verified live: a 16-day-overdue monthly task previewed L1/L2/L3 to the contacts; with a stored level-1 occurrence only L2/L3 queued; a stored level-3 occurrence was `alreadyHandled`.)
+
+3. **Real send (advances `escalation_level` + sends via Resend).** A real cron run is gated to the admin-configured UK send-hour (Settings → Automation Send Time) and runs **all** automation flows, so do this on a **safe/staging** dataset only (a real run would email live members via the other flows). Set `app_settings.daily_send_hour` to the current UK hour, then:
+   ```bash
+   curl -s "http://localhost:3000/api/cron/automations" -H "Authorization: Bearer $SECRET" | jq '.flows[] | select(.flow=="finance_escalation")'
+   ```
+   Watch `finance_task_occurrences.escalation_level` advance and check the sent emails in the **`email_log`** table (category `automation:finance_escalation`) — emails go via Resend, so use a real deliverable address on the contacts. Run it again: the same levels are **not** re-sent (idempotent).
+
+## Module 7 — SOP Library
+
+### What it does
+- A **rich-text knowledge base** of Standard Operating Procedures — "knowledge that doesn't walk out the door." **Admins author** SOPs; **all staff read** the published ones.
+- Each SOP has a **title**, a **free-text category** (Onboarding, Sponsorship, Events, Finance, Membership, Renewals are *suggestions* via a datalist — not a rigid enum; you can type any category), a **rich-text HTML body**, and a **draft/published status**.
+- Admins can list/search/filter by category, create/edit (with a lightweight formatting toolbar), **publish/unpublish**, preview, and **delete (with a confirm)**. Staff get a read-only **"Playbook"** section on `/team` that browses **published** SOPs by category and expands each to read it.
+
+### Rich text (reuse of the app's approach)
+- The repo's existing rich editors (`src/components/templates/editor/*`, `src/components/contracts/editor/*`) are heavyweight **block-based email/contract canvases**, not a drop-in body editor, and there is no shared single-field rich-text component. Per the task's fallback guidance, this module adds a **small reusable rich-text component pair** in `src/components/sops/RichText.tsx`:
+  - `RichTextEditor` — a `contentEditable` surface with a basic toolbar (bold / italic / underline / H2 / H3 / bullet + numbered lists / quote / link / clear), emitting HTML. This matches the app's `contentEditable` + `dangerouslySetInnerHTML` pattern.
+  - `RichTextRenderer` — renders the body through **`isomorphic-dompurify`** (the app's existing sanitizer, `sanitizeSopHtml` in `src/lib/sops.ts`) on **every render**, with a strict tag/attr allowlist. Bodies are **also** sanitized on save (defence in depth).
+
+### Data model (added)
+- `sops` — `id, title text, category text default 'General', body text (sanitized rich-text HTML), status text check ('draft'|'published') default 'draft', created_by → profiles, updated_by → profiles, created_at, updated_at`. Indexes `idx_sops_category` on `(category)` and `idx_sops_status` on `(status)`. `set_updated_at` trigger reuses `handle_updated_at()`.
+
+### Security (RLS)
+- **Admins manage all** — a single `for all using (is_admin()) with check (is_admin())` policy: create, edit, delete, and see **drafts**.
+- **Staff read published only** — a SELECT policy `using (is_staff() and status = 'published')`. There is **no staff INSERT/UPDATE/DELETE policy**, so staff cannot write, and drafts are never returned to them.
+- **Members / anon** — no policy at all → no access.
+- *All six behaviours were verified live* (`scripts/verify-sop-rls.mjs`, admin + staff test accounts): admin creates draft+published ✓, staff sees the published SOP ✓, staff does **not** see the draft ✓, staff INSERT blocked (42501) ✓, staff UPDATE affects 0 rows ✓, staff DELETE affects 0 rows ✓.
+
+### Files
+**Migration:** `supabase/migrations/20260728_sop_library.sql` (applied via `scripts/apply-sop-library-migration.mjs`; idempotent — safe to run twice; RLS verified). RLS verifier: `scripts/verify-sop-rls.mjs`.
+- `src/lib/sops.ts` — shared types, `CATEGORY_SUGGESTIONS`, `STATUS_META`, `groupByCategory`, and the `sanitizeSopHtml` / `toPlainText` DOMPurify helpers.
+- `src/components/sops/RichText.tsx` — `RichTextEditor` + `RichTextRenderer` (sanitized).
+- `src/views/admin/accountability/SopLibraryPage.tsx` — the **SOP Library** admin page (stats, search, category filter chips, grouped list, create/edit modal with the rich editor + category datalist, preview modal, publish/unpublish, delete confirm). Thin page `src/app/(admin)/dashboard/accountability/sops/page.tsx`; nav child "SOP Library" (BookOpen) added under **Accountability** in `src/app/(admin)/layout.tsx`.
+- `src/views/staff/StaffSopPanel.tsx` — the staff **Playbook** panel at `/team` (search + category groups + expand-to-read, sanitized render), wired into `src/app/(staff)/team/page.tsx`.
+- `src/types/database.ts` — added the `sops` table types.
+
+### Test instructions
+Admin dev login: `/admin/login` → `claude-admin@theclub.local` (password in `.env` `DEV_ADMIN_PASSWORD`). Staff test login: `aw736024@gmail.com` / `TestStaff2026!`.
+
+1. **Admin creates a DRAFT.** As admin, go to **Accountability → SOP Library** (`/dashboard/accountability/sops`). Click **Add SOP**, give it a title (e.g. "New Member Onboarding"), pick/type a category (e.g. "Onboarding"), write a body using the toolbar, and click **Save draft**. It appears with a grey **Draft** badge.
+2. **Staff cannot see the draft.** In another browser/incognito, sign in as staff at `/admin/login` → you land on `/team`. Scroll to the **Playbook** section — the draft SOP is **not** listed (RLS blocks unpublished rows).
+3. **Admin publishes.** Back as admin, open the SOP (Edit) and click **Publish** (or use the row's **Publish** action). The badge flips to green **Published**.
+4. **Staff sees & reads it.** Reload `/team` as staff — the SOP now appears under its category in the **Playbook**. Click it to expand and read the sanitized rich-text body. Staff have **no** edit/delete controls (read-only) and still cannot see any remaining drafts.
+5. *(Optional, automated)* run `node scripts/verify-sop-rls.mjs` to assert all six RLS behaviours live (it creates a draft + a published SOP, checks staff visibility/writes, and cleans up).
+
+---
+
 ## How the whole flow works
 1. **Admin** creates a staff member (Team Members) → an invite/temporary password is emailed (or set via "Send login").
 2. **Admin** sets that staff member's **hourly rate**.
@@ -166,6 +288,7 @@ Both are built on the existing Next.js 15 (App Router) + Supabase stack, use the
 ## Known open items
 - `profiles` is readable by any authenticated user (pre‑existing policy). Staff can't reach CRM pages (middleware) but could read `profiles` rows directly — a ~10‑minute RLS tightening if desired.
 - `PortalChrome.tsx` has the same modal‑scroll `calc()` bug (member portal).
-- Remaining Team Accountability modules not yet built: **accountability dashboard, accountant auto‑escalation, SOP library**. (Weekly scorecards — Module 3; daily handover — Module 4 above.)
+- **All seven Team Accountability modules are now built** — Foundation (1), Time Tracking (2), Weekly Scorecards (3), Daily Handover (4), Accountability Dashboard (5), Accountant Auto‑Escalation (6), and **SOP Library (7)**. No Team Accountability modules remain.
+- SOP Library uses a lightweight `contentEditable` rich-text editor (`src/components/sops/RichText.tsx`) rather than the heavyweight block-based email/contract editors, since those are not drop-in body editors and no shared single-field rich-text component existed. If a shared rich-text field is added later, both the SOP editor and renderer can be swapped to it. Bodies are sanitized with `isomorphic-dompurify` on both save and render.
 - Daily Handover email delivery of the leadership report was left as an optional nice‑to‑have (spec: "email optional/nice‑to‑have, not required"); only the required in‑app delivery is implemented.
 - A weekly-scorecard **cron** to auto-generate Friday summaries was left as a nice-to-have; only the on-demand "Generate summary" button is implemented (the required path).
