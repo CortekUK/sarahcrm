@@ -1,9 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-// Auth + role gating for the two protected workspaces:
+// Auth + role gating for the three protected workspaces:
 //   /dashboard/*  → admins only
 //   /portal/*     → active members only (admins are NOT allowed in)
+//   /team/*       → staff only (role team_member | freelancer). Their ONLY
+//                   surface — they cannot reach the admin dashboard, the
+//                   member portal, or any other CRM area.
 //
 // Each role has exactly one workspace. Cross-role traffic is hard-redirected
 // to the user's own workspace — we never serve the other surface, even briefly,
@@ -11,9 +14,19 @@ import { NextResponse, type NextRequest } from 'next/server'
 //
 // Login routes:
 //   /login        → member login (and the default landing for the public site)
-//   /admin/login  → admin login (separate URL so staff can bookmark it)
+//   /admin/login  → staff sign-in (admins AND team members). Separate URL so
+//                   staff can bookmark it.
 // Already-authenticated visitors to either login URL are bounced to their own
 // workspace.
+
+type Role = 'admin' | 'member' | 'team_member' | 'freelancer'
+
+// The single home surface for each role.
+function homeForRole(role: Role | undefined | null): string {
+  if (role === 'admin') return '/dashboard'
+  if (role === 'team_member' || role === 'freelancer') return '/team'
+  return '/portal'
+}
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -46,16 +59,18 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isDashboard = pathname.startsWith('/dashboard')
   const isPortal = pathname.startsWith('/portal')
+  const isTeam = pathname.startsWith('/team')
   const isMemberLogin = pathname === '/login'
   const isAdminLogin = pathname === '/admin/login'
 
   // ── Protected routes ────────────────────────────────────────
-  if (isDashboard || isPortal) {
+  if (isDashboard || isPortal || isTeam) {
     if (!user) {
       // Unauthenticated → push to the login screen that matches the surface
-      // they were trying to reach. Members get /login, admins get /admin/login.
+      // they were trying to reach. Members get /login; admins and staff both
+      // use the staff sign-in at /admin/login.
       const url = request.nextUrl.clone()
-      url.pathname = isDashboard ? '/admin/login' : '/login'
+      url.pathname = isPortal ? '/login' : '/admin/login'
       url.searchParams.set('redirect', pathname)
       return NextResponse.redirect(url)
     }
@@ -66,24 +81,33 @@ export async function middleware(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    const isAdmin = profile?.role === 'admin'
+    const role = (profile?.role ?? 'member') as Role
+    const isAdmin = role === 'admin'
+    const isStaff = role === 'team_member' || role === 'freelancer'
 
-    // /dashboard/* — admins only. Non-admins get redirected to /portal (which
-    // will run its own membership-status check below on the next request).
-    if (isDashboard && !isAdmin) {
+    // /team/* — staff only. Anyone else is sent to their own home surface.
+    if (isTeam && !isStaff) {
       const url = request.nextUrl.clone()
-      url.pathname = '/portal'
+      url.pathname = homeForRole(role)
       url.search = ''
       return NextResponse.redirect(url)
     }
 
-    // /portal/* — active members only. Admins are NOT allowed in: they have
-    // their own dashboard, and serving them member UI invites privilege
-    // confusion (e.g. they take an action thinking they're acting as a member
-    // when they're not). Bounce them to /dashboard.
-    if (isPortal && isAdmin) {
+    // /dashboard/* — admins only. Non-admins get redirected to their own
+    // home surface (staff → /team, members → /portal).
+    if (isDashboard && !isAdmin) {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
+      url.pathname = homeForRole(role)
+      url.search = ''
+      return NextResponse.redirect(url)
+    }
+
+    // /portal/* — active members only. Admins and staff are NOT allowed in:
+    // they have their own workspaces, and serving them member UI invites
+    // privilege confusion. Bounce them home.
+    if (isPortal && (isAdmin || isStaff)) {
+      const url = request.nextUrl.clone()
+      url.pathname = homeForRole(role)
       url.search = ''
       return NextResponse.redirect(url)
     }
@@ -132,7 +156,7 @@ export async function middleware(request: NextRequest) {
       .single()
 
     const url = request.nextUrl.clone()
-    url.pathname = profile?.role === 'admin' ? '/dashboard' : '/portal'
+    url.pathname = homeForRole(profile?.role as Role | undefined)
     url.search = ''
     return NextResponse.redirect(url)
   }

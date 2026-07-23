@@ -93,7 +93,16 @@ async function sendCredentialsMail(
 // invite-link flow so callers don't change: `redirectTo` is now the login URL.
 export async function sendInviteEmail(
   admin: Admin,
-  args: { email: string; firstName?: string | null; redirectTo: string; heading?: string; intro?: string },
+  args: {
+    email: string
+    firstName?: string | null
+    redirectTo: string
+    heading?: string
+    intro?: string
+    // Optional explicit sign-in URL. When omitted we derive `${origin}/login`
+    // from redirectTo (member flow). Staff invites pass the staff sign-in URL.
+    loginUrl?: string
+  },
 ): Promise<InviteResult> {
   const password = generatePassword()
   const created = await admin.auth.admin.createUser({
@@ -108,7 +117,12 @@ export async function sendInviteEmail(
       error: created.error?.message ?? 'Could not create the account',
     }
   }
-  const r = await sendCredentialsMail(args.email, args.firstName, password, loginUrlFrom(args.redirectTo))
+  const r = await sendCredentialsMail(
+    args.email,
+    args.firstName,
+    password,
+    args.loginUrl ?? loginUrlFrom(args.redirectTo),
+  )
   return { userId: created.data.user.id, emailSent: r.sent, error: r.error }
 }
 
@@ -117,7 +131,13 @@ export async function sendInviteEmail(
 // account (imported, or approved on the existing-profile path).
 export async function resetPasswordAndSendCredentials(
   admin: Admin,
-  args: { userId: string; email: string; firstName?: string | null; redirectTo: string },
+  args: {
+    userId: string
+    email: string
+    firstName?: string | null
+    redirectTo: string
+    loginUrl?: string
+  },
 ): Promise<InviteResult> {
   const password = generatePassword()
   const upd = await admin.auth.admin.updateUserById(args.userId, {
@@ -127,7 +147,12 @@ export async function resetPasswordAndSendCredentials(
   if (upd.error) {
     return { userId: args.userId, emailSent: false, error: upd.error.message }
   }
-  const r = await sendCredentialsMail(args.email, args.firstName, password, loginUrlFrom(args.redirectTo))
+  const r = await sendCredentialsMail(
+    args.email,
+    args.firstName,
+    password,
+    args.loginUrl ?? loginUrlFrom(args.redirectTo),
+  )
   return { userId: args.userId, emailSent: r.sent, error: r.error }
 }
 

@@ -28,9 +28,17 @@ type LoginFormData = z.infer<typeof loginSchema>
 // That stops the cross-workspace privilege confusion the user flagged.
 
 type Role = 'member' | 'admin'
+type ActualRole = 'admin' | 'member' | 'team_member' | 'freelancer'
 
 interface LoginPageProps {
   role: Role
+}
+
+// The single home surface for each role.
+function homeForRole(role: ActualRole): string {
+  if (role === 'admin') return '/dashboard'
+  if (role === 'team_member' || role === 'freelancer') return '/team'
+  return '/portal'
 }
 
 const COPY: Record<Role, {
@@ -92,10 +100,14 @@ export function LoginPage({ role }: LoginPageProps) {
   // After successful login we send them where they meant to go.
   // Guard against open-redirect attacks by only honouring same-origin paths
   // *and* paths that belong to this role's workspace.
+  // The staff door (role="admin") serves admins AND team members, so its
+  // safe deep-link prefixes are both /dashboard and /team. The member door
+  // only serves /portal.
   const requestedRedirect = searchParams.get('redirect') ?? ''
-  const expectedPrefix = role === 'admin' ? '/dashboard' : '/portal'
+  const expectedPrefixes = role === 'admin' ? ['/dashboard', '/team'] : ['/portal']
   const safeRedirect =
-    requestedRedirect.startsWith(expectedPrefix) && !requestedRedirect.startsWith('//')
+    expectedPrefixes.some((p) => requestedRedirect.startsWith(p)) &&
+    !requestedRedirect.startsWith('//')
       ? requestedRedirect
       : null
 
@@ -157,28 +169,32 @@ export function LoginPage({ role }: LoginPageProps) {
         .eq('id', user.id)
         .single()
 
-      const actualRole: Role = profile?.role === 'admin' ? 'admin' : 'member'
+      const actualRole = (profile?.role ?? 'member') as ActualRole
+      const isStaffAccount =
+        actualRole === 'admin' ||
+        actualRole === 'team_member' ||
+        actualRole === 'freelancer'
 
-      // Role mismatch: e.g. a member tried to sign into /admin/login, or an
-      // admin tried /login. Sign them straight back out and tell them which
-      // door to use — never silently grant them access. This is the second
-      // half of the role gate; the middleware enforces the same rule on
-      // every protected request after this.
-      if (actualRole !== role) {
+      // Role mismatch: the staff door (role="admin") serves admins + team
+      // members; the member door serves members only. If the account doesn't
+      // belong on this door, sign them straight back out and point them at the
+      // right one — never silently grant access. The middleware enforces the
+      // same rule on every protected request after this.
+      const belongsOnDoor = role === 'admin' ? isStaffAccount : actualRole === 'member'
+      if (!belongsOnDoor) {
         await supabase.auth.signOut()
         setLoading(false)
         setError(
           role === 'admin'
-            ? 'This account does not have administrator access. Use the member portal sign-in instead.'
-            : 'Administrator accounts cannot sign in to the member portal. Use the staff sign-in instead.',
+            ? 'This account does not have staff access. Use the member portal sign-in instead.'
+            : 'Staff accounts cannot sign in to the member portal. Use the staff sign-in instead.',
         )
         return
       }
 
       // Send them where they meant to go (if it's a same-workspace deep link)
-      // or to the role's home.
-      const fallback = role === 'admin' ? '/dashboard' : '/portal'
-      router.replace(safeRedirect ?? fallback)
+      // or to the role's home surface.
+      router.replace(safeRedirect ?? homeForRole(actualRole))
     } catch {
       setError('An unexpected error occurred')
       setLoading(false)

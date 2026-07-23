@@ -2622,6 +2622,7 @@ export type Database = {
           linkedin_url: string | null
           phone: string | null
           role: Database["public"]["Enums"]["user_role"]
+          staff_status: string
           updated_at: string
           website_url: string | null
         }
@@ -2638,6 +2639,7 @@ export type Database = {
           linkedin_url?: string | null
           phone?: string | null
           role?: Database["public"]["Enums"]["user_role"]
+          staff_status?: string
           updated_at?: string
           website_url?: string | null
         }
@@ -2654,8 +2656,213 @@ export type Database = {
           linkedin_url?: string | null
           phone?: string | null
           role?: Database["public"]["Enums"]["user_role"]
+          staff_status?: string
           updated_at?: string
           website_url?: string | null
+        }
+        Relationships: []
+      }
+      accountability_tasks: {
+        Row: {
+          id: string
+          title: string
+          description: string | null
+          owner_id: string
+          created_by: string | null
+          deadline: string | null
+          status: string
+          outcome: string | null
+          event_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          description?: string | null
+          owner_id: string
+          created_by?: string | null
+          deadline?: string | null
+          status?: string
+          outcome?: string | null
+          event_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          description?: string | null
+          owner_id?: string
+          created_by?: string | null
+          deadline?: string | null
+          status?: string
+          outcome?: string | null
+          event_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      time_entries: {
+        Row: {
+          id: string
+          staff_id: string
+          task_id: string
+          hours: number | null
+          entry_date: string
+          note: string | null
+          source: string
+          started_at: string | null
+          ended_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          task_id: string
+          hours?: number | null
+          entry_date?: string
+          note?: string | null
+          source?: string
+          started_at?: string | null
+          ended_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          task_id?: string
+          hours?: number | null
+          entry_date?: string
+          note?: string | null
+          source?: string
+          started_at?: string | null
+          ended_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      staff_rates: {
+        Row: {
+          staff_id: string
+          hourly_rate: number | null
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          staff_id: string
+          hourly_rate?: number | null
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          staff_id?: string
+          hourly_rate?: number | null
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      event_profitability: {
+        Row: {
+          event_id: string
+          revenue: number
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          event_id: string
+          revenue?: number
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          event_id?: string
+          revenue?: number
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      accountability_task_comments: {
+        Row: {
+          id: string
+          task_id: string
+          author_id: string | null
+          body: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          author_id?: string | null
+          body: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          author_id?: string | null
+          body?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      accountability_task_attachments: {
+        Row: {
+          id: string
+          task_id: string
+          uploaded_by: string | null
+          file_path: string
+          file_name: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          uploaded_by?: string | null
+          file_path: string
+          file_name: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          uploaded_by?: string | null
+          file_path?: string
+          file_name?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      accountability_task_activity: {
+        Row: {
+          id: string
+          task_id: string
+          actor_id: string | null
+          event_type: string
+          detail: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          actor_id?: string | null
+          event_type: string
+          detail?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          actor_id?: string | null
+          event_type?: string
+          detail?: Json
+          created_at?: string
         }
         Relationships: []
       }
@@ -3439,6 +3646,8 @@ export type Database = {
     }
     Functions: {
       is_admin: { Args: never; Returns: boolean }
+      is_staff: { Args: never; Returns: boolean }
+      can_access_accountability_object: { Args: { object_name: string }; Returns: boolean }
     }
     Enums: {
       booking_status: "confirmed" | "pending" | "cancelled" | "refunded"
@@ -3464,7 +3673,7 @@ export type Database = {
       payment_method: "stripe" | "gocardless" | "invoice" | "manual"
       payment_status: "paid" | "pending" | "overdue" | "refunded" | "failed"
       tag_category: "industry" | "interest" | "need" | "service"
-      user_role: "admin" | "member"
+      user_role: "admin" | "member" | "team_member" | "freelancer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3618,7 +3827,7 @@ export const Constants = {
       payment_method: ["stripe", "gocardless", "invoice", "manual"],
       payment_status: ["paid", "pending", "overdue", "refunded", "failed"],
       tag_category: ["industry", "interest", "need", "service"],
-      user_role: ["admin", "member"],
+      user_role: ["admin", "member", "team_member", "freelancer"],
     },
   },
 } as const

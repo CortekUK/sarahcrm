@@ -39,6 +39,8 @@ import {
   KanbanSquare,
   Gauge,
   MessageCircle,
+  ShieldCheck,
+  UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -120,6 +122,16 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/pipeline', label: 'Pipeline', icon: KanbanSquare },
       { to: '/dashboard/introductions', label: 'Introductions', icon: Handshake },
       { to: '/dashboard/tasks', label: 'Tasks', icon: ListTodo },
+      {
+        to: '/dashboard/accountability',
+        label: 'Accountability',
+        icon: ShieldCheck,
+        children: [
+          { to: '/dashboard/accountability/tasks', label: 'Tasks', icon: ShieldCheck },
+          { to: '/dashboard/accountability/team', label: 'Team Members', icon: UserCog },
+          { to: '/dashboard/accountability/time', label: 'Time & Profitability', icon: Coins },
+        ],
+      },
       { to: '/dashboard/concierge', label: 'Concierge', icon: BellRing },
       { to: '/dashboard/rewards', label: 'Rewards', icon: Gift },
       { to: '/dashboard/tags', label: 'Tags', icon: Tags },

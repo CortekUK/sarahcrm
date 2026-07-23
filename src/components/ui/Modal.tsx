@@ -52,10 +52,11 @@ export function Modal({ open, onClose, children, title, size = 'md', className }
         className={cn(
           'relative w-full bg-surface rounded-[var(--radius-xl)] shadow-xl',
           'animate-[modal-enter_0.2s_ease-out]',
-          'flex flex-col max-h-[calc(100vh-2rem)]',
+          'flex flex-col',
           sizeStyles[size],
           className
         )}
+        style={{ maxHeight: 'calc(100vh - 2rem)' }}
         role="dialog"
         aria-modal="true"
         aria-label={title}
