@@ -676,6 +676,8 @@ export type Database = {
           gmail_thread_id: string
           id: string
           internal_date: string
+          is_noise: boolean
+          mailbox: string | null
           member_id: string | null
           snippet: string | null
           subject: string | null
@@ -691,6 +693,8 @@ export type Database = {
           gmail_thread_id: string
           id?: string
           internal_date: string
+          is_noise?: boolean
+          mailbox?: string | null
           member_id?: string | null
           snippet?: string | null
           subject?: string | null
@@ -705,6 +709,8 @@ export type Database = {
           gmail_message_id?: string
           gmail_thread_id?: string
           id?: string
+          is_noise?: boolean
+          mailbox?: string | null
           internal_date?: string
           member_id?: string | null
           snippet?: string | null

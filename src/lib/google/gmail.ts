@@ -17,6 +17,7 @@ export interface ParsedMessage {
   internalDate: string // ISO
   headerMessageId?: string
   references?: string
+  listUnsubscribe?: string // raw List-Unsubscribe header, if present (newsletter/marketing signal)
 }
 
 // Pulls the email address out of a "Name <email@x>" header value.
@@ -77,6 +78,7 @@ export function parseMessage(msg: gmail_v1.Schema$Message): ParsedMessage {
     internalDate: new Date(internalMs).toISOString(),
     headerMessageId: header(p, 'Message-ID'),
     references: header(p, 'References'),
+    listUnsubscribe: header(p, 'List-Unsubscribe'),
   }
 }
 
@@ -127,6 +129,21 @@ export async function listAddedSince(
     throw e
   }
   return { ids: [...ids], historyId: latest, expired: false }
+}
+
+// Paged listing by Gmail search query (e.g. `newer_than:720d`). Returns one
+// page of ids plus the nextPageToken to resume from. Used by the backfill
+// module to walk an inbox's history back to `historyMonths`.
+export async function listMessageIdsByQuery(
+  gmail: gmail_v1.Gmail,
+  q: string,
+  pageToken?: string,
+): Promise<{ ids: string[]; nextPageToken?: string }> {
+  const res = await gmail.users.messages.list({ userId: 'me', q, pageToken, maxResults: 200 })
+  return {
+    ids: (res.data.messages ?? []).map((m) => m.id!).filter(Boolean),
+    nextPageToken: res.data.nextPageToken ?? undefined,
+  }
 }
 
 export async function getMessage(gmail: gmail_v1.Gmail, id: string): Promise<ParsedMessage> {

@@ -23,6 +23,8 @@ import { Building2, CreditCard, Landmark, Mail, SlidersHorizontal, UserPlus } fr
 import { TagsManager } from './TagsManager'
 import { AutomationTimeSettings } from './AutomationTimeSettings'
 import { EnquiryRoutingSettings } from './EnquiryRoutingSettings'
+import { EmailSyncSettings } from './EmailSyncSettings'
+import { MediaFoldersSettings } from './MediaFoldersSettings'
 
 // A row in the read-only "Membership plans" summary table. Sourced live
 // from the `membership_plans` table (the single source of truth) — editing
@@ -445,6 +447,12 @@ export function SettingsPage() {
 
       {/* Enquiry owner routing */}
       <EnquiryRoutingSettings />
+
+      {/* Gmail email sync control surface */}
+      <EmailSyncSettings />
+
+      {/* Drive media folder access (owner + allow-list) */}
+      <MediaFoldersSettings />
 
       {/* Integrations — connection status is live (real env config), not mocked */}
       <Card className="mb-6">

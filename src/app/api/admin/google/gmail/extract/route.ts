@@ -114,6 +114,7 @@ async function handle(req: NextRequest) {
     .select('gmail_message_id, from_email, subject, body_text')
     .is('member_id', null)
     .eq('direction', 'inbound')
+    .eq('is_noise', false)
     .order('internal_date', { ascending: false })
     .limit(BATCH * 3)
   const todo = (candidates ?? []).filter((m) => !doneIds.has(m.gmail_message_id)).slice(0, BATCH)

@@ -93,6 +93,19 @@ export async function listChildren(opts?: {
   return { folders, media }
 }
 
+// Returns the direct parent folder ids of a Drive file/folder. Used to walk the
+// parent chain when checking whether a folder is a descendant of an approved one.
+// Works across My Drive and Shared Drives.
+export async function getFileParents(fileId: string, subject?: string): Promise<string[]> {
+  const drive = driveClient(subject)
+  const res = await drive.files.get({
+    fileId,
+    fields: 'parents',
+    supportsAllDrives: true,
+  })
+  return res.data.parents ?? []
+}
+
 // Streams a private Drive file's bytes (for our proxy route / copy-to-Storage).
 export async function getFileStream(
   fileId: string,
