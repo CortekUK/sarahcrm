@@ -189,6 +189,21 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: 'Sponsorship',
+    items: [
+      {
+        to: '/dashboard/sponsorship',
+        label: 'Sponsorship',
+        icon: Handshake,
+        children: [
+          { to: '/dashboard/sponsorship', label: 'Hub', icon: Sparkles },
+          { to: '/dashboard/sponsorship/prospects', label: 'Prospects', icon: Search },
+          { to: '/dashboard/sponsorship/outreach', label: 'Review queue', icon: Send },
+        ],
+      },
+    ],
+  },
+  {
     label: 'Site',
     items: [
       {

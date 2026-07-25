@@ -12,7 +12,8 @@ import { Avatar } from '@/components/ui/Avatar'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, Trash2, Handshake, Copy, Send, Check, Ticket, Settings2 } from 'lucide-react'
+import Link from 'next/link'
+import { Plus, Trash2, Handshake, Copy, Send, Check, Ticket, Settings2, Sparkles } from 'lucide-react'
 import { SponsorManageModal, type ManageSponsor } from './SponsorManageModal'
 
 // Sponsorship management for a single event. Lives on the event detail page.
@@ -341,9 +342,17 @@ export function SponsorsPanel({
             <p className="mt-1 text-xs text-text-dim">{formatCurrency(committedPence)} committed</p>
           )}
         </div>
-        <Button size="sm" icon={<Plus size={15} />} onClick={() => setOpen(true)}>
-          Add sponsor
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/dashboard/sponsorship?event_id=${eventId}`}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-md)] text-xs text-gold-dark bg-gold-muted hover:bg-gold-muted/80 transition-colors"
+          >
+            <Sparkles size={13} /> Find ideal sponsors
+          </Link>
+          <Button size="sm" icon={<Plus size={15} />} onClick={() => setOpen(true)}>
+            Add sponsor
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
