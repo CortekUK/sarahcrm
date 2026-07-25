@@ -48,6 +48,8 @@ import {
   Filter,
   Library,
   Image as ImageIcon,
+  HeartPulse,
+  Sunrise,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -120,9 +122,11 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Main',
     items: [
+      { to: '/dashboard/chief-of-staff', label: 'Chief of Staff', icon: Sunrise },
       { to: '/dashboard/executive', label: 'Executive', icon: Gauge },
       { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { to: '/dashboard/members', label: 'Members', icon: Users },
+      { to: '/dashboard/members/success', label: 'Member Success', icon: HeartPulse },
       { to: '/dashboard/applications', label: 'Applications', icon: ClipboardList },
       { to: '/dashboard/events', label: 'Events', icon: CalendarDays },
       { to: '/dashboard/bookings', label: 'Bookings', icon: Ticket },

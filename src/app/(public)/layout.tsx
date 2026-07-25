@@ -1,6 +1,7 @@
 import { NightHeader } from '@/components/website/night/NightHeader'
 import { NightFooter } from '@/components/website/night/NightFooter'
 import { JoinBadge } from '@/components/website/night/JoinBadge'
+import { ConciergeWidget } from '@/components/website/night/ConciergeWidget'
 import { SmoothScrolling } from '@/components/website/SmoothScrolling'
 import { ThemeProvider } from '@/components/website/ThemeContext'
 import { Toaster } from '@/components/ui-shadcn/toaster'
@@ -35,6 +36,7 @@ export default function PublicLayout({
           <NightHeader />
           <main>{children}</main>
           <JoinBadge />
+          <ConciergeWidget />
           <NightFooter />
           {/* Toaster surface — used by the public forms (member-email
               check on /membership-application, etc). The toast itself

@@ -13,6 +13,11 @@ import { renderIntroEmail } from '@/lib/introductions/intro-email'
 import { generateSuggestions, pairKey } from '@/lib/introductions/suggest'
 import { scorePairForSuggestion, type MatchCandidate } from '@/lib/introductions/matching'
 import { financeEscalation } from '@/lib/automations/finance-escalation'
+import { computeMemberScores } from '@/lib/members/scoring'
+import { notifyAdmins } from '@/lib/email/admin-notify'
+import { buildChiefOfStaffData } from '@/lib/chief-of-staff/aggregate'
+import { generateChiefOfStaffReport } from '@/lib/chief-of-staff/generate'
+import type { Database } from '@/types/database'
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL || process.env.SITE_URL || 'https://sarahcrm.vercel.app'
@@ -1523,10 +1528,108 @@ async function resetMonthlyQuotasIfDue(admin: Admin): Promise<void> {
     .upsert({ key: 'intros_reset_month', value: month }, { onConflict: 'key' })
 }
 
+// ── Member success sweep — keep relationship scores fresh daily ───────
+// A non-email flow: mirrors the bulk path of
+// POST /api/admin/members/recompute-scores. It recomputes the relationship
+// scores (churn_risk_score, engagement_score, upgrade_potential, …) for
+// every active, non-deleted member via the SHARED scoring engine
+// (`computeMemberScores`) and writes them back to the members table. This is
+// what keeps the admin "Member Success" flags view fresh once a day at the
+// configured send-hour, so admins don't have to hit "Recompute now" manually.
+//
+// Best-effort: a single member failing never aborts the sweep, and the sweep
+// itself never throws out into runAllAutomations. On a dry-run (dashboard
+// preview) we deliberately DON'T recompute or write — scoring is many queries
+// per member, so we only report how many members WOULD be swept.
+async function memberSuccessSweep(
+  admin: Admin,
+  dryRun: boolean,
+): Promise<{ swept: number; updated: number }> {
+  let swept = 0
+  let updated = 0
+  try {
+    const { data: members } = await admin
+      .from('members')
+      .select('id')
+      .eq('membership_status', 'active')
+      .is('deleted_at', null)
+    const rows = (members ?? []) as { id: string }[]
+    swept = rows.length
+    if (dryRun) return { swept, updated: 0 }
+    for (const m of rows) {
+      try {
+        const scores = await computeMemberScores(
+          m.id,
+          admin as unknown as SupabaseClient<Database>,
+        )
+        const { error } = await admin.from('members').update(scores).eq('id', m.id)
+        if (!error) updated += 1
+      } catch (e) {
+        console.error(`[memberSuccessSweep] member ${m.id} failed:`, e)
+      }
+    }
+  } catch (e) {
+    console.error('[memberSuccessSweep] sweep failed:', e)
+  }
+  return { swept, updated }
+}
+
+// ── Chief of Staff — Sarah's daily leadership briefing ────────────────
+// A non-email-flow style task (like memberSuccessSweep): generate today's
+// briefing via the SHARED generate implementation the report route also
+// uses (src/lib/chief-of-staff/generate.ts — single source of truth), then
+// email it to every admin via notifyAdmins. On a dry-run (dashboard preview)
+// we build the data but write nothing and email nobody — we only report that
+// one briefing WOULD be generated. Best-effort: never throws out into
+// runAllAutomations.
+async function chiefOfStaffDaily(
+  admin: Admin,
+  dryRun: boolean,
+): Promise<{ generated: 0 | 1; emailed: number }> {
+  try {
+    if (dryRun) {
+      // Prove the aggregation runs, but persist/send nothing.
+      await buildChiefOfStaffData(admin, new Date())
+      return { generated: 0, emailed: 0 }
+    }
+
+    const report = await generateChiefOfStaffReport(admin)
+
+    // Email the briefing to all admins. Paragraphs mirror the narrative's
+    // own paragraph breaks so the email reads like the on-screen briefing.
+    const paragraphs = (report.narrative ?? '')
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+
+    const { data: adminRows } = await admin.from('profiles').select('email').eq('role', 'admin')
+    const emailed = (adminRows ?? []).filter(
+      (p: { email: string | null }) => !!p.email,
+    ).length
+
+    await notifyAdmins(admin, {
+      subject: 'Good morning — your daily briefing',
+      heading: 'Your daily briefing',
+      paragraphs: paragraphs.length > 0 ? paragraphs : ['Your briefing is ready.'],
+      ctaUrl: `${APP_URL}/dashboard/chief-of-staff`,
+      ctaLabel: 'Open the full briefing',
+    })
+
+    return { generated: 1, emailed }
+  } catch (e) {
+    console.error('[chiefOfStaffDaily] failed:', e)
+    return { generated: 0, emailed: 0 }
+  }
+}
+
 export interface AutomationRunResult {
   dryRun: boolean
   flows: FlowResult[]
   totals: { candidates: number; pending: number; sent: number; failed: number }
+  // Reported separately from the email `totals` above so the automations
+  // dashboard's "sent / failed" counts stay email-only.
+  memberSuccess: { swept: number; updated: number }
+  chiefOfStaff: { generated: 0 | 1; emailed: number }
 }
 
 export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunResult> {
@@ -1572,5 +1675,11 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
     }),
     { candidates: 0, pending: 0, sent: 0, failed: 0 },
   )
-  return { dryRun, flows, totals }
+  // Registered alongside the email flows: refresh member relationship scores
+  // so the Member Success flags view is current. Reported under its own key.
+  const memberSuccess = await memberSuccessSweep(admin, dryRun)
+  // Generate + email Sarah's daily leadership briefing. Reported under its
+  // own key (not the email flows[] array).
+  const chiefOfStaff = await chiefOfStaffDaily(admin, dryRun)
+  return { dryRun, flows, totals, memberSuccess, chiefOfStaff }
 }
