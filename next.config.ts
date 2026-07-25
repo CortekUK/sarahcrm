@@ -4,6 +4,12 @@ const nextConfig: NextConfig = {
   experimental: {
     viewTransition: true,
   },
+  // Load these from node_modules instead of bundling them. jsdom (pulled in by
+  // isomorphic-dompurify for server-side HTML sanitising) reads a data file via
+  // its own __dirname; webpack bundling mangles that path, so at build/export
+  // time it fails with ENOENT on browser/default-stylesheet.css. Keeping them
+  // external preserves the correct resolution.
+  serverExternalPackages: ['jsdom', 'isomorphic-dompurify'],
   eslint: {
     ignoreDuringBuilds: true,
   },
