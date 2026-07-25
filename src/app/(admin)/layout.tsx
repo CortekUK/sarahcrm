@@ -44,6 +44,10 @@ import {
   ShieldCheck,
   UserCog,
   BookOpen,
+  Megaphone,
+  Filter,
+  Library,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -165,6 +169,23 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/commissions', label: 'Commissions', icon: Coins },
       { to: '/dashboard/whatsapp', label: 'WhatsApp', icon: MessageCircle },
       { to: '/dashboard/automations', label: 'Automations', icon: Zap },
+    ],
+  },
+  {
+    label: 'Marketing',
+    items: [
+      {
+        to: '/dashboard/marketing',
+        label: 'Marketing',
+        icon: Megaphone,
+        children: [
+          { to: '/dashboard/marketing', label: 'Campaigns', icon: Megaphone },
+          { to: '/dashboard/marketing/templates', label: 'Templates', icon: ImageIcon },
+          { to: '/dashboard/marketing/voices', label: 'Voices', icon: MessageCircle },
+          { to: '/dashboard/marketing/segments', label: 'Segments', icon: Filter },
+          { to: '/dashboard/marketing/library', label: 'Library', icon: Library },
+        ],
+      },
     ],
   },
   {

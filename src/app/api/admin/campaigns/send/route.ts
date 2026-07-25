@@ -20,13 +20,30 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
+import {
+  resolveSegmentRecipients,
+  summariseRules,
+  type SegmentRules,
+} from '@/lib/marketing/segments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// Module 4 (segmented email): the send body may OPTIONALLY specify a
+// rule-based member segment as the recipient source, in addition to the
+// existing `audience_id` path. A segment is either a saved segment_id or
+// inline rules. When `segment` is omitted the behaviour is byte-for-byte
+// identical to before (all-subscribers when audience_id is null, else the
+// static audience).
+interface SegmentSelector {
+  segment_id?: string | null
+  rules?: SegmentRules | null
+}
+
 interface RequestBody {
   template_id?: string
   audience_id?: string | null
+  segment?: SegmentSelector | null
 }
 
 interface Recipient {
@@ -230,18 +247,50 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Template not found' }, { status: 404 })
     }
 
-    const audienceId = body.audience_id ?? null
+    // ── Recipient source resolution ──────────────────────────────
+    // Three sources, in priority order:
+    //   1. segment (Module 4) — rule-based member segment, either a saved
+    //      segment_id or inline rules. audience_id stays NULL on the snapshot
+    //      (a segment is not a static audience); audience_label is set to a
+    //      readable segment description.
+    //   2. audience_id — existing static audience (unchanged).
+    //   3. neither — all active subscribers (unchanged).
+    const segment = body.segment ?? null
+    const useSegment = !!(segment && (segment.segment_id || segment.rules))
+
+    const audienceId = useSegment ? null : body.audience_id ?? null
     let audienceLabel = 'All active subscribers'
-    if (audienceId) {
-      const { data: aud } = await admin
-        .from('audiences')
-        .select('name')
-        .eq('id', audienceId)
-        .single()
-      audienceLabel = aud?.name ?? 'List'
+    let recipients: Recipient[]
+
+    if (useSegment) {
+      let rules: unknown = segment!.rules ?? {}
+      let segName: string | null = null
+      if (segment!.segment_id) {
+        const { data: seg } = await admin
+          .from('marketing_segments')
+          .select('name, rules')
+          .eq('id', segment!.segment_id)
+          .single()
+        if (!seg) {
+          return Response.json({ error: 'Segment not found' }, { status: 404 })
+        }
+        rules = seg.rules ?? {}
+        segName = seg.name ?? null
+      }
+      audienceLabel = `Segment: ${segName ?? summariseRules(rules)}`
+      recipients = (await resolveSegmentRecipients(admin, rules)) as Recipient[]
+    } else {
+      if (audienceId) {
+        const { data: aud } = await admin
+          .from('audiences')
+          .select('name')
+          .eq('id', audienceId)
+          .single()
+        audienceLabel = aud?.name ?? 'List'
+      }
+      recipients = await buildRecipients(admin, audienceId)
     }
 
-    const recipients = await buildRecipients(admin, audienceId)
     const recipientCount = recipients.length
 
     const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`

@@ -33,6 +33,12 @@ interface TemplateLite {
   category: string
 }
 
+interface SegmentLite {
+  id: string
+  name: string
+  rules: unknown
+}
+
 const statusBadge: Record<string, 'active' | 'upcoming' | 'urgent' | 'draft' | 'info'> = {
   draft: 'draft',
   queued: 'upcoming',
@@ -183,9 +189,15 @@ function NewCampaignModal({
   const [allSubsCount, setAllSubsCount] = useState(0)
   const [tmplSearch, setTmplSearch] = useState('')
   const [tmplPick, setTmplPick] = useState<TemplateLite | null>(null)
-  // null audienceId means "all active subscribers"
+  // Recipient source: 'all' active subscribers | a static 'audience' | a
+  // rule-based 'segment' (Module 4). Kept as one mode so the three paths
+  // are mutually exclusive.
+  const [mode, setMode] = useState<'all' | 'audience' | 'segment'>('all')
   const [audiencePick, setAudiencePick] = useState<Audience | null>(null)
-  const [useAllSubs, setUseAllSubs] = useState(true)
+  // Smart segments (Module 4) — live member counts keyed by segment id.
+  const [segments, setSegments] = useState<SegmentLite[]>([])
+  const [segmentPick, setSegmentPick] = useState<SegmentLite | null>(null)
+  const [segmentCounts, setSegmentCounts] = useState<Record<string, number>>({})
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -222,6 +234,30 @@ function NewCampaignModal({
       }
       if (cancelled) return
       setAudienceCounts(counts)
+
+      // Smart segments (Module 4) — load saved segments + a live member
+      // count per segment for the picker.
+      try {
+        const segRes = await fetch('/api/admin/marketing/segments').then((r) => r.json())
+        if (cancelled) return
+        const segs = (segRes.segments ?? []) as SegmentLite[]
+        setSegments(segs)
+        const segCounts: Record<string, number> = {}
+        await Promise.all(
+          segs.map(async (s) => {
+            const pv = await fetch('/api/admin/marketing/segments/preview', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ segment_id: s.id }),
+            }).then((r) => r.json())
+            segCounts[s.id] = typeof pv.count === 'number' ? pv.count : 0
+          }),
+        )
+        if (cancelled) return
+        setSegmentCounts(segCounts)
+      } catch {
+        /* segments are additive — never block the wizard */
+      }
     }
     void load()
     return () => {
@@ -238,24 +274,38 @@ function NewCampaignModal({
   }, [templates, tmplSearch])
 
   function audienceLabel(): string {
-    if (useAllSubs) return 'All active subscribers'
+    if (mode === 'all') return 'All active subscribers'
+    if (mode === 'segment') return segmentPick ? `Segment: ${segmentPick.name}` : '—'
     return audiencePick?.name ?? '—'
   }
 
   function recipientCount(): number {
-    if (useAllSubs) return allSubsCount
+    if (mode === 'all') return allSubsCount
+    if (mode === 'segment') return segmentPick ? segmentCounts[segmentPick.id] ?? 0 : 0
     if (!audiencePick) return 0
     const c = audienceCounts[audiencePick.id] ?? { subs: 0, members: 0 }
     return c.subs + c.members
   }
 
+  const recipientChosen =
+    mode === 'all' || (mode === 'audience' && !!audiencePick) || (mode === 'segment' && !!segmentPick)
+
   async function send() {
     if (!tmplPick) return
     setError(null)
     setSending(true)
-    const payload = {
+    // Additive: only send `segment` when the segment path is chosen.
+    // Otherwise the payload is exactly the pre-Module-4 shape.
+    const payload: {
+      template_id: string
+      audience_id: string | null
+      segment?: { segment_id: string }
+    } = {
       template_id: tmplPick.id,
-      audience_id: useAllSubs ? null : audiencePick?.id ?? null,
+      audience_id: mode === 'audience' ? audiencePick?.id ?? null : null,
+    }
+    if (mode === 'segment' && segmentPick) {
+      payload.segment = { segment_id: segmentPick.id }
     }
     const res = await fetch('/api/admin/campaigns/send', {
       method: 'POST',
@@ -285,7 +335,7 @@ function NewCampaignModal({
           1. Template
         </Crumb>
         <ChevronRight size={12} className="text-text-dim" />
-        <Crumb active={step === 'audience'} done={useAllSubs || !!audiencePick}>
+        <Crumb active={step === 'audience'} done={recipientChosen}>
           2. Audience
         </Crumb>
         <ChevronRight size={12} className="text-text-dim" />
@@ -349,12 +399,13 @@ function NewCampaignModal({
           <button
             type="button"
             onClick={() => {
-              setUseAllSubs(true)
+              setMode('all')
               setAudiencePick(null)
+              setSegmentPick(null)
             }}
             className={cn(
               'w-full text-left p-4 border rounded-md transition-colors',
-              useAllSubs ? 'border-gold bg-gold-muted/40' : 'border-border hover:bg-surface-2',
+              mode === 'all' ? 'border-gold bg-gold-muted/40' : 'border-border hover:bg-surface-2',
             )}
           >
             <div className="flex items-center justify-between">
@@ -372,7 +423,7 @@ function NewCampaignModal({
             <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-2">
               Or pick a custom list
             </p>
-            <div className="max-h-[280px] overflow-y-auto border border-border rounded-md divide-y divide-border">
+            <div className="max-h-[220px] overflow-y-auto border border-border rounded-md divide-y divide-border">
               {audiences.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-text-dim">
                   No custom lists yet. Create one in the Lists tab.
@@ -381,14 +432,15 @@ function NewCampaignModal({
                 audiences.map((a) => {
                   const c = audienceCounts[a.id] ?? { subs: 0, members: 0 }
                   const total = c.subs + c.members
-                  const active = !useAllSubs && audiencePick?.id === a.id
+                  const active = mode === 'audience' && audiencePick?.id === a.id
                   return (
                     <button
                       key={a.id}
                       type="button"
                       onClick={() => {
-                        setUseAllSubs(false)
+                        setMode('audience')
                         setAudiencePick(a)
+                        setSegmentPick(null)
                       }}
                       className={cn(
                         'w-full text-left px-4 py-3 transition-colors',
@@ -411,6 +463,53 @@ function NewCampaignModal({
             </div>
           </div>
 
+          {/* ── Smart segments (Module 4) ───────────────────────── */}
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-2">
+              Or a smart segment (auto-collected members)
+            </p>
+            <div className="max-h-[220px] overflow-y-auto border border-border rounded-md divide-y divide-border">
+              {segments.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-text-dim">
+                  No segments yet. Build one under{' '}
+                  <a className="text-gold" href="/dashboard/marketing/segments">
+                    Marketing &gt; Segments
+                  </a>
+                  .
+                </div>
+              ) : (
+                segments.map((s) => {
+                  const active = mode === 'segment' && segmentPick?.id === s.id
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setMode('segment')
+                        setSegmentPick(s)
+                        setAudiencePick(null)
+                      }}
+                      className={cn(
+                        'w-full text-left px-4 py-3 transition-colors',
+                        active ? 'bg-gold-muted/40' : 'hover:bg-surface-2',
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-text">{s.name}</p>
+                          <p className="text-xs text-text-muted truncate">
+                            Rule-based members segment
+                          </p>
+                        </div>
+                        <Badge variant="active">{segmentCounts[s.id] ?? '…'}</Badge>
+                      </div>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
           <div className="flex justify-between pt-1">
             <Button variant="ghost" onClick={() => setStep('template')}>
               Back
@@ -419,10 +518,7 @@ function NewCampaignModal({
               <Button variant="ghost" onClick={onClose}>
                 Cancel
               </Button>
-              <Button
-                disabled={!useAllSubs && !audiencePick}
-                onClick={() => setStep('review')}
-              >
+              <Button disabled={!recipientChosen} onClick={() => setStep('review')}>
                 Next
               </Button>
             </div>
