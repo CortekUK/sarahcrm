@@ -5,6 +5,7 @@ import {
   useEffect,
   type SelectHTMLAttributes,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '../../lib/utils'
 import { ChevronDown, Check } from 'lucide-react'
 
@@ -46,6 +47,47 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     const [highlightedIndex, setHighlightedIndex] = useState(-1)
     const containerRef = useRef<HTMLDivElement>(null)
     const hiddenRef = useRef<HTMLSelectElement | null>(null)
+    // The dropdown panel is rendered in a portal with fixed positioning so it
+    // is never clipped by an ancestor's overflow (e.g. inside a Modal).
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const panelRef = useRef<HTMLDivElement>(null)
+    const [mounted, setMounted] = useState(false)
+    const [menuPos, setMenuPos] = useState<{
+      top: number
+      bottom: number
+      left: number
+      width: number
+      openUp: boolean
+    } | null>(null)
+
+    useEffect(() => setMounted(true), [])
+
+    // Position the portal panel against the trigger, flipping up when there's
+    // not enough room below. Re-computes on scroll/resize while open.
+    useEffect(() => {
+      if (!open) return
+      const compute = () => {
+        const el = triggerRef.current
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        const spaceBelow = window.innerHeight - r.bottom
+        const openUp = spaceBelow < 264 && r.top > spaceBelow
+        setMenuPos({
+          top: r.bottom + 4,
+          bottom: window.innerHeight - r.top + 4,
+          left: r.left,
+          width: r.width,
+          openUp,
+        })
+      }
+      compute()
+      window.addEventListener('scroll', compute, true)
+      window.addEventListener('resize', compute)
+      return () => {
+        window.removeEventListener('scroll', compute, true)
+        window.removeEventListener('resize', compute)
+      }
+    }, [open])
 
     // Controlled vs uncontrolled value tracking
     const isControlled = value !== undefined
@@ -71,7 +113,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     useEffect(() => {
       if (!open) return
       function handleMouseDown(e: MouseEvent) {
-        if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        const target = e.target as Node
+        const inContainer = containerRef.current?.contains(target)
+        const inPanel = panelRef.current?.contains(target)
+        if (!inContainer && !inPanel) {
           setOpen(false)
         }
       }
@@ -184,6 +229,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         {/* Custom trigger + dropdown */}
         <div className="relative">
           <button
+            ref={triggerRef}
             type="button"
             role="combobox"
             aria-expanded={open}
@@ -222,12 +268,22 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             />
           </button>
 
-          {/* Dropdown panel */}
-          {open && (
+          {/* Dropdown panel — portalled + fixed so it escapes ancestor overflow */}
+          {open && mounted && menuPos &&
+            createPortal(
             <div
+              ref={panelRef}
               role="listbox"
               id={selectId ? `${selectId}-listbox` : undefined}
-              className="absolute z-50 mt-1 w-full bg-surface border border-border rounded-[var(--radius-md)] shadow-[var(--shadow-card)] py-1 max-h-60 overflow-auto"
+              style={{
+                position: 'fixed',
+                left: menuPos.left,
+                width: menuPos.width,
+                ...(menuPos.openUp
+                  ? { bottom: menuPos.bottom }
+                  : { top: menuPos.top }),
+              }}
+              className="z-[120] bg-surface border border-border rounded-[var(--radius-md)] shadow-[var(--shadow-card)] py-1 max-h-60 overflow-auto"
             >
               {options.map((opt, idx) => (
                 <button
@@ -258,7 +314,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
                   {opt.label}
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
 

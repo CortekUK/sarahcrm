@@ -156,6 +156,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Engage',
     items: [
+      { to: '/dashboard/inbox', label: 'Inbox', icon: Inbox },
       { to: '/dashboard/enquiries', label: 'Enquiries', icon: Inbox },
       { to: '/dashboard/reviews', label: 'Reviews', icon: Quote },
       { to: '/dashboard/newsletter', label: 'Newsletter', icon: MailPlus },

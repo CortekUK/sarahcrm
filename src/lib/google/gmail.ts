@@ -151,6 +151,45 @@ export async function getMessage(gmail: gmail_v1.Gmail, id: string): Promise<Par
   return parseMessage(res.data)
 }
 
+// Decodes a Gmail base64url body part to a UTF-8 string.
+function decodePartData(data?: string | null): string {
+  return data ? Buffer.from(data, 'base64').toString('utf8') : ''
+}
+
+// Walks a MIME tree and returns the first body part matching `mimeType`
+// (depth-first). Skips attachment parts (those carry an attachmentId, not data).
+function findPartData(
+  payload: gmail_v1.Schema$MessagePart | undefined,
+  mimeType: string,
+): string | null {
+  if (!payload) return null
+  if (payload.mimeType === mimeType && payload.body?.data) {
+    return decodePartData(payload.body.data)
+  }
+  for (const part of payload.parts ?? []) {
+    const found = findPartData(part, mimeType)
+    if (found) return found
+  }
+  return null
+}
+
+// HTML-preserving single-message fetch for the inbox reader. Impersonates the
+// given mailbox (NOT the default subject) and returns the rich text/html part
+// verbatim (base64url-decoded, UNsanitized — the caller sanitizes), falling
+// back to text/plain. Does not touch the sync-path decodeBody (still stripping).
+export async function getMessageHtml(
+  subject: string,
+  messageId: string,
+): Promise<{ html: string | null; text: string | null }> {
+  const gmail = gmailClient({ subject })
+  const res = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' })
+  const payload = res.data.payload
+  return {
+    html: findPartData(payload, 'text/html'),
+    text: findPartData(payload, 'text/plain'),
+  }
+}
+
 // Loads every message in a thread (used to build reply context + the UI feed).
 export async function listThreadMessages(
   gmail: gmail_v1.Gmail,
