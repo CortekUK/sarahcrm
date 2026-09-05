@@ -46,3 +46,8 @@ tsconfig.tsbuildinfo
 public/hero-video.mp4
 
 The-Club-V2-Review.pdf
+# Local-only docs (working notes / client-facing guides — not part of the build)
+docs/PENDING-INTEGRATIONS-AND-COMMS.md
+docs/PLATFORM-USER-JOURNEY-TRAINING.md
+docs/The-Club-Platform-Guide.html
+docs/The-Club-Platform-Guide.pdf
