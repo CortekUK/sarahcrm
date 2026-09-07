@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
   // time it fails with ENOENT on browser/default-stylesheet.css. Keeping them
   // external preserves the correct resolution.
   serverExternalPackages: ['jsdom', 'isomorphic-dompurify'],
+  // The admin Help Assistant reads its knowledge base from docs/knowledge/ at
+  // request time. Those markdown files are never imported, so Next's tracer
+  // cannot infer the dependency — list them explicitly or the route 404s its
+  // own corpus in production.
+  outputFileTracingIncludes: {
+    '/api/admin/help/chat': ['./docs/knowledge/**'],
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },

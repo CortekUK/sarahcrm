@@ -11,6 +11,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { Toaster } from '@/components/ui-shadcn/toaster'
 import { ConfirmDialogProvider } from '@/components/admin/ConfirmDialog'
 import { ProgressProvider } from '@/components/admin/TopProgressBar'
+import { HelpAssistant } from '@/components/admin/HelpAssistant'
 import {
   LayoutDashboard,
   Users,
@@ -629,6 +630,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           scroll containers (e.g. the Table component) handle their own
           overflow. */}
       <main className="ml-[244px] flex-1 min-w-0 overflow-x-hidden min-h-screen">{children}</main>
+
+      {/* Floating help assistant — answers "how do I…" questions from the
+          knowledge base in docs/knowledge/. Inside the themed wrapper so it
+          follows the day/night toggle. */}
+      <HelpAssistant />
     </div>
   )
 }
