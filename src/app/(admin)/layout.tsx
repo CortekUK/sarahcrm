@@ -50,6 +50,7 @@ import {
   Library,
   Image as ImageIcon,
   HeartPulse,
+  ContactRound,
   Sunrise,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -127,6 +128,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/dashboard/executive', label: 'Executive', icon: Gauge },
       { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { to: '/dashboard/members', label: 'Members', icon: Users },
+      { to: '/dashboard/contacts', label: 'Contacts', icon: ContactRound },
       { to: '/dashboard/members/success', label: 'Member Success', icon: HeartPulse },
       { to: '/dashboard/applications', label: 'Applications', icon: ClipboardList },
       { to: '/dashboard/events', label: 'Events', icon: CalendarDays },
