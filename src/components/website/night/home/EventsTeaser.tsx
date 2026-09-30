@@ -61,7 +61,12 @@ export async function EventsTeaser() {
     .gte('start_date', now)
     .order('start_date', { ascending: true })
 
-  const list: CarouselEvent[] = events && events.length > 0 ? events : PLACEHOLDER_EVENTS
+  // .gte('start_date', now) already drops rows with no date; the filter just
+  // tells TypeScript that.
+  const dated = (events ?? []).filter(
+    (e): e is typeof e & { start_date: string } => e.start_date != null,
+  )
+  const list: CarouselEvent[] = dated.length > 0 ? dated : PLACEHOLDER_EVENTS
 
   return (
     <Chapter density="tight" bg="ink">

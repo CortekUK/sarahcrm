@@ -327,7 +327,7 @@ export function PortalEventDetailPage() {
           <ul className="mt-7 space-y-2.5 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-ivory-soft">
             <li className="flex items-center gap-2.5">
               <Calendar size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
-              <span>{formatDate(event.start_date)}</span>
+              <span>{event.start_date ? formatDate(event.start_date) : 'Date to be confirmed'}</span>
               {event.end_date && (
                 <span className="text-slate-haze">— {formatDate(event.end_date)}</span>
               )}

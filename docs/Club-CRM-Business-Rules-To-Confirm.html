@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>The Club CRM — Business Rules to Confirm</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root{
+    --gold:#B8975A; --gold-dark:#96793F; --text:#2C2825; --muted:#6B6560;
+    --border:#E5E0D8; --alt:#FAFAF7; --alt2:#F3F0EA; --terra:#C4694A;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{ font-family:"DM Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
+        color:var(--text); font-size:10.4pt; line-height:1.6; }
+  h1,h2{ font-family:"Playfair Display",Georgia,"Times New Roman",serif; font-weight:600; }
+  h1{ font-size:24pt; margin:0 0 10pt; line-height:1.15; }
+  h2{ font-size:14pt; margin:0; line-height:1.3; flex:1; }
+  p{ margin:0 0 8pt; }
+  strong{ font-weight:600; }
+  em{ color:var(--muted); }
+  code{ font-family:"JetBrains Mono","Courier New",monospace; font-size:8.8pt;
+        background:var(--alt2); padding:1px 4px; border-radius:3px; color:var(--gold-dark); }
+  ul{ margin:0 0 9pt; padding-left:15pt; }
+  li{ margin:0 0 4pt; }
+
+  .meta{ color:var(--muted); font-size:9.8pt; margin:0 0 5pt; }
+  .priority{ margin:14pt 0 0; padding:9pt 12pt; background:var(--alt);
+             border-left:2.5pt solid var(--gold); font-size:10pt; }
+
+  .rule{ page-break-inside:avoid; margin:0 0 20pt; padding:0 0 16pt;
+         border-bottom:0.5pt solid var(--border); }
+  .rule:last-of-type{ border-bottom:none; }
+  .rule-head{ display:flex; align-items:baseline; gap:10pt; margin:0 0 9pt; }
+  .num{ font-family:"Playfair Display",Georgia,serif; font-size:15pt; font-weight:600;
+        color:var(--gold); min-width:20pt; }
+
+  .impact{ padding:7pt 11pt; background:#FDF6F3; border-left:2pt solid var(--terra);
+           margin:0 0 9pt; }
+  .confirm{ padding:8pt 11pt; background:var(--alt); border-left:2pt solid var(--gold);
+            margin:9pt 0 0; }
+
+  table{ width:100%; border-collapse:collapse; margin:0 0 10pt; font-size:9.6pt; }
+  th{ text-align:left; font-weight:600; font-size:8.4pt; text-transform:uppercase;
+      letter-spacing:0.06em; color:var(--muted); padding:5pt 8pt;
+      border-bottom:0.75pt solid var(--gold); }
+  td{ padding:5pt 8pt; border-bottom:0.5pt solid var(--border); vertical-align:top; }
+  tr:last-child td{ border-bottom:none; }
+
+  .head{ border-bottom:1pt solid var(--gold); padding-bottom:10pt; margin-bottom:18pt; }
+  .brand{ font-size:7.8pt; text-transform:uppercase; letter-spacing:0.22em;
+          color:var(--gold-dark); margin:0 0 7pt; }
+</style></head>
+<body>
+<div class="head"><p class="brand">The Club by Sarah Restrick</p>
+<h1>The Club CRM — Business Rules Needing Sign-Off</h1></div>
+
+<section class="rule keep"><div class="rule-head"><span class="num">1</span><h2>Pending bookings hold a card, not the money</h2></div>
+<p>When an event has auto-confirm switched off, the guest enters their card at checkout but <strong>nothing is charged and no funds are reserved</strong> — the card is simply saved against their record. Clicking <strong>Approve</strong> charges it at that moment.</p>
+<p class="impact"><strong>The risk:</strong> if you approve several days later and the card has since expired or has no funds, the charge fails — and by then you have already counted the place as sold.</p>
+<p class="confirm"><strong>Please confirm:</strong> is card-on-file acceptable, or do you want a genuine authorisation hold? <em>(A hold reserves the money immediately, but expires after roughly 7 days — so bookings would have to be approved inside that window.)</em></p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">2</span><h2>Cancelling a membership revokes access immediately, but billing runs to period end</h2></div>
+<p>Today, cancelling a membership cuts off portal access instantly, while Stripe keeps the subscription alive until the end of the period already paid for.</p>
+<p class="impact"><strong>The effect:</strong> a member who has paid to the 30th but is cancelled on the 5th <strong>loses 25 days they have paid for.</strong></p>
+<p class="confirm"><strong>Please confirm:</strong> should access continue to the end of the paid period, or is immediate cut-off intended?</p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">3</span><h2>Unpaid bookings hold a seat and can sell out an event</h2></div>
+<p>A pending (unpaid) booking counts against event capacity exactly like a confirmed one. Ten unapproved bookings on a ten-seat event means genuine buyers are told &quot;fully booked&quot; while no money has been taken.</p>
+<p class="confirm"><strong>Please confirm:</strong></p>
+<ul><li>Should pending bookings reserve a seat indefinitely?</li><li>Should they expire automatically after a set time — 48 hours, for example?</li></ul>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">4</span><h2>The monthly introduction allowance is a warning, not a limit</h2></div>
+<table><thead><tr><th>Tier</th><th>Plan</th><th>Introductions per month</th></tr></thead><tbody><tr><td>Tier 1</td><td>Individual</td><td>3</td></tr><tr><td>Tier 2</td><td>Business</td><td>5</td></tr><tr><td>Tier 3</td><td>Corporate</td><td>10</td></tr></tbody></table>
+<p>Exceeding the allowance <strong>blocks nothing</strong>. The team simply sees a note saying the member is over. The counter resets on the 1st of each month, and unused introductions <strong>do not roll over</strong>.</p>
+<p class="confirm"><strong>Please confirm:</strong></p>
+<ul><li>Are 3 / 5 / 10 the right numbers?</li><li>Should going over be blocked, or just flagged as it is now?</li><li>Should unused introductions roll over to the next month?</li></ul>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">5</span><h2>The member health flags use thresholds we chose</h2></div>
+<table><thead><tr><th>Flag</th><th>Current rule</th></tr></thead><tbody><tr><td><strong>At risk</strong></td><td>Churn score of 60 or above</td></tr><tr><td><strong>Renewal soon</strong></td><td>Renewal within the next 30 days</td></tr><tr><td><strong>Dormant</strong></td><td>No event attended in 90+ days (or never)</td></tr><tr><td><strong>Upgrade ready</strong></td><td>Upgrade score of 70 or above</td></tr></tbody></table>
+<p>These decide who appears on the Member Success screen, so they directly drive who the team chases.</p>
+<p class="confirm"><strong>Please confirm — particularly &quot;dormant at 90 days&quot;:</strong> for a club whose events may run monthly or quarterly, is 90 days genuinely dormant, or too aggressive?</p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">6</span><h2>Finance chasing escalates to Sarah after 7 days</h2></div>
+<p>When a recurring finance deliverable (VAT, payroll, management accounts) goes overdue:</p>
+<table><thead><tr><th>When</th><th>Who is emailed</th></tr></thead><tbody><tr><td>Due date passes</td><td>The accountant</td></tr><tr><td>3 days late</td><td>The Finance Director</td></tr><tr><td>7 days late</td><td>Sarah</td></tr></tbody></table>
+<p>Each person is emailed <strong>once only</strong> — it does not nag repeatedly — and the chain stops as soon as the task is marked complete.</p>
+<p class="confirm"><strong>Please confirm:</strong> are 3 and 7 days the right intervals, and should the reminder repeat if it is still being ignored?</p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">7</span><h2>Renewal reminders start 90 days out</h2></div>
+<p>Members receive renewal reminders at <strong>90, 60, 30 and 7 days</strong> before their renewal date. At the 7-day mark, any member without an active auto-renewing subscription has a retention task raised for the team.</p>
+<p class="confirm"><strong>Please confirm:</strong> is 90 days too early to raise renewal? Are four reminders too many?</p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">8</span><h2>Rejecting an application refunds automatically</h2></div>
+<p>Rejecting a paid membership application triggers a Stripe refund of what the applicant paid and emails them about it — with no separate confirmation step.</p>
+<p class="confirm"><strong>Please confirm:</strong> should every rejection auto-refund in full, or should the refund be a separate manual decision each time?</p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">9</span><h2>Sponsor guests bypass the guest limit</h2></div>
+<p>Each event has two limits: a <strong>total capacity</strong> (how many people in the room) and a separate <strong>guest limit</strong> (how many of those may be outside guests rather than members).</p>
+<p>Anyone booking through a <strong>sponsor&#x27;s personalised invite link ignores the guest limit</strong> — they are treated as invited rather than walk-up. They are still counted against total capacity, so the room can never be oversold.</p>
+<p class="impact"><strong>The effect:</strong> on an event for 50 with a 10-guest limit, sponsor bookings could fill 30 of the places, leaving only 20 for members. The guest limit no longer controls the member-to-guest balance.</p>
+<p class="confirm"><strong>Please confirm:</strong> is this intended? Should sponsor guests count towards the guest limit, or should sponsors have their own separate allocation per event?</p>
+</section>
+<section class="rule keep"><div class="rule-head"><span class="num">10</span><h2>Nobody chases sponsors past 14 days</h2></div>
+<p>Sponsors still sitting at &quot;Proposed&quot; are chased automatically at <strong>3, 7 and 14 days</strong> after the proposal was created. Each email is sent once.</p>
+<p>After around three weeks the sponsorship drops out of the chasing sequence completely — no further email, and <strong>no task is raised for anyone to follow it up</strong>. The deal simply sits in the pipeline untouched.</p>
+<p>Worth noting the contrast: the membership renewal sequence <em>does</em> create a task for the team at its final stage, so a person always picks it up. The sponsor sequence does not.</p>
+<p class="confirm"><strong>Please confirm:</strong> should a task be raised for the team when a sponsor goes quiet after 14 days, so an unanswered proposal is never silently dropped?</p>
+</section>
+</body></html>

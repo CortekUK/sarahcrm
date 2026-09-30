@@ -17,6 +17,7 @@ import { MultiImageUpload } from '@/components/ui/MultiImageUpload'
 import { DateTimeField } from '@/components/ui/DateTimeField'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { Plus, Trash2, Save, Send } from 'lucide-react'
+import { PlanningChecklist, PlanningNotes } from './EventPlanningPanel'
 import { slugify } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────
@@ -66,7 +67,10 @@ const eventSchema = z.object({
   venue_city: z.string().optional(),
   venue_postcode: z.string().optional(),
   venue_url: z.string().optional(),
-  start_date: z.string().min(1, 'Start date is required'),
+  // Optional in the schema because a planning event imported from the
+  // spreadsheet often has no date yet ("Q4 2026 (TBC)"). Publishing requires
+  // one — checked on submit below, and again by a database trigger.
+  start_date: z.string().optional(),
   end_date: z.string().optional(),
   doors_open: z.string().optional(),
   capacity: z.coerce.number().int().positive().optional().or(z.literal(0)),
@@ -100,6 +104,10 @@ export function EventFormPage() {
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Imported-from-spreadsheet context: the original cells, shown for reference,
+  // and the status, so a planning event stays planning when saved.
+  const [planningData, setPlanningData] = useState<unknown>(null)
+  const [status, setStatus] = useState<string | null>(null)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const form = useForm<EventFormData>({
@@ -141,6 +149,8 @@ export function EventFormPage() {
         .single()
         .then(({ data }) => {
           if (data) {
+            setPlanningData(data.planning_data ?? null)
+            setStatus(data.status)
             form.reset({
               title: data.title,
               slug: data.slug,
@@ -175,6 +185,19 @@ export function EventFormPage() {
   }, [id, isEdit, form])
 
   async function onSubmit(data: EventFormData, publish = false) {
+    if (publish) {
+      // Mirrors the database trigger — same four requirements, in words.
+      const missing = [
+        !data.start_date && 'an exact date & start time',
+        !data.venue_name?.trim() && 'a venue',
+        !(Number(data.capacity) > 0) && 'a capacity',
+        !data.description?.trim() && 'a description',
+      ].filter(Boolean) as string[]
+      if (missing.length > 0) {
+        setError(`This event still needs ${missing.join(', ')} before it can be published.`)
+        return
+      }
+    }
     setSaving(true)
     setError(null)
 
@@ -189,7 +212,7 @@ export function EventFormPage() {
       venue_city: data.venue_city || null,
       venue_postcode: data.venue_postcode || null,
       venue_url: data.venue_url || null,
-      start_date: new Date(data.start_date).toISOString(),
+      start_date: data.start_date ? new Date(data.start_date).toISOString() : null,
       end_date: data.end_date ? new Date(data.end_date).toISOString() : null,
       doors_open: data.doors_open ? new Date(data.doors_open).toISOString() : null,
       capacity: data.capacity ? Number(data.capacity) : null,
@@ -265,7 +288,7 @@ export function EventFormPage() {
             >
               {isEdit ? 'Save changes' : 'Save as draft'}
             </Button>
-            {!isEdit && (
+            {(!isEdit || status === 'planning' || status === 'draft') && (
               <Button
                 icon={<Send size={14} />}
                 size="sm"
@@ -286,6 +309,22 @@ export function EventFormPage() {
       )}
 
       <div className="space-y-6">
+        {/* Imported events open here with the spreadsheet row beside the form:
+           the checklist says what is still missing, the notes card holds the
+           venue shortlist, the "April /May" date and the columns the events
+           table has no home for. */}
+        {status === 'planning' && (
+          <PlanningChecklist
+            event={{
+              start_date: form.watch('start_date') || null,
+              venue_name: form.watch('venue_name') || null,
+              capacity: Number(form.watch('capacity')) || null,
+              description: form.watch('description') || null,
+            }}
+          />
+        )}
+        <PlanningNotes planningData={planningData} />
+
         {/* ── Basic info ─────────────────────────────────────────── */}
         <Card>
           <CardHeader>

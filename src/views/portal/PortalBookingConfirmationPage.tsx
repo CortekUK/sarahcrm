@@ -132,7 +132,7 @@ export function PortalBookingConfirmationPage() {
   }
 
   function downloadIcs() {
-    if (!event) return
+    if (!event || !event.start_date) return
     const start = new Date(event.start_date)
     const end = event.end_date
       ? new Date(event.end_date)
@@ -231,7 +231,7 @@ export function PortalBookingConfirmationPage() {
         <ul className="space-y-3 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-ivory-soft">
           <li className="flex items-center gap-2.5">
             <Calendar size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
-            <span>{formatDateTime(event.start_date)}</span>
+            <span>{event.start_date ? formatDateTime(event.start_date) : 'Date to be confirmed'}</span>
           </li>
           {event.venue_name && (
             <li className="flex items-center gap-2.5">

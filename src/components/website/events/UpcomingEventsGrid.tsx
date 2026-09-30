@@ -148,7 +148,9 @@ export function UpcomingEventsGrid({ events }: UpcomingEventsGridProps) {
                   {/* Date badge */}
                   <div className="absolute top-5 left-5 bg-black/50 backdrop-blur-sm border border-white/15 px-4 py-2">
                     <span className="font-[family-name:var(--font-label)] text-[0.65rem] uppercase tracking-[0.2em] text-white">
-                      {new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      {event.start_date
+                        ? new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                        : 'TBC'}
                     </span>
                   </div>
 

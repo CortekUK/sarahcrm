@@ -88,6 +88,7 @@ const statusVariant: Record<EventStatus, 'active' | 'upcoming' | 'draft' | 'urge
   published: 'upcoming',
   live: 'active',
   draft: 'draft',
+  planning: 'draft',
   completed: 'info',
   cancelled: 'urgent',
 }
@@ -491,7 +492,7 @@ export function DashboardPage() {
                   >
                     <TableCell className="font-medium">{event.title}</TableCell>
                     <TableCell className="text-text-muted">
-                      {formatDate(event.start_date)}
+                      {event.start_date ? formatDate(event.start_date) : 'Date TBC'}
                     </TableCell>
                     <TableCell className="text-text-muted">
                       {event.venue_name

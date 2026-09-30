@@ -33,7 +33,9 @@ export function EventDetailHero({ event }: EventDetailHeroProps) {
   const backRef = useRef<HTMLAnchorElement>(null)
   const badgeRef = useRef<HTMLSpanElement>(null)
 
-  const eventDate = new Date(event.start_date)
+  // Published events always carry a date; planning rows (no date yet) never
+  // reach the public site.
+  const eventDate = event.start_date ? new Date(event.start_date) : null
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -144,7 +146,9 @@ export function EventDetailHero({ event }: EventDetailHeroProps) {
           className="font-[family-name:var(--font-label)] text-[0.6rem] font-medium uppercase tracking-[0.3em] text-[#B8975A] mb-4 block"
           style={{ opacity: 0 }}
         >
-          {eventDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          {eventDate
+            ? eventDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+            : 'Date to be confirmed'}
         </span>
         <h1
           ref={headlineRef}

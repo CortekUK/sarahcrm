@@ -1122,11 +1122,14 @@ export type Database = {
           guest_price_pence: number
           guest_ticket_capacity: number | null
           id: string
+          import_source: string | null
+          imported_at: string | null
           member_price_pence: number
+          planning_data: Json | null
           slug: string
           speakers: Json | null
           sponsor_price_pence: number
-          start_date: string
+          start_date: string | null
           status: Database["public"]["Enums"]["event_status"]
           title: string
           travel_included: boolean
@@ -1155,11 +1158,14 @@ export type Database = {
           guest_price_pence?: number
           guest_ticket_capacity?: number | null
           id?: string
+          import_source?: string | null
+          imported_at?: string | null
           member_price_pence?: number
+          planning_data?: Json | null
           slug: string
           speakers?: Json | null
           sponsor_price_pence?: number
-          start_date: string
+          start_date?: string | null
           status?: Database["public"]["Enums"]["event_status"]
           title: string
           travel_included?: boolean
@@ -1188,11 +1194,14 @@ export type Database = {
           guest_price_pence?: number
           guest_ticket_capacity?: number | null
           id?: string
+          import_source?: string | null
+          imported_at?: string | null
           member_price_pence?: number
+          planning_data?: Json | null
           slug?: string
           speakers?: Json | null
           sponsor_price_pence?: number
-          start_date?: string
+          start_date?: string | null
           status?: Database["public"]["Enums"]["event_status"]
           title?: string
           travel_included?: boolean
@@ -3935,7 +3944,13 @@ export type Database = {
     }
     Enums: {
       booking_status: "confirmed" | "pending" | "cancelled" | "refunded"
-      event_status: "draft" | "published" | "live" | "completed" | "cancelled"
+      event_status:
+        | "draft"
+        | "published"
+        | "live"
+        | "completed"
+        | "cancelled"
+        | "planning"
       event_type: "member_event" | "curated_luxury" | "retreat"
       intro_response: "pending" | "accepted" | "declined"
       intro_status:
@@ -4089,7 +4104,14 @@ export const Constants = {
   public: {
     Enums: {
       booking_status: ["confirmed", "pending", "cancelled", "refunded"],
-      event_status: ["draft", "published", "live", "completed", "cancelled"],
+      event_status: [
+        "draft",
+        "published",
+        "live",
+        "completed",
+        "cancelled",
+        "planning",
+      ],
       event_type: ["member_event", "curated_luxury", "retreat"],
       intro_status: [
         "suggested",

@@ -87,7 +87,12 @@ export function SendTemplateModal({ template, open, onClose }: SendTemplateModal
           .select('*', { count: 'exact', head: true })
           .eq('membership_status', 'active'),
       ])
-      setEvents(evts ?? [])
+      // .gte('start_date', …) already excludes dateless planning rows.
+      setEvents(
+        (evts ?? []).filter((e): e is { id: string; title: string; start_date: string } =>
+          e.start_date != null,
+        ),
+      )
       setMemberCount(count ?? 0)
     })()
   }, [open, supabase])

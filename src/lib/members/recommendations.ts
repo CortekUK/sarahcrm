@@ -232,6 +232,7 @@ export async function computeMemberRecommendations(
   const events: RecommendedEvent[] = []
   for (const e of eventsRes.data ?? []) {
     if (!ACTIVE_EVENT_STATUSES.has(e.status)) continue
+    if (!e.start_date) continue // still in planning — nothing to recommend yet
     if (connectedEventIds.has(e.id)) continue
     const { score, matched } = scoreAgainst(memberTokens, e.title, e.description, e.event_type)
     if (score === 0) continue // only surface genuine matches

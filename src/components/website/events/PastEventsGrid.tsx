@@ -98,7 +98,9 @@ export function PastEventsGrid({ events }: PastEventsGridProps) {
                 className="text-xs mt-1 transition-colors duration-[400ms]"
                 style={{ color: t.textDim }}
               >
-                {new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+                {event.start_date
+                  ? new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+                  : '—'}
               </p>
             </Link>
           ))}

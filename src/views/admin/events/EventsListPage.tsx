@@ -28,6 +28,7 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { Thumbnail } from '@/components/admin/Thumbnail'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { ImportEventsModal } from './ImportEventsModal'
 import { formatDate, formatCurrency, cn } from '@/lib/utils'
 import {
   Plus,
@@ -38,6 +39,8 @@ import {
   Ticket,
   Pencil,
   Trash2,
+  Upload,
+  ClipboardList,
   ExternalLink,
   MoreVertical,
 } from 'lucide-react'
@@ -51,7 +54,7 @@ interface EventRow {
   id: string
   title: string
   slug: string
-  start_date: string
+  start_date: string | null
   venue_name: string | null
   venue_city: string | null
   event_type: EventType
@@ -67,6 +70,7 @@ const statusVariant: Record<EventStatus, 'active' | 'upcoming' | 'draft' | 'urge
   published: 'upcoming',
   live: 'active',
   draft: 'draft',
+  planning: 'draft',
   completed: 'info',
   cancelled: 'urgent',
 }
@@ -81,7 +85,10 @@ const typeLabels: Record<EventType, string> = {
 // curated_experiences table (showcase cards with external links) used
 // on /private-event-services, NOT bookable events. Everything else
 // filters the events table.
-type TabKey = EventType | 'all' | 'past' | 'private_events'
+// 'planning' collects everything imported from Sarah's planning spreadsheet:
+// team-only rows that are not yet real events. They are deliberately absent
+// from every other tab and from the stats — a plan is not an upcoming event.
+type TabKey = EventType | 'all' | 'past' | 'planning' | 'private_events'
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -89,6 +96,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'curated_luxury', label: 'Curated Luxury' },
   { key: 'retreat', label: 'Retreats' },
   { key: 'past', label: 'Past' },
+  { key: 'planning', label: 'Planning' },
   { key: 'private_events', label: 'Private Events' },
 ]
 
@@ -98,6 +106,7 @@ export function EventsListPage() {
   const [privateEvents, setPrivateEvents] = useState<PrivateEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabKey>('all')
+  const [importOpen, setImportOpen] = useState(false)
 
   useEffect(() => {
     fetchAll()
@@ -145,15 +154,25 @@ export function EventsListPage() {
 
   const now = useMemo(() => new Date(), [])
 
+  // Planning rows may have no date at all yet, so every date comparison has to
+  // tolerate null — and they are filtered out of the dated tabs regardless.
+  const isPlanning = (e: EventRow) => e.status === 'planning'
+  const isUpcoming = (e: EventRow) =>
+    !isPlanning(e) && e.start_date != null && new Date(e.start_date) >= now
+  const isPast = (e: EventRow) =>
+    !isPlanning(e) && e.start_date != null && new Date(e.start_date) < now
+
   const filtered = useMemo(() => {
-    if (activeTab === 'all') return events.filter((e) => new Date(e.start_date) >= now)
-    if (activeTab === 'past') return events.filter((e) => new Date(e.start_date) < now)
+    if (activeTab === 'all') return events.filter(isUpcoming)
+    if (activeTab === 'past') return events.filter(isPast)
+    if (activeTab === 'planning') return events.filter(isPlanning)
     if (activeTab === 'private_events') return [] // separate render path
-    return events.filter((e) => e.event_type === activeTab && new Date(e.start_date) >= now)
+    return events.filter((e) => e.event_type === activeTab && isUpcoming(e))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, activeTab, now])
 
   const stats = useMemo(() => {
-    const upcoming = events.filter((e) => new Date(e.start_date) >= now)
+    const upcoming = events.filter(isUpcoming)
     const totalRevenue = events.reduce((sum, e) => sum + (e.booking_revenue ?? 0), 0)
     const totalBookings = events.reduce(
       (sum, e) => sum + (e.bookings?.[0]?.count ?? 0),
@@ -161,6 +180,7 @@ export function EventsListPage() {
     )
     return {
       upcoming: upcoming.length,
+      planning: events.filter(isPlanning).length,
       private: privateEvents.filter((p) => p.is_active).length,
       bookings: totalBookings,
       revenue: totalRevenue,
@@ -192,19 +212,34 @@ export function EventsListPage() {
         }
         actions={
           isPrivateTab ? null : (
-            <Button
-              icon={<Plus size={16} />}
-              onClick={() => router.push('/dashboard/events/new')}
-            >
-              Create event
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                icon={<Upload size={16} />}
+                onClick={() => setImportOpen(true)}
+              >
+                Import from spreadsheet
+              </Button>
+              <Button
+                icon={<Plus size={16} />}
+                onClick={() => router.push('/dashboard/events/new')}
+              >
+                Create event
+              </Button>
+            </div>
           )
         }
       />
 
       {/* Stats — collapse to 2-up on mobile */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-6">
         <StatTile label="Upcoming" value={stats.upcoming} icon={<CalendarDays size={14} />} />
+        <StatTile
+          label="In planning"
+          value={stats.planning}
+          icon={<ClipboardList size={14} />}
+          tone={stats.planning > 0 ? 'warn' : 'neutral'}
+        />
         <StatTile
           label="Private showcases"
           value={stats.private}
@@ -225,14 +260,14 @@ export function EventsListPage() {
         {tabs.map((tab) => {
           const count =
             tab.key === 'all'
-              ? events.filter((e) => new Date(e.start_date) >= now).length
+              ? events.filter(isUpcoming).length
               : tab.key === 'past'
-                ? events.filter((e) => new Date(e.start_date) < now).length
-                : tab.key === 'private_events'
-                  ? privateEvents.length
-                  : events.filter(
-                      (e) => e.event_type === tab.key && new Date(e.start_date) >= now,
-                    ).length
+                ? events.filter(isPast).length
+                : tab.key === 'planning'
+                  ? events.filter(isPlanning).length
+                  : tab.key === 'private_events'
+                    ? privateEvents.length
+                    : events.filter((e) => e.event_type === tab.key && isUpcoming(e)).length
           return (
             <button
               key={tab.key}
@@ -253,6 +288,15 @@ export function EventsListPage() {
           )
         })}
       </div>
+
+      <ImportEventsModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          setActiveTab('planning')
+          fetchAll()
+        }}
+      />
 
       {/* Body — switches between bookable-events list and private events grid */}
       {isPrivateTab ? (
@@ -319,9 +363,15 @@ function BookableEventsPanel({
             title={
               activeTab === 'past'
                 ? 'No past events yet'
-                : 'No upcoming events in this category'
+                : activeTab === 'planning'
+                  ? 'Nothing in planning'
+                  : 'No upcoming events in this category'
             }
-            description="Create your first event to start taking bookings."
+            description={
+              activeTab === 'planning'
+                ? 'Import the planning spreadsheet to bring the year’s events in and work through them.'
+                : 'Create your first event to start taking bookings.'
+            }
             action={
               <Button icon={<Plus size={16} />} onClick={() => router.push('/dashboard/events/new')}>
                 Create event
@@ -382,7 +432,7 @@ function BookableEventsPanel({
                       </div>
                     </TableCell>
                     <TableCell className="text-text-muted whitespace-nowrap text-xs">
-                      {formatDate(event.start_date)}
+                      {event.start_date ? formatDate(event.start_date) : 'Date TBC'}
                     </TableCell>
                     <TableCell className="text-text-muted">
                       {event.venue_name ? (
@@ -478,7 +528,7 @@ function BookableEventsPanel({
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                       <TypePill type={event.event_type} />
                       <span className="text-xs text-text-muted whitespace-nowrap">
-                        {formatDate(event.start_date)}
+                        {event.start_date ? formatDate(event.start_date) : 'Date TBC'}
                       </span>
                     </div>
                     {(event.venue_name || event.venue_city) && (

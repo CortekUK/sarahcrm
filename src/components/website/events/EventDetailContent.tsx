@@ -172,7 +172,9 @@ export function EventDetailContent({ event, isPast }: EventDetailContentProps) {
                     className="text-sm font-medium mt-0.5 transition-colors duration-[400ms]"
                     style={{ color: t.text }}
                   >
-                    {new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    {event.start_date
+                      ? new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                      : 'Date to be confirmed'}
                   </p>
                 </div>
 

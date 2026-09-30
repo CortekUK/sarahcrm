@@ -18,6 +18,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { PlanningChecklist, PlanningNotes, missingForPublish } from './EventPlanningPanel'
 import { SponsorsPanel } from './SponsorsPanel'
 import { EventExpensesPanel } from './EventExpensesPanel'
 import { EventInvitesPanel } from './EventInvitesPanel'
@@ -68,6 +69,7 @@ const statusVariant: Record<EventStatus, 'active' | 'upcoming' | 'draft' | 'urge
   published: 'upcoming',
   live: 'active',
   draft: 'draft',
+  planning: 'draft',
   completed: 'info',
   cancelled: 'urgent',
 }
@@ -117,10 +119,31 @@ export function EventDetailPage() {
 
   async function handlePublish() {
     if (!id || !event) return
+    // The database trigger refuses an incomplete publish anyway; stopping here
+    // turns that into a sentence instead of a Postgres error.
+    const missing = missingForPublish(event)
+    if (missing.length > 0) {
+      await confirm({
+        title: 'Not ready to publish',
+        description: `This event still needs ${missing.join(', ').toLowerCase()}. Add them under Edit, then publish.`,
+        confirmLabel: 'Close',
+        tone: 'warning',
+      })
+      return
+    }
     setPublishing(true)
-    await supabase.from('events').update({ status: 'published' }).eq('id', id)
-    setEvent({ ...event, status: 'published' })
+    const { error: err } = await supabase.from('events').update({ status: 'published' }).eq('id', id)
     setPublishing(false)
+    if (err) {
+      await confirm({
+        title: 'Publish failed',
+        description: err.message,
+        confirmLabel: 'Close',
+        tone: 'warning',
+      })
+      return
+    }
+    setEvent({ ...event, status: 'published' })
   }
 
   async function handleCancel() {
@@ -234,7 +257,8 @@ export function EventDetailPage() {
   const agenda =
     (event.agenda as Array<{ time: string; title: string; description?: string }> | null) ?? []
   const galleryUrls = (event.gallery_urls as string[] | null) ?? []
-  const isPast = new Date(event.start_date) < new Date()
+  // Planning events may have no date yet.
+  const isPast = event.start_date != null && new Date(event.start_date) < new Date()
 
   return (
     <div className="p-4 md:p-8">
@@ -248,7 +272,7 @@ export function EventDetailPage() {
           Back to events
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          {event.status === 'draft' && (
+          {(event.status === 'draft' || event.status === 'planning') && (
             <Button
               icon={<Send size={14} />}
               size="sm"
@@ -284,6 +308,8 @@ export function EventDetailPage() {
           </Button>
         </div>
       </div>
+
+      {event.status === 'planning' && <PlanningChecklist event={event} />}
 
       {/* Event info card */}
       <Card className="mb-6">
@@ -324,7 +350,9 @@ export function EventDetailPage() {
               <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim mb-1">
                 Date
               </p>
-              <p className="text-text">{formatDateTime(event.start_date)}</p>
+              <p className="text-text">
+                {event.start_date ? formatDateTime(event.start_date) : 'Date TBC'}
+              </p>
               {event.end_date && (
                 <p className="text-text-muted text-xs">to {formatDateTime(event.end_date)}</p>
               )}
@@ -479,6 +507,8 @@ export function EventDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <PlanningNotes planningData={event.planning_data} className="mb-6" />
 
       {/* Stats — 2-up on mobile, 4-up on desktop */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-6">

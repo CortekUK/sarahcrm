@@ -119,7 +119,10 @@ export default async function EventDetailPage({
 
   if (!event) notFound()
 
-  const isPast = new Date(event.start_date) < new Date()
+  // A published event always has a date (planning rows never get here), but
+  // the column is nullable for planning, so narrow once and reuse.
+  const startDate = event.start_date
+  const isPast = startDate != null && new Date(startDate) < new Date()
 
   // ── Sponsor invite link (optional) ──────────────────────────────
   // When the URL carries ?s=<token>, resolve it to the sponsorship so the
@@ -215,7 +218,7 @@ export default async function EventDetailPage({
           </Reveal>
           <Reveal type="up" delay={500}>
             <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.25vw,1.25rem)] text-ivory-soft mt-6 max-w-xl">
-              {formatDateLong(event.start_date)}
+              {startDate ? formatDateLong(startDate) : 'Date to be confirmed'}
               {(event.venue_name || event.venue_city) && (
                 <>
                   {' · '}
@@ -264,7 +267,7 @@ export default async function EventDetailPage({
                   <Detail
                     icon={Calendar}
                     label="Date"
-                    value={formatDateLong(event.start_date)}
+                    value={startDate ? formatDateLong(startDate) : 'To be confirmed'}
                   />
                   <Detail
                     icon={Clock}
@@ -274,7 +277,9 @@ export default async function EventDetailPage({
                         ? `Doors ${formatTime(event.doors_open)}${
                             event.start_date ? ` · From ${formatTime(event.start_date)}` : ''
                           }`
-                        : formatTime(event.start_date)
+                        : startDate
+                          ? formatTime(startDate)
+                          : 'To be confirmed'
                     }
                   />
                   {(event.venue_name || event.venue_address) && (
@@ -402,7 +407,7 @@ export default async function EventDetailPage({
                       id: event.id,
                       slug: event.slug,
                       title: event.title,
-                      start_date: event.start_date,
+                      start_date: startDate ?? '',
                       venue_name: event.venue_name,
                       venue_city: event.venue_city,
                       guest_price_pence: event.guest_price_pence,
