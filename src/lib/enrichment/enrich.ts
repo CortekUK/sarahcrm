@@ -37,8 +37,17 @@ function businessDomainFromEmail(email: string | null | undefined): string | nul
 
 // Best-effort enrichment for a single enquiry. NEVER throws — always resolves
 // with the resulting enrichment_status and writes it (plus any data) back.
-export async function enrichEnquiry(db: Db, enquiryId: string): Promise<{ status: string }> {
+// On 'failed', `error` carries a short reason for the admin toast (e.g. the
+// provider throwing because the Clay search failed or the quota is used up).
+export async function enrichEnquiry(
+  db: Db,
+  enquiryId: string,
+): Promise<{ status: string; error?: string }> {
   const nowIso = new Date().toISOString()
+  // Set once the provider is about to be called, so a failed run still
+  // records WHICH provider it was (and never leaves an older provider's name
+  // showing next to a fresh status/date).
+  let providerName: string | null = null
 
   try {
     const { data: enquiry, error } = await db
@@ -53,16 +62,20 @@ export async function enrichEnquiry(db: Db, enquiryId: string): Promise<{ status
 
     const domain = businessDomainFromEmail(enquiry.email)
 
-    // No business domain → nothing to enrich.
+    // No business domain → nothing to enrich. No provider was called, so the
+    // source is cleared: the panel then shows just the date beside "No
+    // business domain", rather than an older provider's name that would
+    // wrongly suggest that provider ran at this time.
     if (!domain) {
       await db
         .from('enquiries')
-        .update({ enrichment_status: 'no_domain', enriched_at: nowIso })
+        .update({ enrichment_status: 'no_domain', enriched_at: nowIso, enrichment_source: null })
         .eq('id', enquiryId)
       return { status: 'no_domain' }
     }
 
     const provider = getEnrichmentProvider()
+    providerName = provider.name
     const result = await provider.enrich({
       domain,
       firstName: enquiry.first_name ?? undefined,
@@ -100,13 +113,19 @@ export async function enrichEnquiry(db: Db, enquiryId: string): Promise<{ status
   } catch (e) {
     console.error('[enrichEnquiry] failed:', e)
     try {
+      // Record the provider too when the failure came from (or after) the
+      // provider call; if we failed before reaching it, leave the source alone.
       await db
         .from('enquiries')
-        .update({ enrichment_status: 'failed', enriched_at: nowIso })
+        .update({
+          enrichment_status: 'failed',
+          enriched_at: nowIso,
+          ...(providerName ? { enrichment_source: providerName } : {}),
+        })
         .eq('id', enquiryId)
     } catch {
       /* swallow — best-effort */
     }
-    return { status: 'failed' }
+    return { status: 'failed', error: e instanceof Error ? e.message : undefined }
   }
 }

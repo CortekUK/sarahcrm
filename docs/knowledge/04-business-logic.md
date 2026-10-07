@@ -3,7 +3,7 @@
 This document maps every file under `/Users/apple/Ghulam/sarahcrm/src/lib/`. It is
 organised by subfolder. `src/lib` is the app's business-logic layer: pure
 scoring/matching functions, Supabase data-access helpers, third-party API
-clients (Stripe, Xero, DocuSign, Google Workspace, Resend, OpenAI, Apollo,
+clients (Stripe, Xero, DocuSign, Google Workspace, Resend, OpenAI, Clay,
 WhatsApp, Metricool/Instantly), and the automation/AI engines that drive the
 CRM for "The Club by Sarah Restrick" — a private members' business club selling
 memberships, running curated events, brokering introductions between members,
@@ -521,38 +521,49 @@ Both derive the sign-in URL as `${origin}/login` from the legacy `redirectTo` (`
 
 ---
 
-## `src/lib/enrichment/` — company/person data enrichment (Apollo / Clay)
+## `src/lib/enrichment/` — company/person data enrichment (Clay)
 
-Business meaning: provider-agnostic enrichment layer for two use cases — (1) auto-filling company/person data on inbound enquiries and member profiles, and (2) **sponsor discovery** (finding candidate sponsor companies + their decision-makers for outreach).
+Business meaning: provider-agnostic enrichment layer for two use cases — (1) filling company/person data on enquiries and member profiles when an admin clicks **Enrich** (enrichment is MANUAL only — nothing enriches automatically, so Clay search quota is only spent deliberately), and (2) **sponsor discovery** (finding candidate sponsor companies + their decision-makers for outreach). Clay is the live provider; feature code never names it (it goes through the wrappers in `index.ts`).
 
 ### `src/lib/enrichment/types.ts`
-Shapes: `EnrichmentCompany` (domain, website, linkedinUrl, industry, employeeCount, revenue, revenuePrinted, description), `EnrichmentPerson` (title, seniority, linkedinUrl), `EnrichmentResult`, and additive sponsor-discovery shapes: `SearchCriteria` (industries, keywords, employeeMin/Max, revenueMin, locations, limit), `SponsorCandidate`, `DecisionMaker`, `CapabilityStatus = 'ok'|'unavailable'|'upgrade_required'|'error'`, `SearchResult<T> = {status, items, message?}`.
+Shapes: `EnrichmentCompany` (domain, website, linkedinUrl, industry, employeeCount, revenue, revenuePrinted, description), `EnrichmentPerson` (title, seniority, linkedinUrl), `EnrichmentResult`, and additive sponsor-discovery shapes: `SearchCriteria` (industries, keywords, employeeMin/Max, revenueMin in USD, locations, limit), `SponsorCandidate`, `DecisionMaker`, `CapabilityStatus = 'ok'|'unavailable'|'upgrade_required'|'error'`, `SearchResult<T> = {status, items, message?}`.
 
 ### `src/lib/enrichment/provider.ts`
 `EnrichmentProvider` interface: required `enrich(input)`, optional `capabilities: {searchCompanies, searchPeople}` + matching optional methods. Contract: implementations must NEVER throw on "not found"/gated — resolve with null fields instead.
 
-### `src/lib/enrichment/apollo.ts`
-Business meaning: **Apollo.io** live integration — verified against the real API key. Org enrichment works on the FREE Apollo plan; people-match/people-search are gated to PAID plans (degrades gracefully to `person: null` / `status: 'upgrade_required'` rather than erroring). Auth via `X-Api-Key` header; every fetch bounded by an 8-second `AbortSignal.timeout`.
-
-`ApolloProvider` implements `enrich()` (org enrich POST `/organizations/enrich`, person match POST `/people/match` if firstName+lastName given), `searchCompanies(criteria)` (POST `/mixed_companies/search`, maps `employeeMin/Max` to an Apollo employee-count range string, keywords+industries → `q_organization_keyword_tags`+`q_keywords`), `searchPeople(domain, roleFilters?)` (POST `/mixed_people/search`, defaults to `person_seniorities: ['owner','founder','c_suite','partner','vp','head','director']` when no explicit role filter given; returns `status:'upgrade_required'` on HTTP 403 or `error_code:'API_INACCESSIBLE'`).
-
 ### `src/lib/enrichment/clay.ts`
-Business meaning: **documented stub** for a future Clay integration (drop-in replacement — same interface, zero downstream changes needed once wired). `enrich()` throws `'ClayProvider not implemented yet — see 20260801 plan'`; `searchCompanies`/`searchPeople` return `status:'error', message:'Clay not wired yet'` (never throw, keeping the safe-wrapper contract honest). Activated by setting `ENRICHMENT_PROVIDER=clay` + `CLAY_API_KEY`.
+Business meaning: **Clay** live integration via Clay's **Public Search API** (synchronous — results come back in the same request; no webhooks/tables). `ClayProvider` (`name='clay'`, both discovery capabilities on):
+- `enrich({domain, firstName, lastName})` — one company search by exact domain (`clay.include_company_identifiers`), and — only when BOTH first and last name are known — one people search for that full name currently at the company (`clay.filter_to_companies` + `full_name contains`). Maps: website = `https://<domain>` (Clay gives no website URL), employeeCount = lower bound of Clay's size bucket (e.g. "10,001+" → 10001), revenue = null and revenuePrinted = Clay's revenue bucket (e.g. "1B-10B"), industry/description/LinkedIn; person title from the current matched role, seniority derived from the title, person LinkedIn. `raw = {company, person}` Clay rows (or the person-search error reason). A genuine zero-row company result → null company (status `not_found`). If the **company search fails** (quota used up, HTTP error, timeout) `enrich()` **throws** a safe Error (status + Clay message only); `enrichEnquiry`/`enrichMember` catch it, record `enrichment_status='failed'` and return the reason, and the admin Enrich routes answer HTTP 502 `{ error }` so the screen shows an "Enrichment failed" toast with that reason. A failed person search after a good company search does not throw — the company data is kept.
+- `searchCompanies(criteria)` — industries → Clay `industry` enum (case-insensitive, "&" = "and"; unknown values dropped), keywords → `description contains (...)` **only as a fallback when no industry matched** (generic brief words ANDed with an industry would return almost nothing), locations → HQ `country_name` (UK/US aliases understood) or HQ `city`, employeeMin/Max → overlapping `company_size` buckets, revenueMin → covering `annual_revenue` buckets; limit default 10, max 25. If nothing usable is left it returns `status:'unavailable'` instead of running an unfiltered search.
+- `searchPeople(domain, roleFilters?)` — people currently at the company: with role filters, current job title `is_similar_to` them; otherwise leadership seniorities (Founder, Owner, Partner, C-suite, VP, Director, Head). Up to 10. **No emails** (Clay search never returns emails — outreach addresses are entered by an admin) and Clay gives no seniority field, so seniority is derived from the job title (e.g. "Chief…"/"President" → C-suite, "Vice President" → VP, "Head of…" → Head), else null.
+- Status mapping: HTTP 402 (search quota for the period used up) → `upgrade_required` with a clear message; other failures → `error`.
+
+### `src/lib/enrichment/clay-client.ts`
+Server-only axios client for `https://api.clay.com/public/v0` (header `clay-api-key` from `CLAY_API_KEY`, timeouts: 20s for the create step, 45s for the run step — people searches take ~16–25s — within an overall 50s budget per search, retries included, so requests stay inside the routes' `maxDuration = 60`). `runSearch(query, limit)` = `POST /search/query-mode {query}` → `POST /search/query-mode/{search_id}/run {limit}`; retries HTTP 429 ("Too many concurrent requests") with 1.5s/3s/6s backoff; 402 → `quota_exhausted`; HTTP 400 "No matching companies found for the provided identifiers" (Clay's answer for an unknown domain) → treated as a successful **empty** result, so an unknown domain is `not_found` (enrich) / "No decision-makers found" (people search), not a failure — any other 400 is an error. Never throws; never logs the key. Clay meters this API by a per-period **search quota** (returned as `period_quota`), not credits.
+
+### `src/lib/enrichment/clay-query.ts` + `clay-constants.ts`
+Builds the Clay query-language strings (`select from companies|people where … limit N`). All CRM/AI-supplied text is sanitised (double quotes/backslashes/control characters stripped) before being quoted, so it can't break the query. `clay-constants.ts` holds Clay's exact enum values (industries, countries, company-size buckets, revenue buckets, seniorities) copied from Clay's query reference.
+
+### `src/lib/enrichment/company-extras.ts` + `format-usd.ts`
+`companyExtrasFromRaw(raw, source)` reads the extra Clay company facts kept only in `enrichment_raw.company` — description, headquarters (`location · country`), company type, total funding (`formatUsdCompact`, e.g. "$705M", "$1.25B") — defensively per provider (old Apollo rows yield a description only; anything missing is skipped). The enquiry **Lead enrichment** panel now shows these rows (description clamped to 3 lines with Show more, via `src/components/ui/ClampedText.tsx`), and the member **Relationship intelligence** card shows them as a "Company profile" block (description = the member's `company_description`, else Clay's).
+
+### `src/lib/enrichment/source-label.ts`
+`formatEnrichmentSource(source)` — display label for `enrichment_source` on the enquiry/member panels ("clay" → "Clay"; older rows from a previous provider still render, capitalised).
 
 ### `src/lib/enrichment/stub.ts`
 `StubProvider` — no-op provider used when nothing is configured; `capabilities: {searchCompanies:false, searchPeople:false}`; `enrich()` always returns all-null; the safe wrappers in `index.ts` route any call to it into `status:'unavailable'`.
 
 ### `src/lib/enrichment/index.ts`
-`getEnrichmentProvider()` — returns `ClayProvider` if `ENRICHMENT_PROVIDER=clay` AND `CLAY_API_KEY` set; `ApolloProvider` if `ENRICHMENT_PROVIDER=apollo` AND `APOLLO_API_KEY` set; else `StubProvider`.
+`getEnrichmentProvider()` — returns `ClayProvider` when `CLAY_API_KEY` is set (`ENRICHMENT_PROVIDER` is an optional override that defaults to `clay`; any other value, e.g. `stub`, forces the Stub); without a key → `StubProvider`.
 `providerCan(p, cap)` — true only if BOTH the capability flag AND the method actually exist.
 `searchSponsorCompanies(criteria)` / `searchDecisionMakers(domain, roleFilters?)` — the ONLY entry points feature code should call; never touch provider internals directly; catch all exceptions into `status:'error'`.
 Re-exports `enrichEnquiry` and `enrichMember`.
 
 ### `src/lib/enrichment/enrich.ts`
-`enrichEnquiry(db, enquiryId)` — derives a business domain from the enquiry's email (rejects ~14 free/consumer domains: gmail, googlemail, outlook, hotmail, live, yahoo(.co.uk), icloud, me.com, aol, proton(.me/mail)); if no business domain → `enrichment_status='no_domain'`; else calls the active provider and writes `enrichment_status` (`enriched` if company+person, `partial` if company only, `not_found` otherwise), plus all company/person fields and the raw provider payload. Never throws — always resolves and writes SOME status, defaulting to `'failed'` on exception.
+`enrichEnquiry(db, enquiryId)` — derives a business domain from the enquiry's email (rejects ~14 free/consumer domains: gmail, googlemail, outlook, hotmail, live, yahoo(.co.uk), icloud, me.com, aol, proton(.me/mail)); if no business domain → `enrichment_status='no_domain'`; else calls the active provider and writes `enrichment_status` (`enriched` if company+person, `partial` if company only, `not_found` otherwise), plus all company/person fields and the raw provider payload. Never throws — always resolves and writes SOME status, defaulting to `'failed'` on exception (returning `{status:'failed', error}` with the reason, e.g. the Clay search failure). Every run that reaches the provider records `enrichment_source` (= provider name) — including `not_found` and `failed` — so an older provider's name never sits next to a new status/date; `no_domain` (no provider called) clears `enrichment_source` to null. Only called from the admin route `/api/admin/enquiries/enrich` (the public intake no longer auto-enriches).
 
 ### `src/lib/enrichment/enrich-member.ts`
-`enrichMember(db, memberId)` — same pattern for a `members` row. Domain derived from `company_website` first, else the profile email's business domain. **Gaps-only write policy**: an admin-entered non-empty field is NEVER overwritten — only empty (`isEmpty`) fields get filled from the provider (annual_turnover ← revenuePrinted, employee_count, sector ← industry, company_linkedin_url, company_website, company_description; and separately, `profiles.linkedin_url` if empty and the paid person-match returned one).
+`enrichMember(db, memberId)` — same pattern for a `members` row. Domain derived from `company_website` first, else the profile email's business domain. **Gaps-only write policy**: an admin-entered non-empty field is NEVER overwritten — only empty (`isEmpty`) fields get filled from the provider (annual_turnover ← revenuePrinted (Clay revenue bucket), employee_count (size-bucket lower bound), sector ← industry, company_linkedin_url, company_website, company_description; and separately, `profiles.linkedin_url` if empty and the named person was matched).
 
 ---
 
@@ -609,6 +620,12 @@ Business meaning: read-only Drive browser for the CRM's media-library picker (we
 Business meaning: media (Drive) access control — ONE "media owner" (Sarah) sees/manages everything; every other admin is restricted to an owner-approved folder allow-list. Both stored in `app_settings` (`media_owner`, `drive_allowed_folders`) — no migration needed. **Opt-in and safe**: until the owner approves any folders, the allow-list is empty and callers keep today's browse-all behaviour (nobody gets locked out by default).
 
 `getMediaOwnerId`/`setMediaOwner`, `getAllowedFolders`/`setAllowedFolders`, `isMediaOwner(db, userId)`.
+
+---
+
+## `src/lib/http/` — shared client-side HTTP client
+
+`apiClient` — one axios instance for admin screens calling this app's own `/api/...` routes (relative base URL, JSON, session cookies sent). `getApiErrorMessage(err, fallback)` turns a failed call into a readable message (the route's `{ error }` text, else the fallback, else the network error). Used by the enquiry/member Enrich buttons and the sponsorship decision-maker lookup. Server-side integrations use their own instances (e.g. `enrichment/clay-client.ts`).
 
 ---
 

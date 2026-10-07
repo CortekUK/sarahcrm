@@ -18,8 +18,7 @@ cron jobs, webhooks, email, deployment. Read-only survey of
 | **DocuSign (eSignature)** | Contract/document signature requests, envelope status tracking, admin consent (JWT/OAuth) flow, real-time status push via Connect webhook | **Live** (sandbox/demo by default; prod requires swapping base/oauth URLs) | `src/lib/docusign/client.ts`, `src/lib/docusign/reconcile.ts`, `src/app/api/admin/docusign/consent/route.ts`, `src/app/api/admin/signatures/{send,status,view,void}/route.ts`, `src/app/api/docusign/webhook/route.ts` (inbound), `src/app/api/contracts/ai-generate/route.ts` | `DOCUSIGN_INTEGRATION_KEY`, `DOCUSIGN_USER_ID`, `DOCUSIGN_ACCOUNT_ID`, `DOCUSIGN_PRIVATE_KEY`, `DOCUSIGN_BASE_PATH`, `DOCUSIGN_OAUTH_BASE`, `DOCUSIGN_REDIRECT_URI`, `DOCUSIGN_CONNECT_SECRET`, `DOCUSIGN_WEBHOOK_URL` |
 | **Xero (accounting)** | OAuth2-connected accounting sync: contacts, invoices, revenue, spend | **Live** (once an admin completes OAuth) — connection state is persisted in `app_settings.xero_oauth`, checked live by the Settings → Integrations status card | `src/lib/xero/client.ts`, `src/lib/xero/contacts.ts`, `src/lib/xero/invoices.ts`, `src/lib/xero/revenue.ts`, `src/lib/xero/spend.ts`, `src/app/api/admin/xero/{connect,disconnect,sync-contacts,sync-invoices,sync-spend}/route.ts`, `src/app/api/xero/callback/route.ts` (inbound OAuth redirect) | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI`, `XERO_SCOPES` |
 | **WhatsApp Business (Meta Cloud API)** | Send/receive WhatsApp messages, admin-triggered sends, inbound webhook for delivery/read status + inbound messages | **Partially built, blocked on client**: send + webhook plumbing exist, but the full AI WhatsApp assistant (event/ticket enquiries, concierge, Stripe payment links) is **deferred/not built**. Blocked on client obtaining a verified WhatsApp Business Account + Meta Business Verification (see §Pending below) | `src/lib/whatsapp/client.ts` (phone normalization + shared sender + `whatsapp_log`), `src/app/api/admin/whatsapp/send/route.ts`, `src/app/api/whatsapp/webhook/route.ts` (inbound, public, no admin gate — Meta calls it directly) | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_API_VERSION`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_WABA_ID` |
-| **Apollo (enrichment)** | Company/contact enrichment for sponsorship intelligence & member/enquiry enrichment — current default provider | **Live but limited**: free tier — basic company enrichment works; decision-maker/people search returns `upgrade_required` | `src/lib/enrichment/apollo.ts`, `src/lib/enrichment/provider.ts` (interface), `src/lib/enrichment/index.ts` (factory/dispatch), `src/lib/enrichment/enrich.ts`, `src/lib/enrichment/enrich-member.ts` | `APOLLO_API_KEY`, `ENRICHMENT_PROVIDER` (selects `apollo` \| `clay` \| stub) |
-| **Clay (enrichment, replaces Apollo)** | Higher-coverage async enrichment (150+ provider waterfall) for sponsor discovery + decision-makers | **Blocked (client)**: Clay's Webhook source + HTTP API require the Growth plan (~$495/mo); account is on a lower tier with a failed payment. Code-side: factory branch reserved (`ENRICHMENT_PROVIDER=clay`), but `src/lib/enrichment/clay.ts` methods are unimplemented stubs pending real webhook URLs; no callback route (`/api/admin/sponsorship/clay-callback`) exists yet | `src/lib/enrichment/clay.ts`, `src/lib/enrichment/types.ts` | `CLAY_API_KEY` (present in `.env`, not yet wired) |
+| **Clay (enrichment)** | Lead enrichment for enquiries + members (admin Enrich buttons) and sponsor discovery for Sponsorship Intelligence (cold company search + decision-maker search) — the platform's only enrichment provider | **Live** via Clay's **Public Search API** (synchronous: create a search, then run it; no webhooks or Clay tables). Enrichment is **manual only** — the public enquiry form no longer auto-enriches — because every search spends Clay's per-period **search quota** (not credits). Company results give name/domain/industry/LinkedIn/description plus size and revenue **buckets** (no website URL — derived as https://domain). People results give name/title/LinkedIn but **no email and no seniority** (seniority is derived from the job title). Quota exhausted (HTTP 402) shows as `upgrade_required`; HTTP 429 is retried automatically | `src/lib/enrichment/clay.ts` (provider), `src/lib/enrichment/clay-client.ts` (HTTP), `src/lib/enrichment/clay-query.ts` + `clay-constants.ts` (query builder + Clay enums), `src/lib/enrichment/provider.ts` (interface), `src/lib/enrichment/index.ts` (factory/dispatch), `src/lib/enrichment/enrich.ts`, `src/lib/enrichment/enrich-member.ts` | `CLAY_API_KEY`, `ENRICHMENT_PROVIDER` (optional, defaults to `clay`) |
 | **Metricool (social publishing)** | Auto-publish approved marketing posts to Instagram/Facebook/LinkedIn | **Stubbed, blocked (client)**: requires Metricool Advanced plan (API access). `MetricoolPublisher.publish()` deliberately `throw`s "NotImplemented" so it can never silently no-op; swap from `MockPublisher` is a one-line change once the API token/userId/blogId arrive | `src/lib/marketing/publish/index.ts` (publisher factory), `src/lib/marketing/publish/metricool.ts` (documented stub), `src/lib/marketing/publish/mock.ts`, `src/lib/marketing/publish/types.ts` | none configured yet (planned: Metricool API token, `userId`, `blogId` — not yet in codebase) |
 | **Twilio / telephony** | AI phone receptionist + onboarding-call recorder | **Not built** (deferred). No code, no env vars present. Design sketch lives in `docs/AI-OPERATIONAL-AGENTS.md` | — | — |
 | **GoCardless** | Direct-debit collection | **Not wired**: member records track direct-debit status manually; no SDK/API calls exist. Only referenced defensively in the integrations-status check | `src/app/api/admin/integrations/status/route.ts` (checks presence only) | `GOCARDLESS_ACCESS_TOKEN` / `GC_ACCESS_TOKEN` (either satisfies the "connected" check; unused elsewhere) |
@@ -82,9 +81,8 @@ Source: `.env.local.example` (partial/illustrative) + `grep process.env.` across
 | `WHATSAPP_API_VERSION` | Graph API version string used in Cloud API calls |
 | `WHATSAPP_VERIFY_TOKEN` | Webhook verification handshake token (`hub.verify_token`) |
 | `WHATSAPP_WABA_ID` | WhatsApp Business Account id (present in `.env`) |
-| `APOLLO_API_KEY` | Apollo.io enrichment API key |
-| `CLAY_API_KEY` | Clay enrichment API key (reserved, not yet wired) |
-| `ENRICHMENT_PROVIDER` | Selects active enrichment backend: `apollo` \| `clay` \| stub/default |
+| `CLAY_API_KEY` | Clay Public API key (sent as the `clay-api-key` header). Set = Clay enrichment/discovery on; unset = no-op stub |
+| `ENRICHMENT_PROVIDER` | Optional override, defaults to `clay`. Any other value (e.g. `stub`) pauses all Clay usage |
 | `GOOGLE_SA_KEY_BASE64` | Base64-encoded full Google service-account JSON key |
 | `GOOGLE_SA_CLIENT_EMAIL` | Service account email (informational/logging) |
 | `GOOGLE_SA_CLIENT_ID` | 21-digit client id registered for domain-wide delegation |
@@ -96,9 +94,9 @@ Source: `.env.local.example` (partial/illustrative) + `grep process.env.` across
 | `DEV_ADMIN_EMAIL` / `DEV_ADMIN_PASSWORD` | Local dev admin account credentials, consumed by `scripts/provision-dev-accounts.mjs` |
 | `DEV_MEMBER_EMAIL` / `DEV_MEMBER_PASSWORD` | Local dev member account credentials, same script |
 
-**Note:** `.env.local.example` only documents Supabase/OpenAI/Resend/DocuSign —
+**Note:** `.env.local.example` only documents Supabase/OpenAI/Resend/DocuSign/Clay —
 it is stale relative to the actual `.env` and the code's `process.env.*`
-reads. Stripe, Xero, WhatsApp, Google Workspace, Apollo/Clay, and `CRON_SECRET`
+reads. Stripe, Xero, WhatsApp, Google Workspace, and `CRON_SECRET`
 are all live in code/`.env` but undocumented in the example file.
 
 ---
@@ -303,12 +301,12 @@ reference). Also present but not deep-read: `docs/AI-OPERATIONAL-AGENTS.md`,
 local-only) is the single clearest source on blocked work. All four V2
 headline features (Marketing, Sponsorship Intelligence, AI Operational
 Agents, Team Accountability) plus a unified Inbox tab are stated as
-**built and live**. What remains is wiring four external services, all
-blocked on the **client's** side:
+**built and live**. **Clay is now LIVE** via its Public Search API (the old
+Growth-plan / webhook plan is obsolete — see the Clay row above). What
+remains is wiring three external services, all blocked on the **client's**
+side:
 
-1. **Clay** — needs Growth plan (~$495/mo) + a failed payment resolved, then
-   Clay-side table/webhook setup before `src/lib/enrichment/clay.ts` can be
-   implemented (factory branch already reserved).
+1. ~~Clay~~ — done (Public Search API; manual enrichment + sponsor discovery).
 2. **WhatsApp Business** — needs a verified WA Business Account + Meta
    Business Verification; recommended access path is adding the dev team as
    Meta Business "Admin" by email (no password/OTP sharing) on a
@@ -338,13 +336,12 @@ layered moving elements) are still to be delivered by the illustrator.
 
 **Cross-check against code:** the "built and live" integrations claim in the
 doc lines up with what's in `src/lib/` — Stripe, Resend, DocuSign, Xero,
-Google Gmail/Drive (service account), and Apollo enrichment all have full
-working implementations with real API calls. WhatsApp has send + inbound
+Google Gmail/Drive (service account), and Clay enrichment (Public Search
+API) all have full working implementations with real API calls. WhatsApp has send + inbound
 webhook plumbing (`src/lib/whatsapp/client.ts`,
 `src/app/api/whatsapp/webhook/route.ts`, `src/app/api/admin/whatsapp/send`)
 but no AI assistant logic wired to it yet, consistent with "not built
-(deferred agent)". Clay and Metricool are true stubs, consistent with the
-doc.
+(deferred agent)". Metricool is a true stub, consistent with the doc.
 
 **docs/supabase-auth-setup.md** and **docs/V2-BUILD-HANDOVER.md** were not
 read in full detail in this pass (207 and 300 lines respectively) — flagged

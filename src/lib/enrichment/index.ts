@@ -5,7 +5,6 @@ import type {
   SearchResult,
   SponsorCandidate,
 } from './types'
-import { ApolloProvider } from './apollo'
 import { ClayProvider } from './clay'
 import { StubProvider } from './stub'
 
@@ -23,14 +22,15 @@ export type {
 export { enrichEnquiry } from './enrich'
 export { enrichMember } from './enrich-member'
 
-// Returns the configured provider. Clay/Apollo when explicitly selected AND
-// keyed; otherwise the safe no-op Stub so callers never need to branch.
+// Returns the configured provider. Clay is the platform's enrichment provider:
+// it's used whenever CLAY_API_KEY is set. ENRICHMENT_PROVIDER is an optional
+// override (defaults to 'clay'); set it to 'stub' (or anything other than
+// 'clay') to force the safe no-op Stub, e.g. to pause all Clay usage. Without
+// a key we always fall back to the Stub so callers never need to branch.
 export function getEnrichmentProvider(): EnrichmentProvider {
-  if (process.env.ENRICHMENT_PROVIDER === 'clay' && process.env.CLAY_API_KEY) {
+  const selected = (process.env.ENRICHMENT_PROVIDER || 'clay').trim().toLowerCase()
+  if (selected === 'clay' && process.env.CLAY_API_KEY) {
     return new ClayProvider()
-  }
-  if (process.env.ENRICHMENT_PROVIDER === 'apollo' && process.env.APOLLO_API_KEY) {
-    return new ApolloProvider()
   }
   return new StubProvider()
 }

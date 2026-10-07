@@ -28,6 +28,7 @@ import type { SearchCriteria, CapabilityStatus } from '@/lib/enrichment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 // Club brand-voice guidance — mirrors the marketing/generate + proposal routes.
 const CLUB_VOICE = `The Club by Sarah Restrick is a private membership community of exceptional founders and senior leaders. Its events are curated, intimate, luxury gatherings built on trusted introductions — never mass-market. When judging a sponsor fit, favour brands whose audience, values and positioning align with a discerning, high-net-worth, relationship-led membership.`

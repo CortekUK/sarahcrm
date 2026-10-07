@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button, Badge, Card, Modal, Select, Textarea, Input } from '@/components/ui'
 import { toast } from '@/lib/hooks/use-toast'
+import { apiClient } from '@/lib/http'
 import { cn } from '@/lib/utils'
 
 // Ranked sponsor prospects for one event. Warm CRM matches sit first (the API
@@ -175,13 +176,19 @@ export function ProspectsView({ eventId: eventIdProp }: { eventId?: string }) {
     setDmBusy(p.id)
     setDmMessage((m) => ({ ...m, [p.id]: '' }))
     try {
-      const res = await fetch('/api/admin/sponsorship/decision-makers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prospect_id: p.id }),
-      })
-      const json = await res.json()
-      if (json.status === 'ok') {
+      // The route reports degrades as HTTP 200 + `status`/`message`, so read
+      // the body for every status code (validateStatus) — a non-2xx falls
+      // through to the generic "unavailable" message, exactly as before.
+      const { data: json } = await apiClient.post<{
+        status?: string
+        message?: string
+        decision_makers?: DecisionMaker[]
+      }>(
+        '/api/admin/sponsorship/decision-makers',
+        { prospect_id: p.id },
+        { validateStatus: () => true },
+      )
+      if (json?.status === 'ok') {
         setDmByProspect((m) => ({ ...m, [p.id]: json.decision_makers ?? [] }))
         if ((json.decision_makers ?? []).length === 0) {
           setDmMessage((m) => ({ ...m, [p.id]: 'No decision-makers found for this company.' }))
@@ -190,8 +197,8 @@ export function ProspectsView({ eventId: eventIdProp }: { eventId?: string }) {
         setDmMessage((m) => ({
           ...m,
           [p.id]:
-            json.message ??
-            (json.status === 'upgrade_required'
+            json?.message ??
+            (json?.status === 'upgrade_required'
               ? 'People search needs a paid vendor plan.'
               : 'People search is unavailable right now.'),
         }))

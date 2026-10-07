@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SelectMenu } from '@/components/ui/SelectMenu'
 import { Textarea } from '@/components/ui/Textarea'
+import { ClampedText } from '@/components/ui/ClampedText'
 import {
   Table,
   TableHeader,
@@ -23,6 +24,9 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { formatDateTime, cn } from '@/lib/utils'
 import { toast } from '@/lib/hooks/use-toast'
+import { apiClient, getApiErrorMessage } from '@/lib/http'
+import { formatEnrichmentSource } from '@/lib/enrichment/source-label'
+import { companyExtrasFromRaw } from '@/lib/enrichment/company-extras'
 import {
   Inbox,
   Search,
@@ -42,6 +46,9 @@ import {
   TrendingUp,
   ExternalLink,
   Briefcase,
+  MapPin,
+  Landmark,
+  Banknote,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -231,40 +238,49 @@ export function EnquiriesListPage() {
     toast({ title: 'Enquiry deleted' })
   }
 
-  // Run (or re-run) enrichment for one enquiry via the admin route. On success
-  // refetch just that row so the freshly-written enrichment fields show up.
+  // Run (or re-run) enrichment for one enquiry via the admin route (manual
+  // only — this is what spends Clay search quota). On success refetch just
+  // that row so the freshly-written enrichment fields show up.
   async function runEnrich(id: string): Promise<void> {
+    // Pull the row back so all enrichment_* fields (and the status badge)
+    // refresh — on success AND on failure, since a failed run is recorded as
+    // enrichment_status='failed'. Best-effort: a reload error is ignored.
+    async function reloadRow() {
+      try {
+        const { data } = await supabase.from('enquiries').select('*').eq('id', id).single()
+        if (data) {
+          const row = data as EnquiryRow
+          setEnquiries((prev) => prev.map((e) => (e.id === id ? row : e)))
+          setSelected((prev) => (prev?.id === id ? row : prev))
+        }
+      } catch {
+        /* keep the current row */
+      }
+    }
+
     try {
-      const res = await fetch('/api/admin/enquiries/enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enquiryId: id }),
-      })
-      const json = (await res.json().catch(() => ({}))) as {
+      const { data: json } = await apiClient.post<{
         ok?: boolean
         status?: string
         error?: string
-      }
-      if (!res.ok || !json.ok) {
+      }>('/api/admin/enquiries/enrich', { enquiryId: id })
+      if (!json?.ok) {
+        await reloadRow()
         toast({
           title: 'Enrichment failed',
-          description: json.error ?? 'Please try again.',
+          description: json?.error ?? 'Please try again.',
           variant: 'destructive',
         })
         return
       }
-      // Pull the updated row back so all enrichment_* fields refresh.
-      const { data } = await supabase.from('enquiries').select('*').eq('id', id).single()
-      if (data) {
-        const row = data as EnquiryRow
-        setEnquiries((prev) => prev.map((e) => (e.id === id ? row : e)))
-        setSelected((prev) => (prev?.id === id ? row : prev))
-      }
+      await reloadRow()
       toast({ title: 'Enrichment complete', description: `Status: ${json.status ?? 'done'}.` })
     } catch (e) {
+      // Non-2xx (server `{ error }`, else "Please try again.") or network error.
+      await reloadRow()
       toast({
         title: 'Enrichment failed',
-        description: e instanceof Error ? e.message : 'Network error.',
+        description: getApiErrorMessage(e, 'Please try again.'),
         variant: 'destructive',
       })
     }
@@ -788,7 +804,7 @@ function EnquiryDetailModal({
   )
 }
 
-// ─── Enrichment panel — Apollo (or any provider) company + person data ──
+// ─── Enrichment panel — company + person data from the enrichment provider ──
 
 const ENRICHMENT_LABELS: Record<string, string> = {
   enriched: 'Enriched',
@@ -815,7 +831,15 @@ function EnrichmentPanel({
   enriching: boolean
   onEnrich: () => void
 }) {
+  // Extra company facts kept only in enrichment_raw (description, HQ, type,
+  // funding). Read defensively per provider — older Apollo rows have a
+  // different raw shape (description only); anything missing is just skipped.
+  const extras = companyExtrasFromRaw(enquiry.enrichment_raw, enquiry.enrichment_source)
   const hasCompany =
+    !!extras.description ||
+    !!extras.headquarters ||
+    !!extras.companyType ||
+    !!extras.totalFunding ||
     !!enquiry.company_website ||
     !!enquiry.company_industry ||
     !!enquiry.company_linkedin_url ||
@@ -827,24 +851,42 @@ function EnrichmentPanel({
 
   return (
     <div className="border border-border rounded-md px-4 py-3 bg-surface-2/40">
-      <div className="flex items-center gap-1.5 text-text-muted mb-3">
-        <Sparkles size={13} />
-        <span className="text-[10px] font-medium uppercase tracking-[0.16em]">
-          Lead enrichment
-        </span>
-        {st && (
-          <Badge variant={ENRICHMENT_BADGE[st] ?? 'info'} className="ml-1 capitalize">
-            {ENRICHMENT_LABELS[st] ?? st}
-          </Badge>
-        )}
-        <div className="ml-auto flex items-center gap-2">
+      {/* Header wraps instead of squeezing: [icon · label · badge] stays on one
+          line (the badge only drops below the label if even that can't fit);
+          [source · date + button] sits beside it when there's room,
+          else drops to its own right-aligned line (ml-auto), with the meta
+          truncating before the button is ever pushed out of the panel. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-text-muted mb-3">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+          <Sparkles size={13} className="shrink-0" />
+          <span className="text-[10px] font-medium uppercase tracking-[0.16em] whitespace-nowrap">
+            Lead enrichment
+          </span>
+          {st && (
+            <Badge
+              variant={ENRICHMENT_BADGE[st] ?? 'info'}
+              className="ml-1 capitalize whitespace-nowrap shrink-0"
+            >
+              {ENRICHMENT_LABELS[st] ?? st}
+            </Badge>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2 min-w-0 max-w-full">
           {enquiry.enriched_at && (
-            <span className="text-[11px] text-text-dim">
-              {enquiry.enrichment_source ? `${enquiry.enrichment_source} · ` : ''}
+            <span className="text-[11px] text-text-dim min-w-0 truncate">
+              {enquiry.enrichment_source
+                ? `${formatEnrichmentSource(enquiry.enrichment_source)} · `
+                : ''}
               {formatDateTime(enquiry.enriched_at)}
             </span>
           )}
-          <Button size="sm" variant="secondary" onClick={onEnrich} disabled={enriching}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onEnrich}
+            disabled={enriching}
+            className="shrink-0"
+          >
             <Sparkles size={13} />
             {enriching ? 'Enriching…' : enquiry.enriched_at ? 'Re-enrich' : 'Enrich'}
           </Button>
@@ -861,6 +903,14 @@ function EnrichmentPanel({
         </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {extras.description && (
+            <div className="md:col-span-2 min-w-0">
+              <span className="block text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted mb-1">
+                About the company
+              </span>
+              <ClampedText text={extras.description} lines={3} />
+            </div>
+          )}
           {enquiry.company_industry && (
             <EnrichFact icon={<Building2 size={12} />} label="Industry" value={enquiry.company_industry} />
           )}
@@ -876,6 +926,20 @@ function EnrichmentPanel({
               icon={<TrendingUp size={12} />}
               label="Est. revenue"
               value={`$${enquiry.company_revenue_printed}`}
+            />
+          )}
+          {extras.companyType && (
+            <EnrichFact icon={<Landmark size={12} />} label="Company type" value={extras.companyType} />
+          )}
+          {extras.totalFunding && (
+            <EnrichFact icon={<Banknote size={12} />} label="Total funding" value={extras.totalFunding} />
+          )}
+          {extras.headquarters && (
+            <EnrichFact
+              icon={<MapPin size={12} />}
+              label="Headquarters"
+              value={extras.headquarters}
+              className="md:col-span-2"
             />
           )}
           {(enquiry.person_seniority || enquiry.person_title) && (
@@ -908,22 +972,27 @@ function EnrichmentPanel({
   )
 }
 
+// Label left, value right. The label never wraps; a long value (e.g. a
+// headquarters line in the narrow drawer) wraps right-aligned instead of
+// squeezing the label.
 function EnrichFact({
   icon,
   label,
   value,
+  className,
 }: {
   icon: React.ReactNode
   label: string
   value: string
+  className?: string
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-sm">
-      <span className="text-text-muted">{icon}</span>
-      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted">
+    <div className={cn('flex items-center gap-1.5 text-sm', className)}>
+      <span className="text-text-muted shrink-0">{icon}</span>
+      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted whitespace-nowrap shrink-0">
         {label}
       </span>
-      <span className="text-text ml-auto">{value}</span>
+      <span className="text-text ml-auto min-w-0 text-right break-words">{value}</span>
     </div>
   )
 }

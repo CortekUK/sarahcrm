@@ -19,7 +19,7 @@ deviations are called out per-route.
 | `src/app/api/admin/campaigns/send/route.ts` | POST | Send a saved email template to all active subscribers, a static audience, or a rule-based segment; records send as `email_campaigns` history regardless of outcome | Admin |
 | `src/app/api/admin/chief-of-staff/report/route.ts` | GET, POST | AI Chief of Staff daily briefing: POST (re)generates today's report via OpenAI (deterministic fallback), GET reads today's/latest/specific-date report | Admin |
 | `src/app/api/admin/docusign/consent/route.ts` | GET | Redirect target for DocuSign's one-time JWT consent grant; shows a static branded confirmation/denial page | Public (DocuSign redirect target, no session check) |
-| `src/app/api/admin/enquiries/enrich/route.ts` | POST | Manually (re-)run enrichment (Apollo-backed) on a single public-contact-form enquiry | Admin |
+| `src/app/api/admin/enquiries/enrich/route.ts` | POST | Manually (re-)run enrichment (Clay-backed) on a single public-contact-form enquiry — the only way enquiries get enriched | Admin |
 | `src/app/api/admin/enquiries/reply/route.ts` | POST | Send an in-app branded reply to an enquiry via Resend and mark it replied | Admin |
 | `src/app/api/admin/handover/report/route.ts` | POST | Generate/regenerate "Sarah's Daily Leadership Report" for a date from staff daily handovers, via OpenAI (templated fallback) | Admin |
 | `src/app/api/admin/inbox/access/route.ts` | GET, POST | Manage-access UI for inbox mailbox grants: GET lists grantable CRM users/catalog/grants, POST grants or revokes a mailbox for a user | Admin (double-gated: inbox access + admin role) |
@@ -47,7 +47,7 @@ deviations are called out per-route.
 
 **`docusign/consent`** (GET) — Query: `?code=` or `?error=` from DocuSign's redirect. Returns static HTML confirmation/denial page; no DB writes (JWT grant flow doesn't need the code). No auth check — this IS the OAuth redirect target.
 
-**`enquiries/enrich`** (POST) — Body: `{ enquiryId }`. Response: `{ ok, status }` (never throws, best-effort). External: Apollo (via `enrichEnquiry`). Tables: `enquiries` (r/u, inside lib).
+**`enquiries/enrich`** (POST) — Body: `{ enquiryId }`. Response: `{ ok, status }`, or HTTP 502 `{ error, status:'failed' }` when the provider failed (e.g. Clay search error / quota used up — the row is marked `failed`). `maxDuration = 60`. External: Clay Public Search API (via `enrichEnquiry`) — one company search by domain, plus one person search when first+last name are known; spends Clay search quota. Tables: `enquiries` (r/u, inside lib).
 
 **`enquiries/reply`** (POST) — Body: `{ enquiry_id, subject, body }`. Response: `{ ok, replied_at }` or `{ ok:true, warning }`. External: Resend (`sendClubEmail`, category `enquiry_reply`). Tables: `enquiries` (r/u).
 
@@ -150,7 +150,7 @@ deviations are called out per-route.
 | `src/app/api/admin/members/cancel/route.ts` | POST | Cancel a membership: sets status, cancels Stripe sub at period-end, signs out sessions | Admin |
 | `src/app/api/admin/members/create/route.ts` | POST | Manually provision a member (non-application path) with auth user, profile, members row, tags | Admin |
 | `src/app/api/admin/members/delete/route.ts` | POST | Hard-delete a member (cascades via auth.users delete); cancels Stripe immediately; falls back to soft delete | Admin |
-| `src/app/api/admin/members/enrich/route.ts` | POST | Re-run best-effort company data enrichment (Apollo) for one member, filling gaps only | Admin |
+| `src/app/api/admin/members/enrich/route.ts` | POST | Manually (re-)run best-effort company data enrichment (Clay) for one member, filling gaps only | Admin |
 | `src/app/api/admin/members/import/route.ts` | POST | Bulk CSV-based member onboarding (rows already parsed client-side), idempotent per email | Admin |
 | `src/app/api/admin/members/recompute-scores/route.ts` | POST | Recompute relationship/churn/engagement scores for one or all active members | Admin |
 | `src/app/api/admin/members/resend-invite/route.ts` | POST | Re-send portal login credentials (branded email) to an existing member | Admin |
@@ -179,7 +179,7 @@ All routes: `runtime='nodejs'`, `dynamic='force-dynamic'`. No `maxDuration` over
 
 **`members/delete`** (POST) — Body: `{ member_id }`. Response: `{ ok, soft_deleted:false }` or `{ ok, soft_deleted:true, message }` fallback. External: Stripe (`subscriptions.cancel`, best-effort). Tables: `members` (r, soft-delete fallback); relies on FK cascade from `auth.users` deletion for hard delete. Guards against admin deleting own account.
 
-**`members/enrich`** (POST) — Body: `{ memberId }`. Response: `{ ok, status }` / `{ error }`. External: Apollo (`enrichMember`).
+**`members/enrich`** (POST) — Body: `{ memberId }`. Response: `{ ok, status }` / `{ error }` (HTTP 502 `{ error, status:'failed' }` when the provider failed). `maxDuration = 60`. External: Clay Public Search API (`enrichMember`); spends Clay search quota.
 
 **`members/import`** (POST) — Body: `{ rows:[...] (max 1000), send_invites? (default false), default_tier?, default_status?, tag_ids?[] }`. Response: `{ ok, summary:{total,created,reused,skipped}, results:[...] }`. External: Resend (only if send_invites). Tables: `profiles` (r/u per row), `members` (r/i/u per row), `member_tags` (upsert additive). Processes sequentially to avoid auth rate limits.
 
@@ -217,7 +217,7 @@ All routes: `runtime='nodejs'`, `dynamic='force-dynamic'`. No `maxDuration` over
 | `src/app/api/admin/sponsors/proposal/route.ts` | POST | Generate (AI) or send a sponsorship proposal for a sponsorship | Admin |
 | `src/app/api/admin/sponsors/roi/route.ts` | POST | Build and store a post-event ROI report for a sponsorship | Admin |
 | `src/app/api/admin/sponsorship/convert/route.ts` | POST | Convert a ranked `sponsor_prospect` into a real `sponsorships` row | Admin |
-| `src/app/api/admin/sponsorship/decision-makers/route.ts` | GET, POST | Discover (via enrichment vendor) and list decision-maker contacts for a prospect | Admin |
+| `src/app/api/admin/sponsorship/decision-makers/route.ts` | GET, POST | Discover (via the enrichment provider — Clay) and list decision-maker contacts for a prospect | Admin |
 | `src/app/api/admin/sponsorship/deck/parse/route.ts` | POST | Extract text from a sponsorship deck (PDF/DOCX/pasted text) and summarise into a structured brief via OpenAI | Admin |
 | `src/app/api/admin/sponsorship/match/route.ts` | POST | Sponsor-matching engine: warm CRM candidates + selective cold enrichment + OpenAI ranking, persisted as `sponsor_prospects` | Admin |
 | `src/app/api/admin/sponsorship/outreach/draft/route.ts` | POST | Generate a draft multi-step outreach email sequence for a prospect (never sends) | Admin |
@@ -254,11 +254,11 @@ All routes: `runtime='nodejs'`, `dynamic='force-dynamic'`. No `maxDuration` over
 
 **`sponsorship/convert`** (POST) — Body: `{ prospect_id, decision_maker_id?, package_name?, amount_pence? }`. Idempotent via `sponsor_prospects.converted_sponsorship_id`. Inserts `sponsorships` (status `proposed`), marks prospect `status='won'`. Response: `{ ok, sponsorship_id, already? }`. Tables: `sponsor_prospects` (r/u), `sponsor_decision_makers` (r), `sponsorships` (i). No external calls.
 
-**`sponsorship/decision-makers`** (GET/POST) — POST body: `{ prospect_id, role_filters? }` → enrichment vendor `searchDecisionMakers(domain, roleFilters)` (degrades to 200 with `status:unavailable|upgrade_required|error` on failure); deletes+reinserts `sponsor_decision_makers`. GET `?prospect_id=` → lists persisted rows. Response: `{ status, decision_makers }` / `{ decision_makers }`. Tables: `sponsor_prospects` (r), `sponsor_decision_makers` (r/d/i). External: enrichment vendor (vendor-agnostic wrapper).
+**`sponsorship/decision-makers`** (GET/POST) — POST body: `{ prospect_id, role_filters? }` → enrichment vendor `searchDecisionMakers(domain, roleFilters)` (Clay people search: current leadership — Founder/Owner/Partner/C-suite/VP/Director/Head — or current job titles similar to `role_filters`; up to 10 people; NO emails (Clay search doesn't return them) and seniority is derived from the title. Degrades to 200 with `status:unavailable|upgrade_required|error` on failure — `upgrade_required` = Clay search quota used up for the period); deletes+reinserts `sponsor_decision_makers`. GET `?prospect_id=` → lists persisted rows. Response: `{ status, decision_makers }` / `{ decision_makers }`. Tables: `sponsor_prospects` (r), `sponsor_decision_makers` (r/d/i). External: enrichment vendor (vendor-agnostic wrapper).
 
 **`sponsorship/deck/parse`** (POST) — Body: `{ text? , asset_path? }` (storage bucket `sponsor-assets`). Extracts text (pdfjs-dist for PDF, mammoth for DOCX), truncates 12000 chars, OpenAI structured summary `{ positioning, target_sectors[], keywords[] }` (fallback: raw truncated text). Always 200. Response: `{ ok, deck_brief, target_sectors, keywords }` or `{ ok:false, message }`. External: OpenAI, `logOpenAIUsage('sponsorship_deck_parse')`.
 
-**`sponsorship/match`** (POST) — Body: `{ event_id, brief?, deck_brief? }`. Pipeline: warm CRM candidates (past sponsors + aligned members) → derive audience sectors from `bookings` → if warm <8, cold candidates via enrichment `searchSponsorCompanies` (degrades silently) → dedupe → OpenAI ranks 0-100 (warm +20 bonus) or rule-based fallback → upsert `sponsor_prospects` (preserves human status progress). Response: `{ ok, event_id, counts:{warm,cold,total}, cold_status, prospects }`. Tables: `events`, `sponsorships`, `members`, `bookings` (r), `sponsor_prospects` (r/i/u). External: OpenAI, enrichment vendor. Logs usage (`sponsorship_match`).
+**`sponsorship/match`** (POST) — Body: `{ event_id, brief?, deck_brief? }`. Pipeline: warm CRM candidates (past sponsors + aligned members) → derive audience sectors from `bookings` → if warm <8, cold candidates via enrichment `searchSponsorCompanies` (Clay company search: audience sectors → Clay `industry` values — unrecognised sectors are dropped — and — only when no sector matched an industry — event type/city/brief words → company-description keywords; up to 10 companies; degrades silently, `cold_status:'upgrade_required'` = Clay search quota used up, `'unavailable'` = no usable criteria) → dedupe → OpenAI ranks 0-100 (warm +20 bonus) or rule-based fallback → upsert `sponsor_prospects` (preserves human status progress). Response: `{ ok, event_id, counts:{warm,cold,total}, cold_status, prospects }`. Tables: `events`, `sponsorships`, `members`, `bookings` (r), `sponsor_prospects` (r/i/u). External: OpenAI, enrichment provider (Clay). Logs usage (`sponsorship_match`).
 
 **`sponsorship/outreach/draft`** (POST) — Body: `{ prospect_id, decision_maker_id?, voice?, steps? (1-5, default 3), note? }`. OpenAI structured sequence (subject + body_paragraphs per step) rendered via `renderClubEmail` (fallback: single templated first-touch). Inserts each step as `sponsor_outreach` row `status='draft'`. Never sends. Response: `{ ok, drafts }`. Tables: `sponsor_prospects`, `events`, `sponsor_decision_makers`, `marketing_voices` (r), `sponsor_outreach` (i).
 
@@ -317,7 +317,7 @@ All routes: `runtime='nodejs'`, `dynamic='force-dynamic'`. No `maxDuration` over
 | `src/app/api/cron/gmail-backfill/route.ts` | GET, POST | Resumable historical Gmail backfill (store+match only, no AI) into `gmail_messages` | Cron secret OR admin session |
 | `src/app/api/cron/gmail-sync/route.ts` | GET, POST | Incremental Gmail sync of configured inboxes into `gmail_messages` | Cron secret OR admin session |
 | `src/app/api/docusign/webhook/route.ts` | GET, POST | DocuSign Connect push notifications; reconciles envelope status | Public; shared-secret query param `?t=` vs `DOCUSIGN_CONNECT_SECRET` |
-| `src/app/api/enquiries/intake/route.ts` | POST | Public contact/concierge form intake: scores, routes, acknowledges, notifies, tasks, enriches | Public |
+| `src/app/api/enquiries/intake/route.ts` | POST | Public contact/concierge form intake: scores, routes, acknowledges, notifies, tasks (does NOT auto-enrich) | Public |
 | `src/app/api/events/book/route.ts` | POST | Member event booking; charges saved card, holds, or falls back to Stripe Checkout | Logged-in member (Supabase session) |
 | `src/app/api/events/checkout/route.ts` | POST | Guest (non-member) event booking via Stripe Checkout, incl. sponsor-link bookings | Public |
 | `src/app/api/events/sync/route.ts` | POST | On-demand reconciliation of a booking with a Stripe Checkout session | Public (gated by possession of `session_id`) |
@@ -339,7 +339,7 @@ All routes: `runtime='nodejs'`, `dynamic='force-dynamic'`. No `maxDuration` over
 
 **`docusign/webhook`** (GET/POST) — GET answers `ok` (Connect config validation probe). POST body: DocuSign Connect event JSON, extracts `envelopeId`. Auth: shared secret `?t=` vs `DOCUSIGN_CONNECT_SECRET` (skipped if unconfigured). Always responds 200 to avoid retry storms. External: DocuSign (`syncSignatureRequest`). Tables: `signature_requests` (r/w).
 
-**`enquiries/intake`** (POST) — Body: `{ first_name, last_name, email, phone?, company?, position?, intent?:string[], message, source? }` (first_name/last_name/email/message required, email regex-validated). Response: `{ ok, id }` or `{ ok:false, error }`. Flow (insert is the only hard-fail step, rest best-effort): score (`scoreEnquiry`) + insert `enquiries` → resolve owner from `app_settings.enquiry_routing` by intent else first admin, update `assigned_to` → acknowledgement email via Resend (`sendClubEmail`) → `notifyAdmins` → follow-up `tasks` row → best-effort enrichment (Apollo, via `enrichEnquiry`). Tables: `enquiries`, `app_settings`, `profiles`, `tasks`.
+**`enquiries/intake`** (POST) — Body: `{ first_name, last_name, email, phone?, company?, position?, intent?:string[], message, source? }` (first_name/last_name/email/message required, email regex-validated). Response: `{ ok, id }` or `{ ok:false, error }`. Flow (insert is the only hard-fail step, rest best-effort): score (`scoreEnquiry`) + insert `enquiries` → resolve owner from `app_settings.enquiry_routing` by intent else first admin, update `assigned_to` → acknowledgement email via Resend (`sendClubEmail`) → `notifyAdmins` → follow-up `tasks` row. No enrichment here — enrichment is manual via the admin Enrich button (`/api/admin/enquiries/enrich`) to control Clay search-quota usage. Tables: `enquiries`, `app_settings`, `profiles`, `tasks`.
 
 **`events/book`** (POST) — Body: `{ event_id, bring_guest?, guest_name?, add_accommodation? }`. Auth: logged-in member. Validates event published/live, capacity, no existing active booking, sponsorship rate if applicable, computes total. Creates `bookings` (pending); if member has usable saved card: auto-confirm→off-session charge (confirmed) or hold (pending, no charge); else falls back to Stripe Checkout (payment or setup mode), returns redirect `url`. Flips `event_invitations`, notifies admins. Response: `{ ok, booking_id, status }` or `{ url, hold }` or `{ error }`. External: Stripe, Resend. Tables: `members`, `events`, `bookings`, `sponsorships`, `event_invitations`, `payments`.
 

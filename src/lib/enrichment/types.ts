@@ -1,5 +1,6 @@
-// Provider-agnostic enrichment shapes. Apollo is one implementation; Clay /
-// Clearbit could map onto the same shapes later with zero downstream change.
+// Provider-agnostic enrichment shapes. Clay (./clay.ts) is the live
+// implementation; any other vendor could map onto the same shapes later with
+// zero downstream change.
 
 export interface EnrichmentCompany {
   domain: string | null
@@ -7,9 +8,9 @@ export interface EnrichmentCompany {
   linkedinUrl: string | null
   industry: string | null
   employeeCount: number | null
-  revenue: number | null // whole USD units (Apollo `annual_revenue`)
-  revenuePrinted: string | null // e.g. "6.9B"
-  description: string | null // company blurb (Apollo `short_description`)
+  revenue: number | null // whole USD units, when the provider gives a figure (Clay: null — bucket only)
+  revenuePrinted: string | null // display string, e.g. a Clay bucket "1B-10B"
+  description: string | null // company blurb
 }
 
 export interface EnrichmentPerson {
@@ -26,15 +27,15 @@ export interface EnrichmentResult {
 
 // ── Sponsor discovery (additive) ─────────────────────────────────────────
 // The sponsorship feature searches for candidate companies and their decision
-// makers. These shapes are provider-agnostic too: Apollo maps onto them today,
-// Clay/Clearbit could later with no downstream change.
+// makers. These shapes are provider-agnostic too: Clay maps onto them today,
+// another vendor could later with no downstream change.
 
 export interface SearchCriteria {
   industries?: string[]
   keywords?: string[]
   employeeMin?: number
   employeeMax?: number
-  revenueMin?: number
+  revenueMin?: number // whole USD
   locations?: string[]
   limit?: number
 }

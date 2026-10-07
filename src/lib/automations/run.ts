@@ -437,8 +437,10 @@ async function processSponsorComms(
 // linked member's profile email. Confirmed/invoiced/paid/declined sponsors
 // have left the open pipeline and are never chased.
 //
-// DEFERRED (blocked): "AI finds ideal sponsors / matches guestlist to brands"
-// needs the lead-enrichment vendor (Apollo/Clay) — not built here.
+// NOT part of this cron: "AI finds ideal sponsors / matches guestlist to
+// brands" lives in Sponsorship Intelligence (POST /api/admin/sponsorship/match),
+// which an admin runs on demand — its cold discovery uses Clay via the
+// enrichment wrapper, so no Clay search quota is spent automatically here.
 const SPONSOR_FOLLOWUP_STAGES: { kind: string; minD: number; maxD: number; eyebrow: string }[] = [
   { kind: 'followup_3d', minD: 3, maxD: 7, eyebrow: 'A gentle follow-up' },
   { kind: 'followup_7d', minD: 7, maxD: 14, eyebrow: 'Still keen to partner' },

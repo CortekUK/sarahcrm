@@ -28,7 +28,7 @@ export const DEFAULT_SYNC_CONFIG: GmailSyncConfig = {
   historyMonths: 24,
   noiseFilter: true,
   inboxes: [
-    { email: 'sarah@theclubbysarahrestrick.com', label: 'Sarah', enabled: false },
+    { email: 'sarah@theclubgroup.co', label: 'Sarah', enabled: false },
     { email: 'leanne@theclubbysarahrestrick.com', label: 'Leanne', enabled: false },
     { email: 'events@theclubbysarahrestrick.com', label: 'Events', enabled: false },
     { email: 'membership@theclubbysarahrestrick.com', label: 'Membership', enabled: false },

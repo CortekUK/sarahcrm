@@ -8,8 +8,9 @@
 //   • action:'send'     — emails the stored proposal to the sponsor via
 //     the shared sendClubEmail() Resend sender.
 //
-// DEFERRED (blocked): "AI finds ideal sponsors / matches guestlist to
-// brands" needs the lead-enrichment vendor (Apollo/Clay) — NOT built here.
+// NOT here: "AI finds ideal sponsors / matches guestlist to brands" lives in
+// Sponsorship Intelligence (POST /api/admin/sponsorship/match), which uses
+// Clay via the enrichment wrapper for cold discovery.
 
 import { NextRequest } from 'next/server'
 import OpenAI from 'openai'

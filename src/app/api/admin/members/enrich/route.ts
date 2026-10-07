@@ -1,8 +1,9 @@
 // POST /api/admin/members/enrich
 //
 // Admin-only manual (re-)enrichment of a single member. Runs the best-effort
-// enrichMember path behind the provider interface (Apollo today, swappable
+// enrichMember path behind the provider interface (Clay today, swappable
 // later). Autofills GAPS ONLY on the member's existing company fields.
+// Each run spends Clay search quota, which is why enrichment is manual only.
 //
 // Body: { memberId: string }
 // Returns: { ok: true, status } or { error }
@@ -14,6 +15,7 @@ import { enrichMember } from '@/lib/enrichment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 function getAdminDb() {
   return createAdminClient<Database>(
@@ -52,8 +54,17 @@ export async function POST(request: Request) {
   }
 
   // ── Enrich (best-effort — never throws) ─────────────────────────
+  // 'failed' (provider error, e.g. the Clay search failed or its quota is used
+  // up) is returned as a 502 with the reason, so the admin sees a failure
+  // toast rather than "Enrichment complete — Status: failed".
   try {
-    const { status } = await enrichMember(getAdminDb(), memberId)
+    const { status, error } = await enrichMember(getAdminDb(), memberId)
+    if (status === 'failed') {
+      return Response.json(
+        { error: error ?? 'Enrichment failed.', status },
+        { status: 502 },
+      )
+    }
     return Response.json({ ok: true, status })
   } catch (e) {
     console.error('[admin/members/enrich] failed:', e)

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { ClampedText } from '@/components/ui/ClampedText'
 import { Avatar } from '@/components/ui/Avatar'
 import {
   Table,
@@ -26,6 +27,9 @@ import {
 } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
+import { apiClient, getApiErrorMessage } from '@/lib/http'
+import { formatEnrichmentSource } from '@/lib/enrichment/source-label'
+import { companyExtrasFromRaw } from '@/lib/enrichment/company-extras'
 import { formatDate, formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import { MemberMatchesPanel } from './MemberMatchesPanel'
 import { MemberDocumentsPanel } from './MemberDocumentsPanel'
@@ -66,6 +70,8 @@ import {
   Sparkles,
   Plus,
   Check,
+  Landmark,
+  Banknote,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -129,6 +135,7 @@ interface MemberDetail {
   enrichment_status: string | null
   enriched_at: string | null
   enrichment_source: string | null
+  enrichment_raw: unknown // provider payload; read via companyExtrasFromRaw
   profiles: {
     first_name: string | null
     last_name: string | null
@@ -676,40 +683,44 @@ export function MemberDetailPage() {
     toast({ title: 'Tag created', description: `"${name}" added and applied.` })
   }
 
-  // Run (or re-run) Apollo enrichment for this member via the admin route.
-  // Autofills gaps only; on success we refetch so the freshly-written company
-  // fields (turnover, employees, sector, LinkedIn, website) visibly update.
+  // Run (or re-run) Clay enrichment for this member via the admin route
+  // (manual only — this is what spends Clay search quota). Autofills gaps
+  // only; on success we refetch so the freshly-written company fields
+  // (turnover, employees, sector, LinkedIn, website) visibly update.
   async function runEnrich() {
     if (!member || !id) return
+    const memberId = id
+    // Refetch so the company fields and the status badge refresh — on success
+    // AND on failure (a failed run is recorded as enrichment_status='failed').
+    // Best-effort: a reload error is ignored.
+    const reloadMember = () => fetchAll(memberId).catch(() => undefined)
     setEnriching(true)
     try {
-      const res = await fetch('/api/admin/members/enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: member.id }),
-      })
-      const json = (await res.json().catch(() => ({}))) as {
+      const { data: json } = await apiClient.post<{
         ok?: boolean
         status?: string
         error?: string
-      }
-      if (!res.ok || !json.ok) {
+      }>('/api/admin/members/enrich', { memberId: member.id })
+      if (!json?.ok) {
+        await reloadMember()
         toast({
           title: 'Enrichment failed',
-          description: json.error ?? 'Please try again.',
+          description: json?.error ?? 'Please try again.',
           variant: 'destructive',
         })
         return
       }
-      await fetchAll(id)
+      await reloadMember()
       toast({
         title: 'Enrichment complete',
         description: `Status: ${ENRICHMENT_LABELS[json.status ?? ''] ?? json.status ?? 'done'}.`,
       })
     } catch (e) {
+      // Non-2xx (server `{ error }`, else "Please try again.") or network error.
+      await reloadMember()
       toast({
         title: 'Enrichment failed',
-        description: e instanceof Error ? e.message : 'Network error.',
+        description: getApiErrorMessage(e, 'Please try again.'),
         variant: 'destructive',
       })
     } finally {
@@ -1139,22 +1150,31 @@ export function MemberDetailPage() {
           has been filled in. */}
       <Card className="mb-6">
         <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <Sparkles size={16} className="text-gold" />
-            <CardTitle>Relationship intelligence</CardTitle>
-            {member.enrichment_status && (
-              <Badge
-                variant={ENRICHMENT_BADGE[member.enrichment_status] ?? 'info'}
-                className="capitalize"
-              >
-                {ENRICHMENT_LABELS[member.enrichment_status] ?? member.enrichment_status}
-              </Badge>
-            )}
+          {/* Wraps as two groups: [icon · title · badge] (badge drops below
+              the title on very narrow screens) and [source · date + button].
+              On narrow widths the second group drops to its own
+              right-aligned line and the meta truncates before the button is
+              pushed out of the card. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <Sparkles size={16} className="text-gold shrink-0" />
+              <CardTitle className="whitespace-nowrap">Relationship intelligence</CardTitle>
+              {member.enrichment_status && (
+                <Badge
+                  variant={ENRICHMENT_BADGE[member.enrichment_status] ?? 'info'}
+                  className="capitalize whitespace-nowrap shrink-0"
+                >
+                  {ENRICHMENT_LABELS[member.enrichment_status] ?? member.enrichment_status}
+                </Badge>
+              )}
+            </div>
             {!editing && (
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2 min-w-0 max-w-full">
                 {member.enriched_at && (
-                  <span className="text-[11px] text-text-dim">
-                    {member.enrichment_source ? `${member.enrichment_source} · ` : ''}
+                  <span className="text-[11px] text-text-dim min-w-0 truncate">
+                    {member.enrichment_source
+                      ? `${formatEnrichmentSource(member.enrichment_source)} · `
+                      : ''}
                     {formatDateTime(member.enriched_at)}
                   </span>
                 )}
@@ -1164,6 +1184,7 @@ export function MemberDetailPage() {
                   icon={<Sparkles size={13} />}
                   loading={enriching}
                   onClick={runEnrich}
+                  className="shrink-0"
                 >
                   {enriching ? 'Enriching…' : member.enriched_at ? 'Re-enrich' : 'Enrich'}
                 </Button>
@@ -1236,6 +1257,7 @@ export function MemberDetailPage() {
               )}
             </Section>
           ))}
+          {!editing && <EnrichedCompanyProfile member={member} />}
         </CardContent>
       </Card>
 
@@ -1817,6 +1839,38 @@ export function MemberDetailPage() {
 }
 
 // ─── Section + DetailRow primitives (same vocabulary as applications) ─
+
+// Read-only "Company profile" block in the Relationship-intelligence card:
+// extra company facts the enrichment provider returned that have no column
+// of their own (headquarters, company type, total funding — kept in
+// enrichment_raw), plus the company description. The description prefers the
+// member's own company_description (admin-editable; enrichment only fills it
+// when empty) and falls back to the provider's. Renders nothing when there's
+// nothing to show; older provider payloads simply yield fewer rows.
+function EnrichedCompanyProfile({ member }: { member: MemberDetail }) {
+  const extras = companyExtrasFromRaw(member.enrichment_raw, member.enrichment_source)
+  const description = member.company_description?.trim() || extras.description
+  if (!description && !extras.headquarters && !extras.companyType && !extras.totalFunding) {
+    return null
+  }
+  return (
+    <Section title="Company profile" icon={<Building2 size={11} />}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+        {description && (
+          <div className="sm:col-span-2 min-w-0">
+            <p className="font-[family-name:var(--font-label)] text-[9.5px] font-medium uppercase tracking-[0.22em] text-text-dim mb-1.5">
+              Company description
+            </p>
+            <ClampedText text={description} lines={3} />
+          </div>
+        )}
+        <DetailRow icon={<MapPin size={13} />} label="Headquarters" value={extras.headquarters} />
+        <DetailRow icon={<Landmark size={13} />} label="Company type" value={extras.companyType} />
+        <DetailRow icon={<Banknote size={13} />} label="Total funding" value={extras.totalFunding} />
+      </div>
+    </Section>
+  )
+}
 
 function Section({
   title,

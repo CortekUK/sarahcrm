@@ -257,7 +257,8 @@ export function SponsorshipHub() {
           {coldLimited && (
             <div className="px-3 py-2.5 rounded-[var(--radius-md)] bg-[rgba(184,151,90,0.08)] border border-[rgba(184,151,90,0.25)]">
               <p className="text-xs text-gold-dark">
-                Cold discovery needs the data vendor / a paid plan — showing warm CRM matches only.
+                Cold discovery couldn’t run (no usable search criteria, or the data
+                vendor’s search quota is used up) — showing warm CRM matches only.
               </p>
             </div>
           )}

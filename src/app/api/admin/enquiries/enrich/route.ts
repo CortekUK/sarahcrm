@@ -1,8 +1,9 @@
 // POST /api/admin/enquiries/enrich
 //
-// Admin-only manual (re-)enrichment of a single enquiry. Runs the same
-// best-effort enrichEnquiry path the public intake uses, behind the provider
-// interface (Apollo today, swappable later).
+// Admin-only manual (re-)enrichment of a single enquiry. Runs the best-effort
+// enrichEnquiry path behind the provider interface (Clay today, swappable
+// later). This is the ONLY way an enquiry gets enriched — the public intake
+// no longer auto-enriches, so Clay search quota is spent deliberately.
 //
 // Body: { enquiryId: string }
 // Returns: { ok: true, status } or { error }
@@ -14,6 +15,7 @@ import { enrichEnquiry } from '@/lib/enrichment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 function getAdminDb() {
   return createAdminClient<Database>(
@@ -52,8 +54,17 @@ export async function POST(request: Request) {
   }
 
   // ── Enrich (best-effort — never throws) ─────────────────────────
+  // 'failed' (provider error, e.g. the Clay search failed or its quota is used
+  // up) is returned as a 502 with the reason, so the admin sees a failure
+  // toast rather than "Enrichment complete — Status: failed".
   try {
-    const { status } = await enrichEnquiry(getAdminDb(), enquiryId)
+    const { status, error } = await enrichEnquiry(getAdminDb(), enquiryId)
+    if (status === 'failed') {
+      return Response.json(
+        { error: error ?? 'Enrichment failed.', status },
+        { status: 502 },
+      )
+    }
     return Response.json({ ok: true, status })
   } catch (e) {
     console.error('[admin/enquiries/enrich] failed:', e)

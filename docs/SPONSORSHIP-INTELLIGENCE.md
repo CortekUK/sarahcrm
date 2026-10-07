@@ -16,12 +16,12 @@ The CRM already had a solid **sponsorship spine** (proposals, ROI, sponsor porta
 - **Prospect pool = WARM-FIRST** (Sarah #9, verbatim): prioritise past sponsors + CRM members flagged `sponsor_aligned` + warm leads; use the data vendor for **selective, clearly-labelled COLD** targets only. Warm always ranks above cold (+20 score boost).
 - **Outreach = AI draft → human review/edit → approve → send.** Nothing sends without an explicit approve. Sends via existing Resend today; **Instantly stubbed** for automated multi-step sequences later.
 - **Two brand voices** reused from the Marketing engine (`marketing_voices` keys `club`/`sarah`) so voice edits apply everywhere.
-- **Vendor-agnostic:** NO sponsorship file names a vendor. Everything sits behind the existing `EnrichmentProvider` abstraction, extended with company- + people-search. Apollo is today's plug-in; **Clay drops in** by implementing `clay.ts` + one env line (see go-live section). User is swapping Apollo→Clay (~late July 2026).
+- **Vendor-agnostic:** NO sponsorship file names a vendor. Everything sits behind the existing `EnrichmentProvider` abstraction, extended with company- + people-search. **Clay** is the live plug-in (Public Search API — see go-live section); Apollo has been removed.
 - **Convert bridge:** a prospect becomes a real event sponsor via "Add to event sponsors" → creates a `sponsorships` row → flows into the existing proposal/invite/ROI/portal tools.
 
 ## Explicitly OUT / deferred (what we did NOT build — pick up here)
 
-1. **Live Clay integration.** Clay has NO synchronous REST search API (it's async table+webhook based — verified against Clay docs). A drop-in synchronous `ClayProvider.searchCompanies()` cannot exist; going live with Clay means either (a) confirm Enterprise-tier lookup API (limited: domain/LinkedIn/email, no criteria company search), or (b) build the async webhook flow (Clay table in + HTTP action out → a new callback route → prospects written back → UI polls). Decision pending with user.
+1. ~~**Live Clay integration.**~~ **DONE** — live via Clay's synchronous Public Search API (see go-live section; the old async-webhook assessment was wrong/obsolete).
 2. **Deck FILE upload.** `deck/parse` route supports `asset_path` (PDF via pdfjs-dist, DOCX via mammoth) **and** pasted `text`. The UI wires only the **paste-text** path — no file-upload-to-`sponsor-assets` control yet (MediaPicker is image/video-only). pptx is unsupported by design (export to PDF).
 3. **Instantly / automated sequences.** The follow-up steps are drafted, but each step is sent **manually** one-by-one via Resend after approval. No automated drip/schedule. `InstantlySender` is a stub that throws.
 4. **Reply / bounce tracking.** `sponsor_outreach` has `response_at`, `response_snippet`, and `replied`/`bounced` statuses, but nothing **populates** them — needs inbound-email parsing (ties into the Gmail-sync chunk). Manual for now.
@@ -51,9 +51,9 @@ Three new admin-only RLS tables (`for all using(is_admin()) with check(is_admin(
 
 - `types.ts`: `SearchCriteria`, `SponsorCandidate`, `DecisionMaker`, `CapabilityStatus` (`ok|unavailable|upgrade_required|error`), `SearchResult<T>`.
 - `provider.ts`: `enrich` stays required; added OPTIONAL `capabilities`, `searchCompanies?`, `searchPeople?`.
-- `index.ts`: `providerCan()` + safe wrappers **`searchSponsorCompanies()`** / **`searchDecisionMakers()`** (feature code calls ONLY these — never a provider directly). Factory `getEnrichmentProvider()` has a Clay branch ahead of Apollo, Stub fallback.
-- `apollo.ts`: `searchCompanies` (`mixed_companies/search`) + `searchPeople` (`mixed_people/search`); people-search **degrades to `upgrade_required`** on 403 / `API_INACCESSIBLE` (free tier). `enrich()` unchanged.
-- `stub.ts`: capabilities false → `unavailable`. `clay.ts`: documented stub (throws / returns error status) with wiring instructions.
+- `index.ts`: `providerCan()` + safe wrappers **`searchSponsorCompanies()`** / **`searchDecisionMakers()`** (feature code calls ONLY these — never a provider directly). Factory `getEnrichmentProvider()` returns Clay when `CLAY_API_KEY` is set, Stub fallback.
+- `clay.ts` (+ `clay-client.ts`, `clay-query.ts`, `clay-constants.ts`): live Clay provider — `searchCompanies`, `searchPeople`, `enrich`; quota exhausted (402) **degrades to `upgrade_required`**. (Apollo provider removed.)
+- `stub.ts`: capabilities false → `unavailable`.
 
 ## Outreach sender seam — `src/lib/sponsorship/outreach/`
 `OutreachSender` interface; `ResendSender` (real, wraps `sendClubEmail`, category `sponsor_outreach`); `InstantlySender` (stub, throws); `getSender(channel)`.
@@ -84,8 +84,12 @@ Sub-agent (Opus) builds one chunk → orchestrator reviews (live RLS check via S
 Discover → rank (warm-first) → decision-makers → AI outreach (2 voices) → review queue → human-gated send → **convert to real event sponsor** → existing proposal/invite/ROI/portal spine. Verified live: tsc clean, build passes (3 pages + 8 API routes incl. `convert`), RLS admin-only, two voices produce distinctly different copy, send works (logged to `email_log`).
 
 ## Current runtime state
-- `ENRICHMENT_PROVIDER=apollo` (free key). Company (cold) search works; **decision-maker/people search returns `upgrade_required`** ("needs a paid vendor plan") until Apollo is upgraded OR Clay is wired.
+- `ENRICHMENT_PROVIDER=clay` + `CLAY_API_KEY` (updated 2026-10-07). Company (cold) search and decision-maker search both run on Clay; `upgrade_required` now means the Clay search quota for the period is used up.
 - Test data seeded: members **Ralph Lauren, Aether Lounge, Mistoria** flagged `sponsor_aligned=true` (reversible — set false to undo).
 
-## ═══ CLAY GO-LIVE (deliberately NOT built; blocked on approach) ═══
-Clay is async table+webhook based — no synchronous search endpoint. Options: (a) **Enterprise lookup API** if the plan allows (limited: domain/LinkedIn/email lookups → maps to `enrich`/`searchPeople`, NOT criteria `searchCompanies`); implement in `src/lib/enrichment/clay.ts`, set `ENRICHMENT_PROVIDER=clay` + `CLAY_API_KEY`, zero feature changes. (b) **Async webhook flow**: Clay table (webhook in + HTTP action out) → new `/api/admin/sponsorship/clay-callback` route → write prospects back → make `match` kick-off async + UI poll. Bigger build. **Decision pending with user.** A Clay API key was provided for later use (to be rotated).
+## ═══ CLAY GO-LIVE — ✅ LIVE (updated 2026-10-07) ═══
+Clay is **live** via Clay's **Public Search API**, which IS synchronous (create a search with `POST /search/query-mode {query}`, run it with `POST /search/query-mode/{search_id}/run {limit}`; rows come back in the same request). The earlier "async table+webhook only" assessment, the Enterprise-lookup option and the `clay-callback` / Growth-plan plan are all **obsolete** — nothing async was needed, and no feature code changed (the wrappers in `src/lib/enrichment/index.ts` stayed the same).
+- `ClayProvider` (`src/lib/enrichment/clay.ts`) implements all three methods: `searchCompanies` (industry enum, or description keywords only when no industry matched / HQ country or city / size + revenue buckets; returns `unavailable` instead of an unfiltered search when no criteria survive), `searchPeople` (people currently at the domain — leadership seniorities, or job titles similar to `role_filters`), and `enrich` (company by domain + named person at the company).
+- Query building + Clay enum values: `clay-query.ts`, `clay-constants.ts`. HTTP (axios, 20s timeout, 429 retry, 402 → quota exhausted): `clay-client.ts`.
+- Apollo has been removed. Factory: Clay whenever `CLAY_API_KEY` is set (`ENRICHMENT_PROVIDER` optional, defaults to `clay`), else Stub.
+- Limits to know: no emails and no seniority in Clay people results (seniority derived from title); company size/revenue are buckets; usage is metered by a per-period **search quota** (402 → `upgrade_required`), so enquiry/member enrichment is **manual-only**.

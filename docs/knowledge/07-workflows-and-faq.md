@@ -107,7 +107,8 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 1. Open the member's detail page → **Relationship intelligence** card → click **Enrich** (or **Re-enrich** if already run once).
 2. Status badges cycle: *Enriching… → Enriched* / *Company found* / *No business domain* (free email addresses like gmail.com can't be enriched to a company).
 3. **It only fills empty fields.** Anything already typed by an admin is never overwritten — safe to re-run any time.
-4. This is powered by the enrichment provider (`src/lib/enrichment/`, currently Apollo — org data works on the free key; person/seniority data needs the client's paid key). A drop-in swap to Clay is the documented next step.
+4. This is powered by **Clay** (`src/lib/enrichment/`, Clay's Public Search API): it looks up the company by its domain (sector, employee band, revenue band, website, company LinkedIn, description) and, if the member's first and last name are known, finds them at that company for their job title, seniority (worked out from the title) and personal LinkedIn. Clay does **not** return email addresses. If Clay itself fails (e.g. the search quota is used up) you'll see an **Enrichment failed** message with the reason — that's different from *Not found*, which means Clay had no record of the company.
+5. Enrichment only ever runs when an admin clicks the button — each click uses Clay search quota, so nothing is enriched automatically.
 
 ### Tagging
 1. Member detail page → **Tags** section.
@@ -190,7 +191,7 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 2. Filters: status, and **owner** (All owners / Unassigned / each admin). Search across name, email, company, message.
 3. Table: From · Subject · Source · Score · Owner · Received · Status. **Source** is the enquiry type (General enquiry, Membership, Sponsorship, Private event, Venue/space hire, Concierge, Press/media, Upcoming event, Contact form). **Score** is the AI lead score, computed deterministically (0-100) at intake.
 4. Every new enquiry is **auto-assigned** to an owner by type — the mapping lives in **Settings → Enquiry Routing** (default owner: First admin). Reassign any row manually.
-5. **Enrich** pulls company/person detail (Company, Website, Industry, Employees, Est. revenue, Company/Person LinkedIn, Seniority, Phone) via the same enrichment provider as members.
+5. **Enrich** pulls company/person detail (Company, Website, Industry, Employees, Est. revenue, Company/Person LinkedIn, Seniority) via Clay, the same provider as members. It is **manual** — new enquiries are NOT enriched automatically (to control Clay search-quota use); click **Enrich** on the enquiry when it's worth looking up. The panel shows which provider filled it (e.g. "Clay"; older rows may name a previous provider).
 6. **Reply via email** composes the reply in-line and sends it as a branded Club email; the row auto-flips to **Replied**.
 7. **Internal notes** — team-only, never shown to the sender.
 8. Qualifying enquiries automatically get a **sales follow-up task** created (a tooltip shows when one has been).
@@ -271,12 +272,12 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 2. Optionally add a **Brief** — free text describing the ideal sponsor (sectors, audience fit, deal size).
 3. Optionally **paste deck text** (the sponsorship deck/prospectus) — it's summarised by AI and blended into the matching criteria. (Only paste-text is wired up; there's no file-upload control for the deck yet.)
 4. Click **Find ideal sponsors**.
-5. Matching is **warm-first**: it prioritises past sponsors and CRM members flagged `sponsor_aligned`, ranks them with a **+20 score boost** over cold results, and only reaches for **cold discovery** (the enrichment vendor) when there are fewer than 8 warm matches. Results split into **Warm (CRM)** and **Cold (discovery)** with tiles: Prospects found · Outreach sent.
+5. Matching is **warm-first**: it prioritises past sponsors and CRM members flagged `sponsor_aligned`, ranks them with a **+20 score boost** over cold results, and only reaches for **cold discovery** (a Clay company search by the audience's sectors; keywords from the event/brief are only used when none of those sectors match a Clay industry) when there are fewer than 8 warm matches. Results split into **Warm (CRM)** and **Cold (discovery)** with tiles: Prospects found · Outreach sent.
 
 ### Prospects (`/sponsorship/prospects`)
 - The shortlist, funnel status: **Cold → Shortlisted → Approved → Replied** (or Dismissed).
 - Each row: Company · Contact · Website · Details, with a **match score** and **AI rationale**.
-- Expand a row for decision-makers (looked up per company) — shows *"No decision-makers found for this company"* when the vendor has none, and a clear "needs a paid vendor plan" message if people-search requires an upgrade (this is the current state on the free enrichment tier).
+- Expand a row for decision-makers (looked up per company via Clay — senior leaders currently at that company: founders, owners, partners, C-suite, VPs, directors, heads) — shows *"No decision-makers found for this company"* when Clay has none, and a clear message if the Clay search quota for the period has been used up. Clay returns names, titles and LinkedIn profiles but **no email addresses** — add the recipient email yourself when drafting outreach.
 - Actions: **Draft outreach** (opens the outreach editor for this prospect), or **Add to event sponsors** — this converts the prospect into a real `sponsorships` row and pushes it into the event's normal Sponsors panel workflow (Playbook 4), stamping `converted_sponsorship_id` so the prospect record and the sponsorship stay linked.
 
 ### Review queue (`/sponsorship/outreach`) — the human gate
@@ -639,3 +640,6 @@ The channel selection is a checklist in the New Campaign modal — only ticked c
 
 **44. What happens if I approve a newsletter asset from the Marketing approval queue directly (skip the email designer)?**
 It's blocked server-side by design — newsletter assets never go through the mock-publish Approve path; you must open it in the email designer and send it from there, which is the real send.
+
+**45. Why wasn't a new enquiry enriched automatically / why are there no emails for decision-makers?**
+Enrichment is deliberately **manual** — it runs only when an admin clicks **Enrich** (enquiries and members) or looks up decision-makers on a sponsor prospect. Every lookup uses the club's Clay search quota (a per-period allowance, not credits), so nothing spends it in the background. Clay's search returns names, titles, LinkedIn profiles and company details but never email addresses. If Clay reports the quota is used up, lookups work again once it resets.
