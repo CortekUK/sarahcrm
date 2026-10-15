@@ -2,10 +2,11 @@
 //
 // The Marketing AI Engine NEVER auto-publishes. A human approves an asset in
 // the approval queue; only THEN does the asset route hand it to a Publisher.
-// This interface is the single seam that a real integration (Metricool) will
-// implement later — see ./metricool.ts. Today, social/blog/PR go through the
-// MockPublisher (./mock.ts) and email channels are handled by the existing
-// Resend pipeline (wired in a later module).
+// This interface is the single seam every publisher implements: social
+// channels go through MetricoolPublisher (./metricool.ts) when Metricool is
+// configured, everything else (and social when it isn't) through the
+// MockPublisher (./mock.ts). Email channels are handled by the existing
+// Resend pipeline.
 
 export type MarketingChannel =
   | 'seo_blog'
@@ -29,6 +30,13 @@ export interface PublishableAsset {
   // mock publisher echoes it into the target so a future Metricool publisher
   // already has the image to attach.
   graphic_url?: string | null
+  // When the piece should go out (marketing_assets.scheduled_at). Metricool
+  // uses it as the publication time if it's in the future.
+  scheduled_at?: string | null
+  // Free-form per-asset publish hints. MetricoolPublisher reads two optional
+  // keys from it (there are no dedicated columns yet):
+  //   video_url  — public video URL, REQUIRED for instagram_reel;
+  //   media_urls — extra public image URLs for instagram_carousel.
   publish_target?: Record<string, unknown> | null
 }
 
@@ -36,6 +44,11 @@ export interface PublishResult {
   ok: boolean
   externalId?: string
   error?: string
+  // true when the piece was handed over as a DRAFT that still needs a final
+  // approval inside the external tool (Metricool draft mode). The asset route
+  // then records it as 'approved' (not 'published') and leaves published_at
+  // empty.
+  draft?: boolean
   // Echoed back so the caller can persist what was (mock-)published where.
   target?: Record<string, unknown>
 }

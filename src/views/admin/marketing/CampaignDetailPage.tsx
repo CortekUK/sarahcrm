@@ -18,11 +18,14 @@ import {
   Handshake,
   ExternalLink,
   Image as ImageIcon,
+  Send,
 } from 'lucide-react'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
-import { Button, Badge, Card, Textarea, Input, Select } from '@/components/ui'
+import { Button, Badge, Card, Textarea, Input, Select, Modal } from '@/components/ui'
 import { MediaPicker } from '@/components/ui/MediaPicker'
 import { cn } from '@/lib/utils'
+import { apiClient, getApiErrorMessage } from '@/lib/http'
+import { toast } from '@/lib/hooks/use-toast'
 import {
   CHANNEL_META,
   CHANNEL_ORDER,
@@ -128,6 +131,23 @@ const STATUS_VARIANT: Record<AssetStatus, 'active' | 'upcoming' | 'draft' | 'urg
   rejected: 'urgent',
 }
 
+// What a Metricool publish left in publish_target (see
+// src/lib/marketing/publish/metricool.ts). null for mock / not-yet-published.
+//   mode 'draft' → sitting as a DRAFT in Metricool's planner (asset status
+//                  stays 'approved' — it is NOT published anywhere yet);
+//   mode 'live'  → scheduled in Metricool, publishes at publicationDate.
+function metricoolInfo(asset: Asset): { mode: 'draft' | 'live'; when: string | null } | null {
+  const t = asset.publish_target
+  if (!t || t.platform !== 'metricool') return null
+  if (asset.status !== 'approved' && asset.status !== 'published') return null
+  const pd = t.publicationDate as { dateTime?: unknown; timezone?: unknown } | undefined
+  const when =
+    pd && typeof pd.dateTime === 'string'
+      ? `${pd.dateTime.replace('T', ' ').slice(0, 16)}${typeof pd.timezone === 'string' ? ` (${pd.timezone})` : ''}`
+      : null
+  return { mode: t.mode === 'live' ? 'live' : 'draft', when }
+}
+
 export function CampaignDetailPage() {
   const params = useParams<{ id: string }>()
   const campaignId = params.id
@@ -228,7 +248,8 @@ function AssetCard({
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(asset.title ?? '')
   const [body, setBody] = useState(asset.body ?? '')
-  const [busy, setBusy] = useState<null | 'save' | 'approve' | 'reject' | 'regenerate'>(null)
+  const [busy, setBusy] = useState<null | 'save' | 'approve' | 'reject' | 'regenerate' | 'resend'>(null)
+  const [resendOpen, setResendOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -239,7 +260,10 @@ function AssetCard({
 
   const meta = channelMeta(asset.channel)
   const Icon = meta.icon
-  const published = asset.status === 'published'
+  const metricool = metricoolInfo(asset)
+  // Locked once published OR once handed to Metricool (even as a draft) — the
+  // server also refuses a second approve so Metricool never gets a duplicate.
+  const published = asset.status === 'published' || metricool !== null
   const isNewsletter = asset.channel === 'newsletter'
   const editorHref = asset.email_template_id
     ? `/dashboard/communications/templates/editor?id=${asset.email_template_id}`
@@ -260,6 +284,34 @@ function AssetCard({
       if (action === 'save') setEditing(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // "Send again" — resets a Metricool-sent asset to in_review (old
+  // publish_target kept under publish_target.previous). It does NOT publish:
+  // the admin clicks Approve again afterwards.
+  async function resetForResend() {
+    setBusy('resend')
+    setError(null)
+    try {
+      const { data } = await apiClient.patch<{ asset: Asset }>(
+        `/api/admin/marketing/assets/${asset.id}`,
+        { action: 'resend' },
+      )
+      onChange(data.asset)
+      setResendOpen(false)
+      toast({
+        title: 'Ready to send again',
+        description: 'Review the post, then click Approve & publish to send it to Metricool.',
+      })
+    } catch (e) {
+      toast({
+        title: 'Could not reset the post',
+        description: getApiErrorMessage(e, 'Please try again.'),
+        variant: 'destructive',
+      })
     } finally {
       setBusy(null)
     }
@@ -318,7 +370,13 @@ function AssetCard({
             )}
           </div>
         </div>
-        <Badge variant={STATUS_VARIANT[asset.status]}>{asset.status.replace('_', ' ')}</Badge>
+        {metricool ? (
+          <Badge variant={metricool.mode === 'draft' ? 'upcoming' : 'active'}>
+            {metricool.mode === 'draft' ? 'Metricool draft' : 'Sent to Metricool'}
+          </Badge>
+        ) : (
+          <Badge variant={STATUS_VARIANT[asset.status]}>{asset.status.replace('_', ' ')}</Badge>
+        )}
       </div>
 
       <div className="px-6 py-4 space-y-3">
@@ -355,6 +413,13 @@ function AssetCard({
           </>
         )}
 
+        {metricool && (
+          <p className="text-xs text-text-dim">
+            {metricool.mode === 'draft'
+              ? `Sent to Metricool as a draft${metricool.when ? ` for ${metricool.when}` : ''} — not published yet. Approve it in Metricool’s planner to publish.`
+              : `Sent to Metricool — scheduled to publish${metricool.when ? ` at ${metricool.when}` : ''}.`}
+          </p>
+        )}
         {error && <p className="text-sm text-accent-warm">{error}</p>}
       </div>
 
@@ -433,6 +498,17 @@ function AssetCard({
               {copied ? 'Copied' : 'Copy'}
             </Button>
             <div className="flex-1" />
+            {asset.publish_target?.platform === 'metricool' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Send size={14} />}
+                loading={busy === 'resend'}
+                onClick={() => setResendOpen(true)}
+              >
+                Send again
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -451,11 +527,47 @@ function AssetCard({
               onClick={() => patch('approve')}
               disabled={published}
             >
-              {published ? 'Published' : 'Approve & publish'}
+              {metricool
+                ? metricool.mode === 'draft'
+                  ? 'Sent to Metricool (draft)'
+                  : 'Sent to Metricool'
+                : published
+                  ? 'Published'
+                  : 'Approve & publish'}
             </Button>
           </>
         )}
       </div>
+
+      <Modal
+        open={resendOpen}
+        onClose={() => {
+          if (busy !== 'resend') setResendOpen(false)
+        }}
+        title="Send to Metricool again?"
+        size="sm"
+      >
+        <p className="text-sm text-text-muted leading-relaxed">
+          This will send the post to Metricool again. If the previous Metricool post/draft still
+          exists, delete it in Metricool&rsquo;s planner first, or you&rsquo;ll get a duplicate.
+        </p>
+        <div className="flex justify-end gap-2 mt-6">
+          <Button
+            variant="ghost"
+            onClick={() => setResendOpen(false)}
+            disabled={busy === 'resend'}
+          >
+            Cancel
+          </Button>
+          <Button
+            icon={<Send size={14} />}
+            loading={busy === 'resend'}
+            onClick={resetForResend}
+          >
+            Send again
+          </Button>
+        </div>
+      </Modal>
     </Card>
   )
 }

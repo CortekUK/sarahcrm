@@ -46,8 +46,9 @@ APPROVAL QUEUE**. It NEVER direct-publishes; a human always reviews/tweaks/appro
 8. **Placement:** new top-level **"Marketing"** section in the admin sidebar.
 
 ## Explicitly OUT / deferred
-- **Metricool live publishing** — mocked now (see decision 2). Real integration blocked on
-  the client connecting a Metricool account.
+- **Metricool live publishing** — originally mocked (see decision 2). **Now built** (draft mode
+  by default); switches on when the client's Metricool credentials are set — see
+  "METRICOOL INTEGRATION — HOW IT WORKS + HOW TO TEST SAFELY" below.
 - **AI graphics** — semi-automatic later (templates + human polish). Not this build.
 - **Event VIDEO understanding** — DROPPED (vision unreliable on long footage). Audio/podcast
   WITH speech IS transcribed (decision 1c). Photos/CRM data are used as-is.
@@ -176,9 +177,10 @@ Add `set_updated_at` triggers via `handle_updated_at()` where an `updated_at` co
   `PublishResult = { ok, externalId?, error? }`.
 - `mock.ts` — `MockPublisher`: logs, returns `ok:true` with a fake id; caller marks asset
   `published` + sets `published_at`. Stores intended target in `publish_target`.
-- `metricool.ts` — stub throwing `NotImplemented` (documented seam for later).
-- `index.ts` — `getPublisher(channel)` returns email-sender for email channels, MockPublisher
-  for social/blog/PR. Selection is the ONLY place to change when Metricool lands.
+- `metricool.ts` — `MetricoolPublisher` (real, draft mode by default — see the Metricool
+  section at the end of this doc). `metricool-client.ts` — its server-side axios client.
+- `index.ts` — `getPublisher(channel)`: MetricoolPublisher for LinkedIn/Instagram when the
+  Metricool credentials are set, else MockPublisher; MockPublisher for blog/PR.
 
 ---
 
@@ -219,8 +221,8 @@ Gate checklist per module:
 > fan-out (3), rule-based segmented email (4), and the searchable Content Library with
 > reuse-as-starting-point (5). Marketing nav now carries **Campaigns / Voices / Segments /
 > Library**. The ONLY remaining blocked piece is **Module 6 / Metricool live publishing**
-> (mocked via `MockPublisher`; blocked on the client connecting a Metricool account — flip
-> the single seam in `src/lib/marketing/publish/index.ts` when it lands).
+> (UPDATE: `MetricoolPublisher` is now built and switches on automatically once the client's
+> Metricool credentials are in env — draft mode by default; see the Metricool section at the end).
 
 ---
 
@@ -258,8 +260,9 @@ Verification query result (live):
   client so the new tables, not in generated types, are queryable).
 - `src/lib/marketing/publish/types.ts` — `Publisher` interface, `PublishableAsset`, `PublishResult`.
 - `src/lib/marketing/publish/mock.ts` — `MockPublisher` (logs, fake externalId, echoes target).
-- `src/lib/marketing/publish/metricool.ts` — documented `MetricoolPublisher` stub that throws.
-- `src/lib/marketing/publish/index.ts` — `getPublisher(channel)`; the ONE seam to swap for Metricool.
+- `src/lib/marketing/publish/metricool.ts` — `MetricoolPublisher` + `buildMetricoolPostBody` (real; draft by default).
+- `src/lib/marketing/publish/metricool-client.ts` — server-side axios client for the Metricool API.
+- `src/lib/marketing/publish/index.ts` — `getPublisher(channel)`; Metricool for social when configured, else mock.
 - `src/app/api/admin/marketing/transcribe/route.ts` — POST audio → OpenAI Whisper → `{ transcript }`.
 - `src/app/api/admin/marketing/generate/route.ts` — POST `{campaign_id, channels, regenerate_asset_id?}`;
   builds source context (event/topic/transcript), OpenAI json_schema structured output, Zod-validated,
@@ -337,8 +340,8 @@ blog/linkedin runs the MockPublisher and flips the asset to `published` + `publi
 - Module 3: `marketing_voices` table + editable voices; LinkedIn dual-voice (currently Club only).
 - Module 4: `marketing_segments` + segmented email send.
 - Module 5: content library over approved assets.
-- Metricool: implement `MetricoolPublisher.publish` and flip channels in
-  `src/lib/marketing/publish/index.ts` (the single seam).
+- Metricool: DONE — `MetricoolPublisher` built; needs credentials + the safe-testing checklist
+  in the Metricool section at the end of this doc.
 
 ---
 
@@ -1239,34 +1242,95 @@ action on the finalised newsletter. Not built.)
    configurable approval levels by action/risk; staff time-tracking extra fields (rate/est-vs-actual cost/status).
    Cold sponsor outreach = targeted + review-before-send. These span Marketing + Gmail + Drive + accountability.
 
-## ═══ METRICOOL INTEGRATION — HOW TO GO LIVE (deliberately NOT built; mocked) ═══
-Social/blog/PR publishing is MOCKED today. The seam is ready so this is a drop-in, not a rewrite.
+## ═══ METRICOOL INTEGRATION — HOW IT WORKS + HOW TO TEST SAFELY ═══
+Approved LinkedIn / Instagram assets publish through **Metricool's planner**. Blog, PR and sponsor-recap
+channels are NOT Metricool social — they stay on the `MockPublisher` (copy-out). Newsletter stays on Resend.
 
-**The single swap point:** `src/lib/marketing/publish/index.ts` → `getPublisher(channel)`. It returns
-`MockPublisher` for the social channels today; flip the relevant channels to return a `MetricoolPublisher`
-(stub already at `src/lib/marketing/publish/metricool.ts`, currently throws NotImplemented). The MockPublisher
-already carries `graphic_url` through in its target payload, so the image is present at swap time.
+**Files**
+- `src/lib/marketing/publish/metricool-client.ts` — server-only axios client. Base
+  `https://app.metricool.com/api`; every call carries `userId` + `blogId` query params and the
+  `X-Mc-Auth: <userToken>` header. `listBrands()` (`GET /admin/simpleProfiles`, read-only),
+  `normalizeMedia(url)` (`GET /actions/normalize/image/url?url=…`), `createPost(body)`
+  (`POST /v2/scheduler/posts`). 20s timeout; retries 429 (GET + POST) and 5xx (GET only — a POST is
+  never repeated on 5xx/timeout because Metricool may already have created the post). Never throws,
+  never logs or returns the token.
+- `src/lib/marketing/publish/metricool.ts` — `MetricoolPublisher.publish(asset)` + `buildMetricoolPostBody`
+  (the ONE place holding Metricool's per-network body fields).
+- `src/lib/marketing/publish/index.ts` — social channels use Metricool **only when token, userId and blogId
+  are all set** (read per request); otherwise the mock, exactly as before.
+- `src/app/api/admin/marketing/metricool/status/route.ts` + `src/views/admin/marketing/MetricoolStatusCard.tsx`
+  — status card on the Marketing hub ("Not connected" / "Configured · Draft mode" / "Connected · Draft mode" /
+  "Connected · LIVE" / "Connection failed") with a read-only **Test connection** button.
 
-**Prerequisites (client-side, currently the blocker):**
-- Client creates/connects a **Metricool account** and connects their Instagram, Facebook & LinkedIn profiles inside it.
-- We obtain **Metricool API access** (API token / OAuth) + the **brand/blog id(s)**; store as env
-  (e.g. `METRICOOL_API_TOKEN`, `METRICOOL_BLOG_ID`) or in a settings table.
+**Config (env, read per request)**
+`METRICOOL_USER_TOKEN` (Account Settings → API), `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID` (both visible in the
+Metricool app URL `…?blogId=00000&userId=0000000`; blogId = the brand), `METRICOOL_TIMEZONE` (default
+`Europe/London`), `METRICOOL_MODE` = `draft` (default) | `live`. **Anything other than exactly `live` is draft.**
+The API needs Metricool's Advanced/Custom plan.
 
-**Implement `MetricoolPublisher.publish(asset)`** (asset = channel, `body` caption, `graphic_url` = the rendered
-PNG's PUBLIC bucket URL (Metricool-fetchable ✓), `scheduled_at`, publish_target):
-- Map channel → network: the 4 LinkedIn variants → LinkedIn; `instagram_feed`/`carousel`/`reel` → Instagram
-  (feed vs reel post type); Facebook as applicable. Blogs/PR are NOT Metricool social — keep copy-out or route
-  to a CMS separately.
-- Create a **scheduled post** via Metricool's API: caption text + media (the public `graphic_url`) + network(s) +
-  schedule time (from `scheduled_at`). Return `{ ok, externalId: <metricool post id> }`; the asset flips to
-  `published`/`scheduled` with the external id (same shape the mock returns now).
-- **Interactive IG Stories** (links/polls/stickers) CANNOT auto-publish (platform rule) → keep "prepared + notify
-  the team to tap-publish" (ties to the team-wide Story notification item above).
+**What happens on Approve (asset route → `MetricoolPublisher`)**
+1. Channel → network: `linkedin` → LinkedIn post; `instagram_feed` → Instagram post; `instagram_carousel` →
+   Instagram post with several media (`graphic_url` + optional `publish_target.media_urls`, max 10; a single
+   image if that's all there is); `instagram_reel` → Instagram REEL, which **requires** a video URL in
+   `publish_target.video_url` (there is no video upload yet, so reels are refused with a clear message — we
+   never post an image as a reel).
+2. Media: each public URL (the rendered graphic is a public Supabase bucket URL) goes through Metricool's
+   normalize call; its returned URL goes in the post's `media`. If normalize fails, nothing is posted.
+   Instagram with no graphic → refused ("render a graphic first"). LinkedIn without a graphic posts text-only.
+3. `publicationDate` = the asset's `scheduled_at` if in the future, else **now + 10 minutes**, as wall-clock
+   `YYYY-MM-DDTHH:mm:ss` in `METRICOOL_TIMEZONE` (Intl; handles GMT/BST).
+4. `draft = METRICOOL_MODE !== 'live'`, `autoPublish = !draft`.
+5. Stored on the asset: `publish_target = { platform:'metricool', network, postType, mode, metricoolPostId,
+   publicationDate, publishAt, media, raw, externalId }`.
+   - **Draft mode** → asset `status='approved'`, `published_at` empty. The card shows a **"Metricool draft"** badge,
+     "Sent to Metricool as a draft … — not published yet. Approve it in Metricool's planner to publish." and the
+     button reads "Sent to Metricool (draft)".
+   - **Live mode** → asset `status='published'` + `published_at`; badge "Sent to Metricool", note "scheduled to
+     publish at …".
+   - The card locks once sent, and the route answers **409** to a second approve, so Metricool never gets a
+     duplicate. To deliberately re-send, click **Send again** on the card (shown only for Metricool-sent assets).
+     After a confirmation ("…delete the previous post/draft in Metricool's planner first, or you'll get a
+     duplicate"), it calls `PATCH …/assets/[id] {action:'resend'}`, which only RESETS the asset: `status='in_review'`,
+     `published_at=null`, and the old `publish_target` is moved into `publish_target.previous[]` (audit trail,
+     with `reset_at`; `video_url`/`media_urls` hints are kept). It never publishes — click **Approve & publish**
+     again to send.
 
-**Batch/scheduling (client req):** approve a content plan/batch once → a scheduler runs `MetricoolPublisher`
-for each approved asset at its `scheduled_at`. Build the batch-approval concept (outstanding item #2) alongside this.
+**Assumptions to confirm with Metricool's planner inspector** (Metricool documents only a Facebook example and
+says the body varies per network — create the same post type in Planning → Calendar with the browser's
+Network tab open, compare, then fix `buildMetricoolPostBody` / the parsers):
+- `media` = array of normalized URL **strings** (vs objects).
+- `instagramData.type` = `'POST'` for feed AND carousel, `'REEL'` for reels; `instagramData.autoPublish` mirrors autoPublish.
+- `linkedinData: { type: 'POST' }` — LinkedIn's block is undocumented (may be optional or named differently).
+- `creationDate` = now in the same timezone; `firstCommentText: ''`, `shortener: false`,
+  `saveExternalMediaFiles: false`, `hasNotReadNotes: false` (copied from Metricool's example).
+- `draft: true` + `autoPublish: false` is how a planner DRAFT is saved.
+- Normalize response: a bare URL string, or `url` / `data` / `data.url` / `mediaUrl` / `normalizedUrl`.
+  The same `/actions/normalize/image/url` endpoint is used for reel videos (Metricool's doc says it copies
+  "image/video").
+- Create-post response id at `id` / `data.id` / `postId` / `data.postId` / `uuid` (the raw reply is kept in
+  `publish_target.raw` so you can see the real shape after the first test).
+- List-brands response: array (root or `data`) of profiles with `id`/`blogId` and `label`/`name`/`title`/`brandName`.
+- Metricool also publishes a `swagger.json`/`swagger.yaml` (linked from their API doc) with the full request
+  schema — worth checking alongside the inspector.
 
-**Verify at integration time:** confirm Metricool's current API supports programmatic scheduled-post creation with
-media (their API surface changes). If it doesn't, fallbacks: (a) generate Metricool's **bulk-CSV** format for
-import, or (b) post directly via the Meta Graph API + LinkedIn API (bigger; needs app review). Metricool stays
-the chosen abstraction; only `MetricoolPublisher` + the `getPublisher` mapping change — nothing else in the engine.
+**How to test safely** (no Metricool sandbox exists)
+1. Set `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID` in env. **Leave `METRICOOL_MODE=draft`.**
+   Prefer a separate **test brand** (its own blogId) connected to private test LinkedIn/Instagram accounts.
+2. Marketing hub → Metricool card → **Test connection** (read-only list of brands). Expect "Connected · Draft
+   mode" and your brand listed; fix credentials if it says "Connection failed" or the blogId isn't in the list.
+3. Approve ONE LinkedIn asset (with a rendered graphic). Expect the "Metricool draft" badge.
+4. Open Metricool → Planning: the post must appear as a **DRAFT** (not scheduled), with the right text,
+   image and time. Check `publish_target.raw` on the asset for the real response shape.
+   To try again after fixing something: delete the draft in Metricool's planner, then **Send again** on the
+   card → confirm → **Approve & publish**.
+5. Create the same kind of post by hand in Metricool's planner with the browser inspector open; compare its
+   body with ours (assumption list above) — repeat for an Instagram feed post and a carousel. Fix
+   `buildMetricoolPostBody` if anything differs.
+6. For real publishing tests, use the **test brand** with private test accounts only.
+7. Only then set `METRICOOL_MODE=live` (redeploy/restart so env is re-read) — the card then shows
+   "Connected · LIVE" and approvals publish for real.
+
+**Still out of scope:** interactive IG Stories (platform rule — prepare + tap-publish), video upload for reels,
+batch approval / a scheduler that publishes at `scheduled_at` (today the publish happens at Approve, with
+`scheduled_at` passed to Metricool as the publication time), Facebook (the body builder supports
+`facebook`, but no channel maps to it yet).

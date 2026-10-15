@@ -288,11 +288,11 @@ Items: `new_contact` (badge "New contact") or `introduction` (badge "Introductio
 
 `/dashboard/marketing/[id]` — approval queue for one campaign's drafts. "Approval queue — review, edit and approve each channel draft. Nothing publishes until you click Approve."
 
-One `AssetCard` per draft (channel icon, voice subline, status Badge: draft/in_review/approved/scheduled/published/rejected).
+One `AssetCard` per draft (channel icon, voice subline, status Badge: draft/in_review/approved/scheduled/published/rejected — or **"Metricool draft"** / **"Sent to Metricool"** when `publish_target.platform='metricool'`, with a note line "Sent to Metricool as a draft for <time> — not published yet. Approve it in Metricool's planner to publish." / "Sent to Metricool — scheduled to publish at <time>.").
 
 **Newsletter:** **"Regenerate"** → `POST /api/admin/marketing/generate {campaign_id, channels, regenerate_asset_id}`; **"Open in email designer"** (if linked template).
 **Editing:** **"Save"** → `PATCH /api/admin/marketing/assets/{id} {action:'save', title, body}`; **"Cancel"**.
-**View mode:** **"Regenerate"**, **"Edit"** (disabled if published), **"Copy"/"Copied"**, **"Reject"** → `{action:'reject'}`, **"Approve &amp; publish"/"Published"** → `{action:'approve'}`.
+**View mode:** **"Regenerate"**, **"Edit"** (disabled if published), **"Copy"/"Copied"**, **"Reject"** → `{action:'reject'}`, **"Approve &amp; publish"/"Published"/"Sent to Metricool (draft)"/"Sent to Metricool"** → `{action:'approve'}` (card locks once published or sent to Metricool). **"Send again"** (only when `publish_target.platform='metricool'`) → confirmation Modal "Send to Metricool again?" (Cancel / Send again) → `PATCH /api/admin/marketing/assets/{id} {action:'resend'}` (resets to in_review; toast "Ready to send again"; then Approve again).
 
 **GraphicSection** (social/LinkedIn): **"Add graphic"/"Edit graphic"/"Close graphic editor"**; toggle "Use image as-is (no text overlay)". As-is: `MediaPicker` + **"Use this image"**. Template mode: Select template, per-slot AI-text inputs, `MediaPicker`, **"Render graphic"/"Re-render graphic"** → `POST /api/admin/marketing/graphics/render`.
 
@@ -308,7 +308,7 @@ Empty: "The library is empty" / "No pieces match these filters".
 
 ### MarketingPage.tsx
 
-`/dashboard/marketing` — campaigns hub. **"New campaign"** (Plus). Table: Campaign, Source, Drafts, Status, Created → row `/dashboard/marketing/{id}`. Empty: "No campaigns yet" / "New campaign".
+`/dashboard/marketing` — campaigns hub. **MetricoolStatusCard** above the table: badge "Not connected" / "Configured · Draft mode" / "Connected · Draft mode" / "Connected · LIVE" / "Connection failed", plus **"Test connection"** (when configured) → `GET /api/admin/marketing/metricool/status?test=1` (read-only). **"New campaign"** (Plus). Table: Campaign, Source, Drafts, Status, Created → row `/dashboard/marketing/{id}`. Empty: "No campaigns yet" / "New campaign".
 
 **"New campaign" modal (lg):** Input "Campaign title"; Select "Source" — An event / A typed topic / An audio recording (transcribed); conditional: event Select, or Textarea "Topic / brief", or audio upload (mp3/m4a/wav/mp4/webm, max 25MB) → `POST /api/admin/marketing/transcribe` → editable "Transcript"; Select "Default voice" (helper: applied to blog/Instagram/press-release/sponsor; LinkedIn always produces all four voices); "Channels to generate" chip toggles ("Select all"/"Clear"; default `seo_blog`+`linkedin`); conditional "Social graphic" Select if a social channel picked.
 

@@ -19,7 +19,7 @@ cron jobs, webhooks, email, deployment. Read-only survey of
 | **Xero (accounting)** | OAuth2-connected accounting sync: contacts, invoices, revenue, spend | **Live** (once an admin completes OAuth) — connection state is persisted in `app_settings.xero_oauth`, checked live by the Settings → Integrations status card | `src/lib/xero/client.ts`, `src/lib/xero/contacts.ts`, `src/lib/xero/invoices.ts`, `src/lib/xero/revenue.ts`, `src/lib/xero/spend.ts`, `src/app/api/admin/xero/{connect,disconnect,sync-contacts,sync-invoices,sync-spend}/route.ts`, `src/app/api/xero/callback/route.ts` (inbound OAuth redirect) | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI`, `XERO_SCOPES` |
 | **WhatsApp Business (Meta Cloud API)** | Send/receive WhatsApp messages, admin-triggered sends, inbound webhook for delivery/read status + inbound messages | **Partially built, blocked on client**: send + webhook plumbing exist, but the full AI WhatsApp assistant (event/ticket enquiries, concierge, Stripe payment links) is **deferred/not built**. Blocked on client obtaining a verified WhatsApp Business Account + Meta Business Verification (see §Pending below) | `src/lib/whatsapp/client.ts` (phone normalization + shared sender + `whatsapp_log`), `src/app/api/admin/whatsapp/send/route.ts`, `src/app/api/whatsapp/webhook/route.ts` (inbound, public, no admin gate — Meta calls it directly) | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_API_VERSION`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_WABA_ID` |
 | **Clay (enrichment)** | Lead enrichment for enquiries + members (admin Enrich buttons) and sponsor discovery for Sponsorship Intelligence (cold company search + decision-maker search) — the platform's only enrichment provider | **Live** via Clay's **Public Search API** (synchronous: create a search, then run it; no webhooks or Clay tables). Enrichment is **manual only** — the public enquiry form no longer auto-enriches — because every search spends Clay's per-period **search quota** (not credits). Company results give name/domain/industry/LinkedIn/description plus size and revenue **buckets** (no website URL — derived as https://domain). People results give name/title/LinkedIn but **no email and no seniority** (seniority is derived from the job title). Quota exhausted (HTTP 402) shows as `upgrade_required`; HTTP 429 is retried automatically | `src/lib/enrichment/clay.ts` (provider), `src/lib/enrichment/clay-client.ts` (HTTP), `src/lib/enrichment/clay-query.ts` + `clay-constants.ts` (query builder + Clay enums), `src/lib/enrichment/provider.ts` (interface), `src/lib/enrichment/index.ts` (factory/dispatch), `src/lib/enrichment/enrich.ts`, `src/lib/enrichment/enrich-member.ts` | `CLAY_API_KEY`, `ENRICHMENT_PROVIDER` (optional, defaults to `clay`) |
-| **Metricool (social publishing)** | Auto-publish approved marketing posts to Instagram/Facebook/LinkedIn | **Stubbed, blocked (client)**: requires Metricool Advanced plan (API access). `MetricoolPublisher.publish()` deliberately `throw`s "NotImplemented" so it can never silently no-op; swap from `MockPublisher` is a one-line change once the API token/userId/blogId arrive | `src/lib/marketing/publish/index.ts` (publisher factory), `src/lib/marketing/publish/metricool.ts` (documented stub), `src/lib/marketing/publish/mock.ts`, `src/lib/marketing/publish/types.ts` | none configured yet (planned: Metricool API token, `userId`, `blogId` — not yet in codebase) |
+| **Metricool (social publishing)** | Publish approved LinkedIn / Instagram marketing posts via Metricool's planner | **Built; awaiting credentials (client)**: requires Metricool Advanced plan (API access). Active only when token + userId + blogId are all set (else the mock publisher, nothing posted). **Safe by default:** `METRICOOL_MODE` defaults to `draft` — posts land as DRAFTS in Metricool's planner and never auto-publish; only exactly `live` publishes. Read-only connection test on the Marketing hub (lists brands). Reels need a video (none yet → refused); Instagram needs a graphic. Some per-network body fields are unconfirmed assumptions — verify via the Metricool planner inspector (docs/MARKETING-AI-ENGINE.md) | `src/lib/marketing/publish/metricool.ts` (publisher + body builder), `src/lib/marketing/publish/metricool-client.ts` (HTTP), `src/lib/marketing/publish/index.ts` (selection), `src/app/api/admin/marketing/metricool/status/route.ts`, `src/views/admin/marketing/MetricoolStatusCard.tsx` | `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`, `METRICOOL_TIMEZONE` (default `Europe/London`), `METRICOOL_MODE` (`draft` default / `live`) |
 | **Twilio / telephony** | AI phone receptionist + onboarding-call recorder | **Not built** (deferred). No code, no env vars present. Design sketch lives in `docs/AI-OPERATIONAL-AGENTS.md` | — | — |
 | **GoCardless** | Direct-debit collection | **Not wired**: member records track direct-debit status manually; no SDK/API calls exist. Only referenced defensively in the integrations-status check | `src/app/api/admin/integrations/status/route.ts` (checks presence only) | `GOCARDLESS_ACCESS_TOKEN` / `GC_ACCESS_TOKEN` (either satisfies the "connected" check; unused elsewhere) |
 
@@ -82,6 +82,11 @@ Source: `.env.local.example` (partial/illustrative) + `grep process.env.` across
 | `WHATSAPP_VERIFY_TOKEN` | Webhook verification handshake token (`hub.verify_token`) |
 | `WHATSAPP_WABA_ID` | WhatsApp Business Account id (present in `.env`) |
 | `CLAY_API_KEY` | Clay Public API key (sent as the `clay-api-key` header). Set = Clay enrichment/discovery on; unset = no-op stub |
+| `METRICOOL_USER_TOKEN` | Metricool API token (Account Settings → API; sent as the `X-Mc-Auth` header). With `METRICOOL_USER_ID` + `METRICOOL_BLOG_ID` set, social approvals go to Metricool; any missing = mock |
+| `METRICOOL_USER_ID` | Metricool user id (from the app URL `...&userId=`) |
+| `METRICOOL_BLOG_ID` | Metricool brand id posts go to (from the app URL `?blogId=`) — use a separate test brand while testing |
+| `METRICOOL_TIMEZONE` | Timezone for the post's wall-clock publication time (default `Europe/London`) |
+| `METRICOOL_MODE` | `draft` (default — posts saved as drafts in Metricool, nothing publishes) or exactly `live` (posts scheduled and auto-published) |
 | `ENRICHMENT_PROVIDER` | Optional override, defaults to `clay`. Any other value (e.g. `stub`) pauses all Clay usage |
 | `GOOGLE_SA_KEY_BASE64` | Base64-encoded full Google service-account JSON key |
 | `GOOGLE_SA_CLIENT_EMAIL` | Service account email (informational/logging) |
@@ -313,8 +318,9 @@ side:
    dev-controlled number. Assistant itself not built (deferred agent).
 3. **Twilio/telephony** — needs an account + number; not built (deferred).
 4. **Metricool** — needs the Advanced plan (~€43/mo, the only tier with API
-   access); publisher stub already in place for a one-line swap once the API
-   token/userId/blogId arrive. Interactive Instagram Stories can never be
+   access); the publisher is built and switches on as soon as the API
+   token/userId/blogId are set (draft mode by default — see "How to test
+   safely" in docs/MARKETING-AI-ENGINE.md). Interactive Instagram Stories can never be
    auto-published via any API regardless of plan (Meta platform limitation) —
    prepared as one-tap manual posts instead.
 
@@ -341,7 +347,7 @@ API) all have full working implementations with real API calls. WhatsApp has sen
 webhook plumbing (`src/lib/whatsapp/client.ts`,
 `src/app/api/whatsapp/webhook/route.ts`, `src/app/api/admin/whatsapp/send`)
 but no AI assistant logic wired to it yet, consistent with "not built
-(deferred agent)". Metricool is a true stub, consistent with the doc.
+(deferred agent)". Metricool is now built (draft mode by default) and only waits on credentials.
 
 **docs/supabase-auth-setup.md** and **docs/V2-BUILD-HANDOVER.md** were not
 read in full detail in this pass (207 and 300 lines respectively) — flagged

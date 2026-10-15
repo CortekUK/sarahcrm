@@ -1,14 +1,26 @@
 // Marketing asset mutations — the approval queue's server side.
 //
 // PATCH /api/admin/marketing/assets/[id]
-//   body: { action: 'save' | 'approve' | 'reject' | 'in_review',
+//   body: { action: 'save' | 'approve' | 'reject' | 'in_review' | 'resend',
 //           title?, body? }
 //
 // ALL status transitions live here (never client-side). Critically, APPROVE is
 // the human publish gate: nothing is ever published without an explicit approve
-// action. On approve for a mock channel (blog/linkedin/social/PR), we route
-// through the publishing adapter (MockPublisher today) and only then stamp
-// status='published' + published_at. Admin only; writes use service-role.
+// action. On approve for a blog/linkedin/social/PR channel, we route through
+// the publishing adapter (getPublisher → Metricool for social when configured,
+// else MockPublisher) and only then stamp the result:
+//   * published normally / Metricool LIVE → status='published' + published_at;
+//   * Metricool DRAFT mode               → status='approved', published_at
+//     left empty, publish_target.mode='draft' (the post sits as a draft in
+//     Metricool's planner until someone approves it there).
+// An asset already handed to Metricool can't be approved again (409), so a
+// double click never creates a second Metricool post. To deliberately send it
+// again, the admin uses 'resend' ("Send again" on the card, behind a
+// confirmation): it only RESETS the asset to 'in_review' — clears
+// published_at and moves the old publish_target into publish_target.previous
+// (an array, oldest first) as an audit trail — so the normal Approve flow
+// works again. It never publishes by itself.
+// Admin only; writes use service-role.
 
 import { NextRequest } from 'next/server'
 import { requireAdmin, getAdmin } from '@/lib/marketing/admin'
@@ -17,9 +29,11 @@ import type { MarketingChannel, PublishableAsset } from '@/lib/marketing/publish
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// Metricool publish = media import + post create (bounded at 50s inside).
+export const maxDuration = 60
 
 interface PatchBody {
-  action?: 'save' | 'approve' | 'reject' | 'in_review'
+  action?: 'save' | 'approve' | 'reject' | 'in_review' | 'resend'
   title?: string
   body?: string
   // Template Graphics — persisted on save/re-render from the approval queue.
@@ -47,7 +61,7 @@ export async function PATCH(
   const admin = getAdmin()
   const { data: asset, error: loadErr } = await admin
     .from('marketing_assets')
-    .select('id, campaign_id, channel, voice, title, body, status, publish_target, graphic_url')
+    .select('id, campaign_id, channel, voice, title, body, status, publish_target, graphic_url, scheduled_at')
     .eq('id', id)
     .single()
   if (loadErr || !asset) {
@@ -68,7 +82,26 @@ export async function PATCH(
     patch.template_id = body.template_id
   }
 
-  if (action === 'reject') {
+  if (action === 'resend') {
+    // Reset only — Approve must be clicked again to actually re-send.
+    const prev = (asset.publish_target as Record<string, unknown> | null) ?? null
+    if (prev?.platform !== 'metricool') {
+      return Response.json(
+        { error: 'Only assets already sent to Metricool can be sent again.' },
+        { status: 400 },
+      )
+    }
+    const { previous, ...sent } = prev
+    const history = Array.isArray(previous) ? previous : []
+    patch.status = 'in_review'
+    patch.published_at = null
+    patch.publish_target = {
+      // Per-asset publish hints the next send still needs.
+      ...(sent.video_url !== undefined ? { video_url: sent.video_url } : {}),
+      ...(sent.media_urls !== undefined ? { media_urls: sent.media_urls } : {}),
+      previous: [...history, { ...sent, reset_at: new Date().toISOString() }],
+    }
+  } else if (action === 'reject') {
     patch.status = 'rejected'
   } else if (action === 'in_review') {
     patch.status = 'in_review'
@@ -82,6 +115,22 @@ export async function PATCH(
         { status: 400 },
       )
     }
+    // Already sent to Metricool (draft or live) → refuse a second post.
+    const prevTarget = (asset.publish_target as Record<string, unknown> | null) ?? null
+    if (
+      prevTarget?.platform === 'metricool' &&
+      (asset.status === 'approved' || asset.status === 'published')
+    ) {
+      return Response.json(
+        {
+          error:
+            prevTarget.mode === 'draft'
+              ? 'Already sent to Metricool as a draft — approve or edit it in Metricool’s planner.'
+              : 'Already sent to Metricool.',
+        },
+        { status: 409 },
+      )
+    }
     const publishable: PublishableAsset = {
       id: asset.id,
       channel,
@@ -89,7 +138,8 @@ export async function PATCH(
       body: (typeof body.body === 'string' ? body.body : asset.body) ?? null,
       graphic_url:
         (typeof body.graphic_url === 'string' ? body.graphic_url : (asset.graphic_url as string | null)) ?? null,
-      publish_target: (asset.publish_target as Record<string, unknown> | null) ?? null,
+      scheduled_at: (asset.scheduled_at as string | null) ?? null,
+      publish_target: prevTarget,
     }
     let result
     try {
@@ -101,9 +151,19 @@ export async function PATCH(
     if (!result.ok) {
       return Response.json({ error: result.error ?? 'Publish failed' }, { status: 502 })
     }
-    patch.status = 'published'
-    patch.published_at = new Date().toISOString()
-    patch.publish_target = { ...(result.target ?? {}), externalId: result.externalId }
+    if (result.draft) {
+      // Metricool draft mode: approved here, NOT published anywhere yet.
+      patch.status = 'approved'
+    } else {
+      patch.status = 'published'
+      patch.published_at = new Date().toISOString()
+    }
+    patch.publish_target = {
+      ...(result.target ?? {}),
+      externalId: result.externalId,
+      // Keep the "Send again" audit trail across re-sends.
+      ...(prevTarget && Array.isArray(prevTarget.previous) ? { previous: prevTarget.previous } : {}),
+    }
   }
   // action === 'save' → content-only, status untouched.
 

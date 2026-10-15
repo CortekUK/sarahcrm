@@ -20,6 +20,7 @@ import {
   TableCell,
 } from '@/components/ui'
 import { supabase } from '@/lib/supabase/client'
+import { MetricoolStatusCard } from './MetricoolStatusCard'
 import { cn } from '@/lib/utils'
 import {
   CHANNEL_META,
@@ -125,6 +126,8 @@ export function MarketingPage() {
           </Button>
         }
       />
+
+      <MetricoolStatusCard />
 
       <Card className="overflow-hidden">
         {loading ? (

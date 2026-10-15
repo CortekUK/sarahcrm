@@ -85,6 +85,7 @@ deviations are called out per-route.
 | `src/app/api/admin/marketing/generate/route.ts` | POST | Generate marketing content (text channels, LinkedIn fan-out, newsletter, graphics assignment) from a campaign source | Admin |
 | `src/app/api/admin/marketing/graphics/preview/route.ts` | GET | Live PNG preview of a template graphic | Admin |
 | `src/app/api/admin/marketing/graphics/render/route.ts` | POST | Render template+values to PNG, upload to storage, return public URL | Admin |
+| `src/app/api/admin/marketing/metricool/status/route.ts` | GET | Metricool connection status (`configured`, `mode`); `?test=1` runs a read-only list-brands call | Admin |
 | `src/app/api/admin/marketing/library/[id]/reuse/route.ts` | POST | Clone a finished library asset into a fresh topic campaign | Admin |
 | `src/app/api/admin/marketing/library/route.ts` | GET | Search/filter the library of finished (approved/published/designer-linked) assets | Admin |
 | `src/app/api/admin/marketing/segments/preview/route.ts` | POST | Live count + sample of members matching segment rules | Admin |
@@ -101,7 +102,7 @@ deviations are called out per-route.
 
 ### Notes
 
-**`marketing/assets/[id]`** (PATCH) — Body: `{ action:'save'|'approve'|'reject'|'in_review', title?, body?, graphic_url?, slot_values?, template_id? }`. Response: `{ asset }`. Approve is the sole human publish gate: non-newsletter channels call `getPublisher(channel).publish()` (mock adapter today), stamp `status='published'`, `published_at`, `publish_target`; newsletter approval is rejected here (400, handled by email designer instead). Tables: `marketing_assets` (r/u).
+**`marketing/assets/[id]`** (PATCH) — Body: `{ action:'save'|'approve'|'reject'|'in_review'|'resend', title?, body?, graphic_url?, slot_values?, template_id? }`. Response: `{ asset }`. Approve is the sole human publish gate: non-newsletter channels call `getPublisher(channel).publish()` (Metricool for LinkedIn/Instagram when configured, else the mock adapter) and store `publish_target`. Normal/LIVE publish → `status='published'` + `published_at`; Metricool **draft mode** → `status='approved'`, `published_at` left empty, `publish_target.mode='draft'`. Re-approving an asset already sent to Metricool → 409 (no duplicate posts). `resend` (Metricool-sent assets only, else 400) resets to `status='in_review'`, `published_at=null`, moving the old target into `publish_target.previous[]` (audit trail) — it does not publish. `maxDuration = 60`; newsletter approval is rejected here (400, handled by email designer instead). Tables: `marketing_assets` (r/u).
 
 **`marketing/campaigns/[id]`** (GET) — Response: `{ campaign, assets:[] }`. Tables: `marketing_campaigns`, `marketing_assets` (r).
 
@@ -120,6 +121,8 @@ deviations are called out per-route.
 **`marketing/segments/preview`** (POST) — Body: `{ rules }` or `{ segment_id }` (Zod-validated: tiers, statuses, types, tag_ids, tag_match). Response: `{ count, sample:[{name,email}] }` (first 8). Tables: `marketing_segments` (r if segment_id).
 
 **`marketing/segments`** (GET/POST/PATCH/DELETE) — GET → `{ segments }`. POST `{ name, rules }` → insert → `{ segment }`. PATCH `{ id, name?, rules? }` → update → `{ segment }`. DELETE `?id=` → `{ ok:true }`. Tables: `marketing_segments`.
+
+**`marketing/metricool/status`** (GET) — Response: `{ configured, mode:'draft'|'live', timezone }`; with `?test=1` and configured, also `brands:[{blogId,name}]`, `brandFound` (configured blogId visible to the token) or `error`. Read-only (Metricool `GET /admin/simpleProfiles`); never returns the token. `maxDuration = 60`.
 
 **`marketing/templates`** (GET/POST/PATCH/DELETE) — Zod schemas for slots (photo/heading/subtext/fixed, zone, align, text_source, style) and background (color/photo). GET → `{ templates }`. POST → insert → `{ template }`. PATCH (body has `id`) → update → `{ template }`. DELETE `?id=` → `{ ok }`. Tables: `marketing_templates`.
 
