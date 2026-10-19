@@ -30,6 +30,7 @@ const LINKS = [
   { href: '/concierge', label: 'Concierge' },
   { href: '/rewards', label: 'Rewards' },
   { href: '/gallery', label: 'Gallery' },
+  { href: '/blog', label: 'Journal' },
   { href: '/reviews', label: 'Testimonials' },
   { href: '/private-event-services', label: 'Private Events' },
 ]

@@ -43,6 +43,8 @@ interface Prospect {
   ai_rationale: string | null
   status: string
   converted_sponsorship_id: string | null
+  // First detected reply to our outreach (set by reply tracking).
+  replied_at?: string | null
   created_at: string
 }
 
@@ -265,6 +267,7 @@ export function ProspectsView({ eventId: eventIdProp }: { eventId?: string }) {
                             Warm{p.source ? ` · ${p.source.replace(/_/g, ' ')}` : ''}
                           </Badge>
                         )}
+                        {p.replied_at && <Badge variant="upcoming">Replied</Badge>}
                         {p.status && p.status !== 'new' && p.status !== 'suggested' && (
                           <span className="text-[10px] uppercase tracking-wide text-text-dim">
                             {p.status}
@@ -475,6 +478,7 @@ function DraftOutreachModal({
 }) {
   const [voice, setVoice] = useState('club')
   const [steps, setSteps] = useState('3')
+  const [gaps, setGaps] = useState(DEFAULT_GAPS)
   const [decisionMakerId, setDecisionMakerId] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -484,6 +488,7 @@ function DraftOutreachModal({
     if (prospect) {
       setVoice('club')
       setSteps('3')
+      setGaps(DEFAULT_GAPS)
       setNote('')
       setError(null)
       const primary = decisionMakers.find((d) => d.is_primary) ?? decisionMakers[0]
@@ -504,6 +509,7 @@ function DraftOutreachModal({
           decision_maker_id: decisionMakerId || undefined,
           voice,
           steps: Number(steps) || 3,
+          delays: parseGaps(gaps),
           note: note.trim() || undefined,
         }),
       })
@@ -533,7 +539,8 @@ function DraftOutreachModal({
         <div className="space-y-5">
           <p className="text-sm text-text-muted">
             Generate a personalised outreach sequence. Nothing is sent — every step lands in the
-            review queue for you to edit, approve and send.
+            review queue for you to edit and approve. Approved follow-ups can be scheduled to go
+            out on their due date, and stop automatically if the prospect replies.
           </p>
 
           <Select
@@ -560,11 +567,21 @@ function DraftOutreachModal({
             label="Steps"
             type="number"
             min={1}
-            max={6}
+            max={5}
             hint="How many touches in the sequence."
             value={steps}
             onChange={(e) => setSteps(e.target.value)}
           />
+
+          {Number(steps) > 1 && (
+            <Input
+              label="Days between steps"
+              placeholder={DEFAULT_GAPS}
+              hint="Comma-separated: e.g. 3, 4 sends step 2 three days after step 1, and step 3 four days after step 2. Each step still needs your approval."
+              value={gaps}
+              onChange={(e) => setGaps(e.target.value)}
+            />
+          )}
 
           <Textarea
             label="Note for the writer (optional)"
@@ -588,6 +605,20 @@ function DraftOutreachModal({
       )}
     </Modal>
   )
+}
+
+// Default follow-up spacing (days after the previous step) — mirrors
+// DEFAULT_FOLLOW_UP_DELAYS in src/lib/sponsorship/outreach/sequence.ts.
+const DEFAULT_GAPS = '3, 4, 7, 7'
+
+// "3, 4,7" → [3, 4, 7]. Blank / invalid entries are dropped (the server falls
+// back to its defaults for any step without a value).
+function parseGaps(v: string): number[] {
+  return v
+    .split(/[,\s]+/)
+    .filter((x) => x.trim() !== '')
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n >= 0)
 }
 
 // Small link surfaced by the Hub after drafting.

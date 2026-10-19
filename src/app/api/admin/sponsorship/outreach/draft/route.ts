@@ -5,17 +5,22 @@
 // persists them as DRAFT sponsor_outreach rows for the human to review.
 //
 // This route NEVER sends. Every message is inserted with status='draft'; a
-// human must approve (via the queue PATCH) and then explicitly send (via
-// send/route.ts). It degrades gracefully to a single templated first-touch
+// human must approve (via the queue PATCH) and then either send it (via
+// send/route.ts) or "approve and schedule" it for the daily sequence runner.
+// All steps from one call share a sequence_id; each follow-up carries
+// delay_days (days after the previous step is sent — from `delays`, else
+// DEFAULT_FOLLOW_UP_DELAYS). It degrades gracefully to a single templated first-touch
 // draft when no OPENAI_API_KEY is set or the call fails, so the queue is never
 // left empty.
 
 import { NextRequest } from 'next/server'
+import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import { z } from 'zod'
 import { requireAdmin, getAdmin } from '@/lib/marketing/admin'
 import { logOpenAIUsage } from '@/lib/ai/usage-logger'
 import { renderClubEmail } from '@/lib/email/club-email'
+import { defaultDelayForStep } from '@/lib/sponsorship/outreach/sequence'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,6 +34,9 @@ interface DraftBody {
   voice?: string | null
   steps?: number | null
   note?: string | null
+  // Days between steps: delays[0] = gap before the 2nd step, delays[1] =
+  // before the 3rd, … Missing entries fall back to the defaults.
+  delays?: number[] | null
 }
 
 // marketing_voices row shape (shared with marketing/generate so voice edits
@@ -225,16 +233,29 @@ export async function POST(req: NextRequest) {
 
     const steps = clamp(Math.round(Number(body.steps ?? 3)) || 3, 1, 5)
 
+    // One sequence per draft call; follow-up timing per step position.
+    const sequenceId = randomUUID()
+    const delayForIndex = (index: number): number => {
+      if (index <= 0) return 0
+      const given = Array.isArray(body.delays) ? Number(body.delays[index - 1]) : NaN
+      return Number.isFinite(given) && given >= 0
+        ? clamp(Math.round(given), 0, 365)
+        : defaultDelayForStep(index)
+    }
+
     const eventTitle = (event?.title as string) || 'an upcoming evening'
     const eventLine = `A partnership on ${eventTitle}.`
 
     // Render + insert one DRAFT row per message. Shared so the AI path and the
     // fallback path persist identically.
-    const insertMessage = async (m: {
-      step: number
-      subject: string
-      body_paragraphs: string[]
-    }): Promise<Record<string, unknown> | null> => {
+    const insertMessage = async (
+      m: {
+        step: number
+        subject: string
+        body_paragraphs: string[]
+      },
+      index: number,
+    ): Promise<Record<string, unknown> | null> => {
       const paragraphs = [greeting, ...m.body_paragraphs.filter((p) => p && p.trim())]
       const bodyHtml = renderClubEmail({
         eyebrow: 'Partnership with The Club',
@@ -242,24 +263,33 @@ export async function POST(req: NextRequest) {
         paragraphs,
       })
       const bodyText = paragraphs.join('\n\n')
-      const { data: ins, error: insErr } = await admin
+      const baseRow = {
+        prospect_id: prospect.id as string,
+        decision_maker_id: dmId,
+        event_id: eventId,
+        step: m.step,
+        channel: 'email',
+        sender: 'resend',
+        voice: voiceKey,
+        subject: m.subject || eventLine,
+        body_html: bodyHtml,
+        body_text: bodyText,
+        status: 'draft',
+        to_email: toEmail,
+      }
+      let { data: ins, error: insErr } = await admin
         .from('sponsor_outreach')
-        .insert({
-          prospect_id: prospect.id as string,
-          decision_maker_id: dmId,
-          event_id: eventId,
-          step: m.step,
-          channel: 'email',
-          sender: 'resend',
-          voice: voiceKey,
-          subject: m.subject || eventLine,
-          body_html: bodyHtml,
-          body_text: bodyText,
-          status: 'draft',
-          to_email: toEmail,
-        })
+        .insert({ ...baseRow, sequence_id: sequenceId, delay_days: delayForIndex(index) })
         .select('*')
         .maybeSingle()
+      if (insErr && /sequence_id|delay_days/.test(insErr.message)) {
+        // Sequences migration not applied yet — keep drafting without timing.
+        ;({ data: ins, error: insErr } = await admin
+          .from('sponsor_outreach')
+          .insert(baseRow)
+          .select('*')
+          .maybeSingle())
+      }
       if (insErr) {
         console.error('[sponsorship/outreach/draft] insert failed:', insErr.message)
         return null
@@ -357,8 +387,8 @@ Write the ${steps}-step outreach sequence (steps 0 to ${steps - 1}).`
     }
 
     const inserted: Record<string, unknown>[] = []
-    for (const m of messages) {
-      const row = await insertMessage(m)
+    for (const [index, m] of messages.entries()) {
+      const row = await insertMessage(m, index)
       if (row) inserted.push(row)
     }
 

@@ -71,8 +71,8 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
    | V. Online Profiles | LinkedIn / Instagram / X / YouTube / TikTok / Website (all optional) |
    | VI. Your Business | Company, sector, position, work email, scale |
    | VII. Choose Membership | Individual / Business / Corporate |
-   | VIII. Select Payment | Annual / Monthly, card details |
-2. At payment, the applicant's card is **saved, not charged**. Nothing is taken from them at this point.
+   | VIII. Select Payment | Annual / Monthly, then card details — or, when Direct Debit is switched on, a choice "How would you like to pay?" between card and **Direct Debit** |
+2. At payment, the applicant's card is **saved, not charged**. Nothing is taken from them at this point. If Direct Debit is switched on and they choose it, they go to a secure Stripe page to set up a UK bank-account mandate instead (**Set up Direct Debit**) — again nothing is collected until an admin approves (see Playbook 12 → Direct Debit).
 3. They land on an "Application received" confirmation page confirming nothing has been charged, and (if email is configured) receive a "we've received your application" email.
 4. It appears in admin **Applications** (`/dashboard/applications`) at status **Pending**.
 5. Admin opens it and reviews every field, grouped: Profile · Contact · Identity (pronouns, nationality, identifies as) · Business (company, industry, role, work email, employees, annual turnover, business stage) · Membership preference (tier, track, payment cadence, preferred location) · Goals & track (who they want to meet, what they can offer) · Online presence · How they heard · Internal notes (private team context).
@@ -107,7 +107,7 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 1. Open the member's detail page → **Relationship intelligence** card → click **Enrich** (or **Re-enrich** if already run once).
 2. Status badges cycle: *Enriching… → Enriched* / *Company found* / *No business domain* (free email addresses like gmail.com can't be enriched to a company).
 3. **It only fills empty fields.** Anything already typed by an admin is never overwritten — safe to re-run any time.
-4. This is powered by **Clay** (`src/lib/enrichment/`, Clay's Public Search API): it looks up the company by its domain (sector, employee band, revenue band, website, company LinkedIn, description) and, if the member's first and last name are known, finds them at that company for their job title, seniority (worked out from the title) and personal LinkedIn. Clay does **not** return email addresses. If Clay itself fails (e.g. the search quota is used up) you'll see an **Enrichment failed** message with the reason — that's different from *Not found*, which means Clay had no record of the company.
+4. This is powered by **Clay** (it replaced Apollo): it looks up the company by its domain (sector, employee band, revenue band, website, company LinkedIn, description — plus a **Company profile** block with headquarters, company type and total funding when Clay has them). The member's **Employee count** is filled with Clay's size **band** as text, e.g. "501-1,000" or "10,001+" — it is a range, not an exact headcount; **Annual turnover** gets Clay's revenue band (e.g. "1B-10B") and, if the member's first and last name are known, finds them at that company for their job title, seniority (worked out from the title) and personal LinkedIn. Clay does **not** return email addresses. If Clay itself fails (e.g. the search quota is used up) you'll see an **Enrichment failed** message with the reason — that's different from *Not found*, which means Clay had no record of the company.
 5. Enrichment only ever runs when an admin clicks the button — each click uses Clay search quota, so nothing is enriched automatically.
 
 ### Tagging
@@ -120,6 +120,7 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 - Scores live on the member profile under **Relationship scores**: Relationship health · Engagement · Churn risk · Upgrade potential · Relationship capital.
 - Computed by `computeMemberScores()` (`src/lib/members/scoring.ts`), recomputed **daily** as part of the automation run — not live/instant.
 - Force a refresh from **Member Success** (`/dashboard/members/success`) → **Recompute now**.
+- **Member Success** also has a **Not opening emails** flag: a member who was sent at least 3 emails in the last 60 days and opened none of them. It needs email open tracking switched on in Resend — until any open has been recorded the flag stays silent for everyone (the page says so under the tiles).
 - **Member Success** is the retention worklist: filters by flag — **At risk** (churn score ≥60) · **Dormant** (no activity 90+ days, or never) · **Renewal soon** (renewing ≤30 days) · **Upgrade ready** (upgrade score ≥70) — and shows each member's **Top reason** in plain English. Empty state: *"Everyone looks healthy."* Work this weekly, not daily.
 - The **Executive** dashboard's "AI recommendations" (Introductions to make / Members at risk / Upsell opportunities / Hot prospects) read these same stored scores.
 
@@ -131,13 +132,23 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 1. **Events** (`/dashboard/events`) → **New event** (or the equivalent create button) → `/dashboard/events/new`.
 2. Fill in: title, slug, description, **event type** (Member Event / Curated Luxury / Retreat), start/end dates, times, venue, capacity, pricing (member/guest/sponsor price, all stored in pence), agenda, speakers, imagery.
 3. Four toggles: **Travel included** · **Accommodation available** · **Guest list visible to members** · **Auto-confirm bookings**.
-4. Save as **draft**, or publish. Status values in order: `draft → published → live → completed → cancelled`.
-5. The six list-screen tabs are: **All · Member Events · Curated Luxury · Retreats · Past · Private Events**. **Private Events** is a separate, simpler list of bespoke commissions shown on the public `/private-event-services` page (its own **Add private event** / Edit / Delete — not the same as a bookable `curated_luxury` event).
+4. Save as **draft**, or publish. Status values in order: `planning → draft → published → live → completed → cancelled` (**Planning** = imported from the planning spreadsheet, see below). An event can only be published once it has a start date, a venue, a capacity and a description.
+5. The seven list-screen tabs are: **All · Member Events · Curated Luxury · Retreats · Past · Planning · Private Events**. **Private Events** is a separate, simpler list of bespoke commissions shown on the public `/private-event-services` page (its own **Add private event** / Edit / Delete — not the same as a bookable `curated_luxury` event).
+
+### Import events from the planning spreadsheet
+1. **Events** → **Import from spreadsheet** → choose the .xlsx or .csv (the Master Events Plan works as it is). Every tab with an **Event** heading row is read; month-grid calendar tabs are skipped.
+2. It previews first — **What this import will do**: *New events* · *Already imported* — then click **Import N events**. Re-uploading the same file is safe: events already imported are skipped, never duplicated or overwritten.
+3. Imported events land on the **Planning** tab with status **planning**: team-only — not on the website, not in the member portal, not bookable, and not counted in the Events stats.
+4. Nothing in the sheet is interpreted: every cell is kept exactly as written in the **From the planning spreadsheet** card on the event (Concept, Purpose, Target audience, Location, Approx date & time, Capacity, Tickets, Sponsorship, Venue, Speaker / partner, Commercial & delivery notes).
+5. Open the event → **Edit** → fill in the real values. A checklist shows what is still missing: **Exact date & start time · One venue chosen · Capacity (a single number) · Description**. When it reads *Ready to publish*, click **Save & publish** (or **Publish event** on the detail page). Trying to publish too early is refused with "This event still needs … before it can be published."
+
+### Past events on the public website
+The public **Events** page (`/events`) shows upcoming events and an archive of past ones. Signed-out visitors can see every **published**, **live** and **completed** event — so finished events stay visible as past events, and recap blog posts can link to them. Planning, draft and cancelled events are never shown publicly.
 
 ### Ticketing / Stripe checkout (public + member side)
 1. Public visitors book at `/events/<slug>`; members book from **Portal → Events** (`/portal/events`) → **Reserve seat** (or "Fully booked" if capacity is hit).
 2. Pricing shown is calculated per viewer — **Complimentary**, a **member tier benefit** rate, or **Your sponsor rate** if they're linked as a sponsor.
-3. Payment runs through Stripe Checkout. On success, a confirmation page reads *"Your seat is held."* or *"Reserved with thanks."* and carries a **QR code** for door check-in.
+3. Payment runs through Stripe Checkout — **card only** (event tickets never offer Direct Debit, even once Direct Debit is switched on for memberships). On success, a confirmation page reads *"Your seat is held."* or *"Reserved with thanks."* and carries a **QR code** for door check-in.
 4. Some bookings land as **Pending** first (rather than auto-confirmed) if the event's **Auto-confirm bookings** toggle is off — these must be actioned in admin **Bookings**.
 
 ### Guest list and invites (event detail page)
@@ -196,7 +207,8 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 7. **Internal notes** — team-only, never shown to the sender.
 8. Qualifying enquiries automatically get a **sales follow-up task** created (a tooltip shows when one has been).
 9. Delete permanently removes the message.
-10. Enquiries also arrive from the **Website Concierge** AI chat widget (`source: concierge_chat`) and can arrive via the same intake route from other channels (e.g. a future WhatsApp assistant) — they all land here identically.
+10. When the Website Concierge arranged a call, the row shows **"Call requested: preferred …"** (or **"Call booked: …"** once calendar booking is on) under the name, the enquiry opens with a call panel (team, times, Google Meet link if booked), and the follow-up task is titled "Call requested: <name> — preferred … (<team>)". See Playbook 11 → Website Concierge.
+11. Enquiries also arrive from the **Website Concierge** AI chat widget (`source: concierge_chat`, shown as "AI Concierge") and can arrive via the same intake route from other channels (e.g. a future WhatsApp assistant) — they all land here identically.
 
 ---
 
@@ -237,16 +249,29 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
    - **An event** (pick from the list),
    - **A typed topic / brief** (free text: angle, key points),
    - **An audio recording** — upload mp3/m4a/wav up to 25 MB; it's transcribed via OpenAI Whisper and you can **edit the transcript** before generating.
-2. Tick the **channels to generate** (grouped): Blogs (**SEO blog**, **Recap blog**), **LinkedIn** (always produces FOUR drafts: The Club voice, Sarah voice, a Sponsor angle, a Founder-spotlight angle — regardless of the default voice picked), Instagram (**Feed**, **Carousel**, **Reel**), **Newsletter**, **Press release**, **Sponsor recap**.
+2. Tick the **channels to generate** (grouped): Blogs (**SEO blog**, **Recap blog**), **LinkedIn** (always produces FOUR drafts: The Club voice, Sarah voice, a Sponsor angle, a Founder-spotlight angle — regardless of the default voice picked), Instagram (**Feed**, **Carousel**, **Reel**), **Facebook** (a warm page post; image optional), **TikTok** (a short caption of 1–3 punchy lines ending in 3–6 hashtags, under ~300 characters, plus an on-screen hook as the title; needs a vertical image), **Newsletter**, **Press release**, **Sponsor recap**.
 3. Pick the **Default voice** — The Club or Sarah — applied to every single-voice text channel.
 4. Choose a graphic option (template graphic auto, a specific template, or caption-only).
 5. **Create & generate.**
 6. Land on the campaign detail / approval queue: one card per channel (+4 for LinkedIn), each showing a status badge starting at **draft**.
 7. Per card: **Edit** the copy inline → **Save**; **Regenerate** (replaces just that card's draft — LinkedIn regenerate touches only the one variant you clicked); **Copy** (clipboard); **Reject** (→ rejected); **Approve & publish** (→ published, timestamps `published_at`).
-   - Blog/LinkedIn/Instagram/PR/sponsor-recap channels route through a **publishing adapter** on Approve. **LinkedIn and Instagram** go to **Metricool** when it is connected (see the Metricool status card on the Marketing hub): in the default **Draft mode** the post is saved as a DRAFT in Metricool's planner — the card shows a "Metricool draft" badge and "Sent to Metricool as a draft — approve it in Metricool's planner to publish" and the asset stays **approved**, not published. Only when the team switches Metricool to **LIVE** mode does Approve schedule a real post (badge "Sent to Metricool", status published). Blog/PR/sponsor-recap — and social when Metricool isn't connected — use a mock publisher that marks the piece published without posting anywhere; use **Copy** to post those manually.
-   - Instagram posts need a rendered graphic, and Instagram **Reels** need a video (there is no video upload yet, so reels are refused with a clear message — post them manually in Metricool).
+   - **LinkedIn, Instagram, Facebook and TikTok** go to **Metricool** when it is connected (see the Metricool status card on the Marketing hub): in the default **Draft mode** the post is saved as a DRAFT in Metricool's planner — the card shows a "Metricool draft" badge and "Sent to Metricool as a draft — approve it in Metricool's planner to publish" and the asset stays **approved**, not published. Only when the team switches Metricool to **LIVE** mode (`METRICOOL_MODE=live`) does Approve schedule a real post (badge "Sent to Metricool", status published). If Metricool isn't connected, social posts are just marked published without posting anywhere — use **Copy** to post manually.
+   - **Blogs (SEO blog, Recap blog) publish to the club's own website** — see "Publish a blog to the website" below. **Press release** and **Sponsor recap** are copy-out only (marked published, nothing posted).
+   - Instagram posts need a rendered graphic, and Instagram **Reels** need a video (there is no video upload yet, so reels are refused with a clear message — post them manually in Metricool). **Facebook** and **LinkedIn** can post text-only. **TikTok** needs an image: any template graphic is rendered **vertical 9:16 (1080×1920)** for TikTok, and an "as-is" image should be 9:16 too. TikTok photo posts **may need a final one-tap publish in the TikTok app** — music, stickers and effects can't be added automatically.
    - The **Newsletter** card is read-only in the queue — no Approve/Reject/Edit there. It shows **Open in email designer**, which deep-links to `/dashboard/communications/templates/editor?id=<id>` where you finish, approve and send it for real through Resend.
 8. **Nothing publishes until you click Approve** (or, for the newsletter, until you send it from the email designer).
+
+### Publish a blog to the website (the Journal)
+1. Generate an **SEO blog** or **Recap blog** in a campaign. The AI writes an SEO title, an opening paragraph used as the page's meta description, 2–3 internal links to real pages on the site, and a closing call to action.
+2. On the blog card, edit the copy if needed and optionally pick a **Hero image** (otherwise the linked event's cover image is used).
+3. Click **Approve & publish to website**. The post goes live straight away in **The Journal** at `/blog` (newest first) and on its own page `/blog/<slug>`; the card shows **Live on website** and **View on website**. "Journal" is in the website menu and footer.
+4. The team is told **in-app, not by email**: an unassigned task "Blog post live on the website: <title>" appears in **Tasks** so someone reviews it on the site.
+5. To take it down: **Unpublish** on the card → confirm. It disappears from the website and the card returns to *in review*. Edit and approve again to re-publish at the **same address**. A live post can't be approved again until it's unpublished.
+
+### Metricool — status card, Test connection, Send again
+- The **Metricool** card on the Marketing hub shows **Not connected** / **Configured · Draft mode** / **Connected · Draft mode** / **Connected · LIVE** / **Connection failed**. **Test connection** is read-only (it only lists the brands it can see).
+- **Draft mode is the default**: approved posts land as drafts in Metricool's planner and nothing goes live until someone approves them inside Metricool. Live mode is only turned on by a developer setting `METRICOOL_MODE=live`.
+- An asset already sent to Metricool can't be approved twice. To re-send it, delete the old draft/post in Metricool's planner first, then click **Send again** on the card and confirm — that only resets it to *in review*; click **Approve & publish** to send it again.
 
 ### Library (`/marketing/library`)
 - Every finished piece — **approved, published, or a newsletter handed to the designer**. Search by title/body; filter by **channel · voice · event · sponsor**.
@@ -284,10 +309,19 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
 ### Review queue (`/sponsorship/outreach`) — the human gate
 - *"Every drafted step waits here. Edit the copy, approve it, then send — nothing leaves until you approve and click Send."*
 - Filter by event, status, voice.
-- Per draft: **To/Recipient**, **Subject**, **Body**, its **Steps** in the sequence (first touch + follow-ups, drafted by the same AI), **Voice** (Club/Sarah, reusing the Marketing voices), and a **Note for the writer** field.
+- Per draft: **To/Recipient**, **Subject**, **Body**, its place in the **Sequence timeline** (first touch + follow-ups, drafted by the same AI), **Send after (days)**, **Voice** (Club/Sarah, reusing the Marketing voices). Status filter: Draft · Approved (send by hand) · Scheduled · Sent · Replied · Bounced · Failed · Cancelled.
 - Edit → **Approve** → **Send**. Trying to send an unapproved draft is blocked with the exact message **"Approve first."**
-- Sending today goes out via the existing Resend pipeline (logged same as any club email). An "Instantly" automated-sequence sender exists only as a documented stub — not live.
-- Reply/bounce tracking on outreach is not yet automatic — `response_at`/`replied`/`bounced` fields exist but nothing populates them yet; treat replies as manual for now.
+- Emails go out through the club's Resend email (logged like any club email), with **Reply-To set to Sarah's inbox** so replies land in a mailbox the CRM syncs.
+
+### Follow-up sequences (send the follow-ups automatically, after approval)
+1. On a prospect, click **Draft** → in **Draft outreach** choose Voice, Recipient, **Steps** (how many touches — up to 5) and **Days between steps** (default `3, 4, 7, 7`: step 2 goes 3 days after step 1, step 3 four days after step 2…) → **Add drafts to queue**. Nothing is sent.
+2. In the **Review queue**, open each step and either **Approve** (you'll send it yourself with **Send**) or **Approve & schedule** — the daily automation then sends it when it's due. Every step needs its own approval.
+3. Timing: a step's due date is set only once the step before it has been sent (that send time + its *Send after (days)*). A scheduled first touch is due straight away, so it goes out at the next daily run (or click **Send now**). The daily run happens at the automation send hour (Settings → Automation Send Time, default 07:00 UK) and appears on the Automations page as **"Sponsor outreach — scheduled follow-ups"**.
+4. **Editing an approved step returns it to draft** — re-approve it (and re-schedule) before it can go.
+5. Controls: **Schedule/Unschedule**, **Unapprove**, **Cancel step**, **Back to draft** (for a cancelled/failed step), and **Stop sequence** (cancels every step not yet sent).
+6. **Auto-stop on reply:** after every Gmail sync (every 15 minutes) the CRM checks Sarah's synced inbox. A reply from the recipient — or from a colleague at the same company replying on the same subject — marks the step **Replied**, cancels the prospect's remaining steps and shows a **Replied** badge. Out-of-office and auto-replies are ignored.
+7. **Bounces:** a bounced email is marked **Bounced** and any remaining steps to that address are cancelled. **Opened** badges appear once Resend open tracking is on.
+8. For reply detection to work, **Settings → Email Sync → Enable email sync** must be on and Sarah's inbox must be one of the synced inboxes. A reply from a personal address or a different company domain is not caught — use **Stop sequence** by hand.
 
 ### The rest of the sponsorship spine (already existed before this intelligence layer)
 - **Proposal**: from the event's Sponsors panel, **Generate proposal** (AI) → review → **Send**.
@@ -326,6 +360,11 @@ Staff logins are entirely separate from admin CRM access (enforced by RLS, not j
 
 ### Website Concierge
 - A public AI chat widget on the marketing site (bottom-left floating launcher, night-palette panel) that qualifies visitors conversationally and, when ready, creates a CRM **Enquiry** automatically (`source: concierge_chat`) via the same intake pipeline as the `/contact-us` form — so it gets scored, routed and acknowledged identically. It never talks about anything outside its scope, has multiple abuse protections (honeypot field, message caps, per-IP rate limits), and degrades to a calm canned reply rather than erroring if the AI call fails.
+- **Suggests events:** it knows the upcoming public events (published or live, next six months) and can show up to three as cards linking to their event pages. Planning and draft events are never suggested.
+- **Asks about turnover:** in membership/business conversations it asks once, lightly, for approximate annual turnover (a range is fine) and never insists. The answer is added to the enquiry as "Approx. turnover: … (stated by the visitor)".
+- **Never loses a lead:** once it has a first name and a valid email, the enquiry is filed even if the visitor runs out of messages before finishing — noted "Filed automatically: the conversation reached its message limit."
+- **Call requests:** if a visitor wants to talk, it routes them to the **Membership team**, the **Events team** or **Sarah** (only when asked for by name) and, today, collects their preferred days/times. The enquiry shows **"Call requested: preferred …"** and a high-priority follow-up task "Call requested: <name> — preferred … (<team>)" is created, due the next business day; the enquiry is filed under the matching type, so its owner comes from Settings → Enquiry Routing. Someone then calls them back.
+- **Calendar booking is built but OFF.** When a developer switches it on (`CONCIERGE_BOOKING_ENABLED=true`, after the Google Workspace admin grants the calendar scopes), the concierge offers real free slots (weekdays 10:00–17:00 UK, 30 minutes), books the chosen one with a Google Meet link and an invite to the visitor, and the Enquiries page shows a **"Calls booked by the AI Concierge"** strip (Open / Mark read). Rescheduling or cancelling a booked call is done by hand in Google Calendar.
 
 ### Deferred agents (documented, not built — need external accounts)
 - **WhatsApp AI Assistant** — blocked on WhatsApp Business Meta verification.
@@ -345,7 +384,14 @@ None of these exist as working features yet; if asked, say they are planned and 
 5. **Event P&L** — per event Revenue/Cost/Profit/Margin (fed by the event Expenses panel).
 6. **Revenue by member & LTV** table, now including the Xero spend column.
 7. **Overdue Invoices** — the chase list, and the thing that drives the red Finance sidebar badge.
-8. **Recent Payments** — Date · Member · Type · Method · Amount · Due Date · Status; click a row for **Payment Details**. Payment types: Membership, Invoice, Applicant, Sponsorship, Concierge, Referrals. Methods: Stripe, GoCardless (GoCardless is wired in code but only Stripe is a genuinely connected processor until the client provides GoCardless credentials).
+8. **Recent Payments** — Date · Member · Type · Method · Amount · Due Date · Status; click a row for **Payment Details**. Payment types: Membership, Invoice, Applicant, Sponsorship, Concierge, Referrals. Methods: Stripe (card, or Direct Debit through Stripe Bacs). **GoCardless is not integrated** — UK Direct Debit runs through Stripe instead.
+
+### Direct Debit (UK bank account, via Stripe Bacs)
+- An **extra** way for members to pay membership fees, alongside card. Card stays the default and nothing about card payments changes. **Event tickets stay card-only.**
+- **Currently OFF.** It switches on only when Bacs Direct Debit is activated in the club's Stripe account and a developer sets `NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true` (then redeploys). Until then the option is hidden everywhere. Settings → Integrations → **Direct Debit (via Stripe)** shows Connected only when it's on.
+- **New applicants** choose card or Direct Debit at the payment step; Direct Debit opens a secure Stripe page for their bank details and mandate. Nothing is collected until you approve. At approval the first payment is *submitted* and shows as **pending** — Bacs takes 3–5 working days to clear, then it flips to paid (or failed) automatically.
+- **Existing members** set it up themselves in **Portal → Billing**: **Pay by Direct Debit** (switch an existing subscription's future renewals to Direct Debit) or **Set up with Direct Debit** (no subscription yet). Stripe sends the mandate confirmation and advance-notice emails.
+- **Admins see the mandate** on the member's page → **Subscription** card: *Direct Debit pending* (the bank confirms new mandates in about 3 working days) · *active* · *failed* · *cancelled*, plus the mandate reference. If it shows failed or cancelled, future renewals will fail until the member sets Direct Debit up again or adds a card.
 
 ### Commissions (`/dashboard/commissions`)
 - Two directions, deliberately kept separate and never netted: **Receivable** (the Club earns — from introductions/concierge) and **Payable** (the Club owes members — from referrals).
@@ -391,7 +437,7 @@ Contracts live inside **Communications → AI Templates** (`/dashboard/communica
 
 ---
 
-## PLAYBOOK 15 — Automations (the nine lifecycle flows)
+## PLAYBOOK 15 — Automations (the nine lifecycle flows, plus sponsor outreach follow-ups)
 
 `/dashboard/automations` — inspect and, if needed, force the flows that otherwise run entirely on their own.
 
@@ -406,6 +452,7 @@ Contracts live inside **Communications → AI Templates** (`/dashboard/communica
 | Invoice chasing | Members with an overdue/past-due balance |
 | Introduction scheduled | Both members of a scheduled introduction |
 | Sponsor follow-up | Sponsors still at Proposed — chasers at 3 / 7 / 14 days |
+| Sponsor outreach — scheduled follow-ups | Sponsor prospects — only outreach steps an admin **approved and scheduled** in the Sponsorship Review queue, once each is due (stops automatically when the prospect replies) |
 
 1. The page **auto-loads a preview** on open: per flow, candidates · already handled · pending · sent · failed, with named recipients.
 2. **Preview** re-runs the dry run (safe, sends/writes nothing). **Run now** sends for real behind a confirmation: *"This sends real emails to everyone currently due… Anyone already emailed is skipped automatically. Preview first if unsure."* Every flow has a dedup ledger so nobody is ever emailed twice for the same stage even if the cron fires more than once.
@@ -436,11 +483,13 @@ Contracts live inside **Communications → AI Templates** (`/dashboard/communica
 
 Every real, bookable "curated luxury" event lives under **Events**, event type `curated_luxury` — never under Past Highlights, which is a static showcase tile with no capacity, price or booking flow.
 
+**The Journal (`/blog`) is not edited here.** Blog posts reach the website from **Marketing → Campaigns**: approve an SEO or Recap blog with **Approve & publish to website**, and take it down with **Unpublish** (Playbook 7).
+
 ---
 
 ## PLAYBOOK 17 — Automations catalogue, triggers, and creating one
 
-Automations in this platform are **not** admin-configurable trigger→action builders — they are the nine fixed lifecycle flows in Playbook 15, tuned in code, inspected and force-run from `/dashboard/automations`. There is no drag-and-drop "if this then that" builder. If asked "how do I create a new automation," the honest answer is: this platform doesn't have a custom automation builder — the nine flows are the automation catalogue, and anything beyond them (e.g. a tenth lifecycle stage) requires a code change, not a UI configuration. What IS admin-configurable per flow: the daily **send hour** (Settings → Automation Send Time) and, for enquiries specifically, **routing rules** (Settings → Enquiry Routing).
+Automations in this platform are **not** admin-configurable trigger→action builders — they are the nine fixed lifecycle flows in Playbook 15 (plus the sponsor outreach follow-up sender and finance escalation), tuned in code, inspected and force-run from `/dashboard/automations`. There is no drag-and-drop "if this then that" builder. If asked "how do I create a new automation," the honest answer is: this platform doesn't have a custom automation builder — the nine flows are the automation catalogue, and anything beyond them (e.g. a tenth lifecycle stage) requires a code change, not a UI configuration. What IS admin-configurable per flow: the daily **send hour** (Settings → Automation Send Time) and, for enquiries specifically, **routing rules** (Settings → Enquiry Routing).
 
 ---
 
@@ -449,7 +498,7 @@ Automations in this platform are **not** admin-configurable trigger→action bui
 `/dashboard/settings`:
 1. **Club Details** — Club Name, Contact Email, Phone Number, Website URL, Club Description.
 2. **Membership Plans** — Plan · Monthly Price · Monthly Intros · Type · Status (also editable from Website → Membership Plans).
-3. **Integrations** — live status read from actual environment variables, never hard-coded: **Stripe** (event/one-off payments) · **GoCardless** (recurring membership direct debit) · **Xero** (accounting sync — Connect/Disconnect + Sync buttons) · **Resend** (transactional email). Each reads **Connected** or **Not connected**.
+3. **Integrations** — live status read from actual environment variables, never hard-coded: **Stripe** (card payments) · **Direct Debit (via Stripe)** (UK Bacs Direct Debit for membership fees — used instead of GoCardless; Connected only once switched on) · **Xero** (accounting sync — Connect/Disconnect + Sync buttons) · **Resend** (transactional email). Each reads **Connected** or **Not connected**.
 4. **Team** — the admin users.
 5. **Email Sync** — Enable email sync, Sync history (months), Noise filter.
 6. **Media Folders** — browse the connected Google Drive, **Approve** which folders the platform may read, set the **media owner** (whose Drive is used), scope All media / per-folder.
@@ -475,7 +524,7 @@ Eight tabs:
 4. **Rewards** — claim partner offers, see claim history.
 5. **Introductions** — accept/decline proposed introductions, record outcomes.
 6. **Network** — the member directory; request an introduction to anyone.
-7. **Billing** — subscription state, next billing date, **Set up subscription** / **Manage billing** (opens the Stripe customer portal for their own card), full payment history.
+7. **Billing** — subscription state, next billing date, **Set up subscription** / **Manage billing** (opens the Stripe customer portal for their own card), full payment history. When Direct Debit is switched on: **Set up with Direct Debit** / **Pay by Direct Debit**, plus a *Payment method* row with the mandate status and reference.
 8. **Profile** — name, bio, photo, contact, company detail, objectives ("What you're working towards" / "Who you'd like to meet"), and **Tags & interests** (Industry / Looking For / Interests). The quality of these fields directly drives the quality of the introductions the platform will suggest to and for them — coach new members to fill this in fully.
 
 ---
@@ -586,13 +635,13 @@ Commissions are never created directly in the Commissions tab — they only appe
 That's the sponsor portal's empty state — it means every deliverable (assets, deadlines, guest allocation, other items) is already satisfied or none have been set for that sponsor yet.
 
 **26. What happens when I click "Approve & publish" on a marketing draft?**
-LinkedIn and Instagram drafts go to **Metricool** if it's connected (Marketing hub → Metricool card shows "Connected · Draft mode" or "Connected · LIVE"). In **Draft mode** (the default) the post lands as a DRAFT in Metricool's planner and nothing goes live until someone approves it inside Metricool — the card shows "Metricool draft" and the asset stays *approved*. In **LIVE** mode it is scheduled (your scheduled time, or ~10 minutes from now) and will publish to the real account. If Metricool isn't connected, or for blog/PR/sponsor-recap channels, the mock adapter just marks it published — use **Copy** to post manually. Newsletter drafts skip this entirely and are sent for real from the email designer.
+LinkedIn, Instagram, Facebook and TikTok drafts go to **Metricool** if it's connected (Marketing hub → Metricool card shows "Connected · Draft mode" or "Connected · LIVE"). In **Draft mode** (the default) the post lands as a DRAFT in Metricool's planner and nothing goes live until someone approves it inside Metricool — the card shows "Metricool draft" and the asset stays *approved*. In **LIVE** mode it is scheduled (your scheduled time, or ~10 minutes from now) and will publish to the real account. If Metricool isn't connected, or for PR/sponsor-recap channels, it is just marked published — use **Copy** to post manually. **Blogs are different:** the button reads **Approve & publish to website** and the post really goes live in the website's Journal (`/blog`). Newsletter drafts skip this entirely and are sent for real from the email designer.
 
 **26a. How do I test Metricool safely / why did Approve fail with a Metricool error?**
-Leave Metricool in Draft mode, click **Test connection** on the Marketing hub (read-only — it only lists brands), then approve one LinkedIn post and check it appears as a DRAFT in Metricool's planner. Common errors: "Instagram posts need an image" (render a graphic first), "Reels need a video" (post the reel manually), "Metricool could not import the graphic" (the image URL must be public), "rejected the credentials" (token/userId/blogId wrong or plan lacks API access). If an error says the post "may still have been created", check Metricool's planner before approving again. An asset already sent to Metricool can't simply be approved a second time — to re-send it (e.g. after fixing a field), first delete the old post/draft in Metricool's planner, then click **Send again** on the asset card and confirm. That resets the asset to *in review* (the previous Metricool details are kept in its history) without sending anything; then click **Approve & publish** to send it again.
+Leave Metricool in Draft mode, click **Test connection** on the Marketing hub (read-only — it only lists brands), then approve one LinkedIn post and check it appears as a DRAFT in Metricool's planner. Common errors: "Instagram posts need an image" (render a graphic first), "TikTok posts need at least one image (or a video)" (add or render a graphic — nothing was sent), "Reels need a video" (post the reel manually), "Metricool could not import the graphic" (the image URL must be public), "rejected the credentials" (token/userId/blogId wrong or plan lacks API access). If an error says the post "may still have been created", check Metricool's planner before approving again. An asset already sent to Metricool can't simply be approved a second time — to re-send it (e.g. after fixing a field), first delete the old post/draft in Metricool's planner, then click **Send again** on the asset card and confirm. That resets the asset to *in review* (the previous Metricool details are kept in its history) without sending anything; then click **Approve & publish** to send it again.
 
 **27. Can the AI send a sponsorship outreach email, a marketing post, or a Gmail reply on its own?**
-Never. Every one of these — marketing pieces, sponsor outreach, and Gmail drafts — always requires an explicit human Approve/Send click. The AI only drafts.
+Never on its own. Every one of these — marketing pieces, sponsor outreach, and Gmail drafts — always requires an explicit human Approve/Send click. The AI only drafts. The one automatic send is a sponsor follow-up step that an admin has explicitly **approved and scheduled** (Approve & schedule) — the daily automation then sends it when due; editing it puts it back to draft.
 
 **28. Why is there no Segments option when sending a newsletter campaign?**
 Check **Marketing → Segments** — you need at least one saved segment first; then it appears as a third audience choice (alongside "All active subscribers" and custom lists) in the Newsletter → Campaigns wizard.
@@ -647,3 +696,42 @@ It's blocked server-side by design — newsletter assets never go through the mo
 
 **45. Why wasn't a new enquiry enriched automatically / why are there no emails for decision-makers?**
 Enrichment is deliberately **manual** — it runs only when an admin clicks **Enrich** (enquiries and members) or looks up decision-makers on a sponsor prospect. Every lookup uses the club's Clay search quota (a per-period allowance, not credits), so nothing spends it in the background. Clay's search returns names, titles, LinkedIn profiles and company details but never email addresses. If Clay reports the quota is used up, lookups work again once it resets.
+
+**46. How do I publish a blog post to the website, and how do I take it down?**
+Marketing → open the campaign → on the SEO or Recap blog card, optionally add a **Hero image**, then click **Approve & publish to website**. It goes live immediately in **The Journal** (`/blog`) and a task "Blog post live on the website: …" appears in Tasks for the team. To remove it, click **Unpublish** on the card and confirm; edit and approve again to put it back at the same address.
+
+**47. Why did my TikTok post fail, or why is it not live on TikTok yet?**
+TikTok needs an image — approving without one is refused ("TikTok posts need at least one image…"). Add a graphic (templates render vertical 9:16 automatically). In Draft mode it only lands as a draft in Metricool's planner. Even when Metricool is live, TikTok photo posts may need a final one-tap publish inside the TikTok app, and music or effects can't be added automatically.
+
+**48. Why is Metricool only creating drafts?**
+That's the safe default (Draft mode). Nothing goes live until someone approves the draft inside Metricool. Real publishing only starts when a developer sets `METRICOOL_MODE=live`; the Marketing hub card then reads **Connected · LIVE**. Use **Test connection** on the card any time — it's read-only.
+
+**49. How do I set up a sponsor follow-up sequence that sends itself?**
+Sponsorship → Prospects → **Draft** → choose Steps and **Days between steps** → **Add drafts to queue**. Then in the Review queue open each step and click **Approve & schedule**. The daily automation sends each step when it's due (days after the previous one was sent). Nothing is sent that wasn't approved, and editing an approved step returns it to draft.
+
+**50. Why didn't a sponsor sequence stop when the prospect replied?**
+Reply detection reads the synced Gmail inbox. Check that **Settings → Email Sync → Enable email sync** is on and that Sarah's inbox (where Reply-To points) is being synced. A reply from a personal email or a different company domain, or a forwarded thread with a new subject, isn't recognised — click **Stop sequence** on the step yourself.
+
+**51. Why does an outreach step say Bounced, and why did its follow-ups disappear?**
+Resend reported the address as undeliverable, so the step is marked **Bounced** and every remaining step to that address is cancelled automatically. Find a correct address, then draft again.
+
+**52. Why does nobody ever show "Not opening emails" on Member Success?**
+The flag needs email open tracking, which must be switched on for the club's sending domain in Resend. Until at least one open has been recorded the flag stays silent for everyone (the page says so). Once tracking is on, a member is flagged after 3 or more emails in 60 days with none opened.
+
+**53. A website visitor asked the concierge for a call — where is it and what do I do?**
+Enquiries → the row shows "Call requested: preferred …" and there's a high-priority task "Call requested: <name> — preferred … (<team>)", due the next business day. Call them back at their preferred time. Automatic calendar booking exists but is switched off — it needs a developer to enable `CONCIERGE_BOOKING_ENABLED` after Google calendar access is granted.
+
+**54. Can members pay by Direct Debit? Is GoCardless connected?**
+Direct Debit is built through **Stripe (Bacs)**, not GoCardless — GoCardless is not integrated. It's currently **off**: it needs Bacs activated in Stripe and `NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true`. Once on, applicants can pick it at the payment step and members can set it up in Portal → Billing. Event tickets stay card-only. You can see each member's mandate status on their page → Subscription card.
+
+**55. Why is a Direct Debit payment showing as pending after I approved an application?**
+That's normal. Bacs Direct Debit isn't instant — the first payment is submitted at approval and takes 3–5 working days to clear. It flips to paid (or failed) automatically when Stripe reports back.
+
+**56. How do I bring the events from Sarah's planning spreadsheet into the CRM?**
+Events → **Import from spreadsheet** → pick the .xlsx/.csv → check the preview → **Import N events**. They land on the **Planning** tab, hidden from members and the public. Open each one, fill in the date, venue, capacity and description using the "From the planning spreadsheet" notes, then **Save & publish**. Re-importing the same file never creates duplicates.
+
+**57. Why can't a signed-out visitor see an event on the website?**
+Only published, live and completed events are public. Planning, draft and cancelled events are hidden. Past (completed) events do appear in the public archive.
+
+**58. The employee count on a member says "501-1,000" — is that a mistake?**
+No. Clay gives company size as a band, and enrichment stores that band as written so it isn't mistaken for an exact headcount. Enrichment only fills empty fields — type over it if you know the real number.

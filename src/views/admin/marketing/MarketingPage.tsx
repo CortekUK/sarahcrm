@@ -60,7 +60,7 @@ const SOURCE_OPTIONS = [
 ]
 
 // Channels grouped for the create modal (Blogs / LinkedIn / Instagram /
-// Newsletter / PR / Sponsor), driven by the shared channel metadata.
+// Facebook / TikTok / Newsletter / PR / Sponsor), driven by the shared channel metadata.
 const CHANNELS_BY_GROUP: { group: MarketingChannelGroup; channels: MarketingChannelKey[] }[] =
   CHANNEL_GROUP_ORDER.map((group) => ({
     group,
@@ -248,7 +248,7 @@ function NewCampaignModal({
   }, [open])
 
   const hasSocial = channels.some((c) =>
-    ['instagram_feed', 'instagram_carousel', 'instagram_reel', 'linkedin'].includes(c),
+    ['instagram_feed', 'instagram_carousel', 'instagram_reel', 'linkedin', 'facebook', 'tiktok'].includes(c),
   )
 
   function toggleChannel(key: Channel) {
@@ -420,7 +420,7 @@ function NewCampaignModal({
             onChange={(e) => setDefaultVoice(e.target.value as VoiceKey)}
           />
           <p className="text-xs text-text-dim mt-1.5">
-            Applied to the blog, Instagram, press-release and sponsor channels. LinkedIn always
+            Applied to the blog, Instagram, Facebook, TikTok, press-release and sponsor channels. LinkedIn always
             produces all four variants — The Club, Sarah, Sponsor and Founder spotlight — regardless
             of this choice.
           </p>
@@ -496,7 +496,7 @@ function NewCampaignModal({
               onChange={(e) => setGraphicChoice(e.target.value)}
             />
             <p className="text-xs text-text-dim mt-1.5">
-              Applied to the Instagram + LinkedIn posts. <strong>Add a template graphic</strong>{' '}
+              Applied to the Instagram, LinkedIn, Facebook + TikTok posts (TikTok renders vertically, 9:16). <strong>Add a template graphic</strong>{' '}
               assigns the default template and drafts an on-graphic heading from each post’s own
               angle — then, per post in the approval queue, you pick an image from Google Drive and
               render the graphic. Pick a specific template to override the default, or{' '}

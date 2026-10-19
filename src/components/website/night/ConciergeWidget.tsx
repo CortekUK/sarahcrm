@@ -12,6 +12,13 @@
 // honeypot field, a stable per-visit session token (localStorage), and a
 // calm degraded UX on 429 / errors.
 //
+// The server may also return event suggestions (rendered as small cards
+// linking to the public event page) and — only when live call booking is
+// switched on server-side — offered call times (tap to pick) plus a
+// "Confirm" action for the slot the concierge restated. Every tap simply
+// sends a normal chat message, so the server stays the single source of
+// truth (a booking still needs an explicit confirmation turn).
+//
 // Styling mirrors the ui/chat primitives (MessageScroller / Message /
 // Bubble) but RESTYLED to the night palette — those originals are
 // gold/admin-tinted, so we inline slim equivalents here rather than
@@ -19,9 +26,12 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageCircle, X, ArrowUp } from 'lucide-react'
+import axios from 'axios'
+import { MessageCircle, X, ArrowUp, ArrowUpRight, CalendarDays, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/http'
 
 // Hide on the same flows JoinBadge hides on, plus the authenticated app.
 const HIDDEN_ON: string[] = [
@@ -35,7 +45,29 @@ const SESSION_KEY = 'club_concierge_session'
 const GREETING =
   'Good evening — welcome to The Club by Sarah Restrick. I look after enquiries here. May I ask what draws you to us this evening?'
 
-type ChatMessage = { role: 'user' | 'assistant'; content: string }
+const FALLBACK_REPLY =
+  "I'm just catching my breath — do try our enquiry form and the team will be in touch."
+
+type EventCard = { slug: string; title: string; date_label: string; city: string | null; pitch: string; url: string }
+type SlotOption = { id: string; label: string }
+
+type ChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  events?: EventCard[]
+  slots?: SlotOption[]
+  confirmSlot?: SlotOption
+}
+
+type ChatResponse = {
+  reply?: string
+  qualified?: boolean
+  done?: boolean
+  events?: EventCard[]
+  slots?: SlotOption[]
+  confirm_slot?: SlotOption
+  awaiting?: boolean // enquiry may exist, but the call flow still needs an answer
+}
 
 function getSessionToken(): string {
   try {
@@ -93,44 +125,41 @@ export function ConciergeWidget() {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
-  const send = useCallback(async () => {
-    const text = input.trim()
+  // Sends `override` (a tapped slot / confirm action) or the typed input.
+  const send = useCallback(async (override?: string) => {
+    const text = (override ?? input).trim()
     if (!text || sending || done) return
 
-    setInput('')
+    if (override === undefined) setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setSending(true)
 
+    let json: ChatResponse = {}
     try {
-      const res = await fetch('/api/concierge/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_token: sessionRef.current || getSessionToken(),
-          message: text.slice(0, 1000),
-          company_url: honeypot,
-        }),
+      const res = await apiClient.post<ChatResponse>('/api/concierge/chat', {
+        session_token: sessionRef.current || getSessionToken(),
+        message: text.slice(0, 1000),
+        company_url: honeypot,
       })
-      const json = (await res.json().catch(() => ({}))) as {
-        reply?: string
-        qualified?: boolean
-        done?: boolean
+      json = res.data ?? {}
+    } catch (err) {
+      // axios rejects non-2xx; the server still sends a calm { reply, done }
+      // body on 429 / 400, so surface that when present.
+      if (axios.isAxiosError(err) && err.response?.data && typeof err.response.data === 'object') {
+        json = err.response.data as ChatResponse
       }
-      const reply =
-        json.reply ||
-        "I'm just catching my breath — do try our enquiry form and the team will be in touch."
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply }])
-      if (json.done || json.qualified) setDone(true)
-    } catch {
+    } finally {
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content:
-            "I'm just catching my breath — do try our enquiry form and the team will be in touch.",
+          content: json.reply || FALLBACK_REPLY,
+          events: json.events?.slice(0, 3),
+          slots: json.slots?.slice(0, 5),
+          confirmSlot: json.confirm_slot,
         },
       ])
-    } finally {
+      if (json.done || (json.qualified && !json.awaiting)) setDone(true)
       setSending(false)
       window.setTimeout(() => inputRef.current?.focus(), 30)
     }
@@ -196,24 +225,91 @@ export function ConciergeWidget() {
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-5"
           >
             <div className="flex flex-col gap-2.5">
-              {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={cn('flex w-full', m.role === 'user' ? 'justify-end' : 'justify-start')}
-                >
-                  <div
-                    className={cn(
-                      'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words',
-                      'font-[family-name:var(--font-sans)]',
-                      m.role === 'user'
-                        ? 'bg-bronze/15 text-ivory border border-bronze/30 rounded-br-sm'
-                        : 'bg-graphite/60 text-ivory-soft border border-graphite-line/70 rounded-bl-sm',
+              {messages.map((m, i) => {
+                // Slot / confirm actions only on the latest reply, while the chat is open.
+                const actionable = i === messages.length - 1 && !sending && !done
+                return (
+                  <div key={i} className="flex flex-col gap-2">
+                    <div
+                      className={cn('flex w-full', m.role === 'user' ? 'justify-end' : 'justify-start')}
+                    >
+                      <div
+                        className={cn(
+                          'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words',
+                          'font-[family-name:var(--font-sans)]',
+                          m.role === 'user'
+                            ? 'bg-bronze/15 text-ivory border border-bronze/30 rounded-br-sm'
+                            : 'bg-graphite/60 text-ivory-soft border border-graphite-line/70 rounded-bl-sm',
+                        )}
+                      >
+                        {m.content}
+                      </div>
+                    </div>
+
+                    {/* Suggested events — compact cards linking to the public page */}
+                    {m.events && m.events.length > 0 && (
+                      <div className="flex flex-col gap-2 max-w-[88%]">
+                        {m.events.map((ev) => (
+                          <Link
+                            key={ev.slug}
+                            href={ev.url}
+                            className="group block rounded-xl border border-bronze/30 bg-graphite/40 px-3.5 py-3 transition-colors duration-300 hover:border-bronze/60 hover:bg-graphite/70"
+                          >
+                            <p className="font-[family-name:var(--font-meta)] text-[9px] uppercase tracking-[0.3em] text-bronze-light">
+                              {ev.date_label}
+                              {ev.city ? ` · ${ev.city}` : ''}
+                            </p>
+                            <p className="mt-1 flex items-start justify-between gap-2 font-[family-name:var(--font-display)] text-[14.5px] leading-snug text-ivory">
+                              {ev.title}
+                              <ArrowUpRight
+                                size={14}
+                                strokeWidth={1.5}
+                                className="mt-0.5 shrink-0 text-bronze-light transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                              />
+                            </p>
+                            {ev.pitch && (
+                              <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[12.5px] leading-relaxed text-ivory-soft">
+                                {ev.pitch}
+                              </p>
+                            )}
+                          </Link>
+                        ))}
+                      </div>
                     )}
-                  >
-                    {m.content}
+
+                    {/* Offered call times (live booking only) — a tap sends the pick */}
+                    {actionable && m.slots && m.slots.length > 0 && !m.confirmSlot && (
+                      <div className="flex flex-wrap gap-1.5 max-w-[92%]" role="group" aria-label="Available call times">
+                        {m.slots.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => void send(`${s.label} please.`)}
+                            className="flex items-center gap-1.5 rounded-full border border-bronze/40 bg-graphite/40 px-3 py-1.5 text-[12px] text-ivory-soft transition-colors duration-300 hover:border-bronze hover:text-ivory"
+                          >
+                            <CalendarDays size={12} strokeWidth={1.5} className="text-bronze-light" />
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Explicit confirmation of the restated slot */}
+                    {actionable && m.confirmSlot && (
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void send(`Yes, please book ${m.confirmSlot!.label}.`)}
+                          className="flex items-center gap-1.5 rounded-full bg-bronze px-3.5 py-1.5 text-[12px] font-medium text-ink transition-colors duration-300 hover:bg-bronze-light"
+                        >
+                          <Check size={13} strokeWidth={2} />
+                          Confirm {m.confirmSlot.label}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
               {sending && (
                 <div className="flex w-full justify-start">
                   <div className="rounded-2xl rounded-bl-sm bg-graphite/60 border border-graphite-line/70 px-4 py-3">

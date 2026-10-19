@@ -18,6 +18,10 @@ import { Check, ArrowUpRight, Loader2 } from 'lucide-react'
 //      to fire on every load.
 //
 // The card is only charged later, if an admin approves the application.
+//
+// Direct Debit (Stripe Bacs) variant: Stripe Checkout returns here with
+//   ?session_id=…&application_id=…&method=bacs_debit
+// and we pass session_id to the same confirm route.
 
 export default function MembershipApplicationSuccessPage() {
   return (
@@ -31,17 +35,23 @@ function SuccessInner() {
   const searchParams = useSearchParams()
   const setupIntent = searchParams.get('setup_intent')
   const applicationId = searchParams.get('application_id')
+  const sessionId = searchParams.get('session_id')
+  const isDirectDebit = searchParams.get('method') === 'bacs_debit' && !!sessionId
   const [confirmState, setConfirmState] = useState<'idle' | 'confirming' | 'done' | 'failed'>(
     'idle',
   )
 
   useEffect(() => {
-    if (!setupIntent && !applicationId) return
+    if (!setupIntent && !sessionId && !applicationId) return
     setConfirmState('confirming')
     fetch('/api/membership-application/confirm', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ setup_intent: setupIntent, application_id: applicationId }),
+      body: JSON.stringify({
+        setup_intent: setupIntent,
+        application_id: applicationId,
+        ...(isDirectDebit ? { session_id: sessionId } : {}),
+      }),
     })
       .then(async (res) => {
         const json = await res.json().catch(() => ({}))
@@ -56,7 +66,7 @@ function SuccessInner() {
         console.warn('[application-success] confirm request failed', err)
         setConfirmState('failed')
       })
-  }, [setupIntent, applicationId])
+  }, [setupIntent, applicationId, sessionId, isDirectDebit])
 
   return (
     <section className="relative min-h-[80vh] bg-ink flex items-center justify-center px-6 py-24">
@@ -71,9 +81,20 @@ function SuccessInner() {
           Thank you for applying.
         </h1>
         <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-[1.7]">
-          Your application is with the team for review. Your card has been securely saved, but
-          nothing has been charged — we&apos;ll only take payment if your application is approved.
-          You&apos;ll hear from us within 14 working days.
+          {isDirectDebit ? (
+            <>
+              Your application is with the team for review. Your Direct Debit has been set up, but
+              nothing has been collected — we&apos;ll only collect payment if your application is
+              approved. Direct Debit payments take 3–5 working days to process. You&apos;ll hear
+              from us within 14 working days.
+            </>
+          ) : (
+            <>
+              Your application is with the team for review. Your card has been securely saved, but
+              nothing has been charged — we&apos;ll only take payment if your application is
+              approved. You&apos;ll hear from us within 14 working days.
+            </>
+          )}
         </p>
 
         {/* Quiet status indicator — visible while we record the saved card.

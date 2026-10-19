@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { RepsPanel } from './RepsPanel'
+import { MemberDirectDebitStatus, type MemberDirectDebitFields } from './MemberDirectDebitStatus'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -1362,6 +1363,7 @@ export function MemberDetailPage() {
                 </p>
               </div>
             </div>
+            <MemberDirectDebitStatus member={member as unknown as MemberDirectDebitFields} />
           </CardContent>
         </Card>
       )}

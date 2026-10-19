@@ -196,6 +196,8 @@ Footer: Cancel, **"Import {n} member(s)"** → `POST /api/admin/members/import {
 **Cancelled banner:** "Membership cancelled — This member can no longer sign into the portal. Edit and set status back to 'active' to reinstate them."
 
 **Profile (view):** avatar, name, status+tier Badge, job title @ company, email/phone, bio, meta (Plan, Intros used/quota, Directory visible/hidden, Joined, Renewal).
+**Subscription card → Direct Debit block** (`MemberDirectDebitStatus.tsx`, shown only when the member pays by Direct Debit or has a mandate status): title "Direct Debit (Stripe Bacs)", status Badge **Direct Debit pending / Direct Debit active / Direct Debit failed / Direct Debit cancelled**, mandate reference; pending note "Bacs confirms new mandates in about 3 working days; each payment then takes 3–5 working days to clear."; failed/cancelled note "The mandate was refused or cancelled by the bank. Future renewals will fail until the member sets up Direct Debit again (portal → Billing) or adds a card." Read-only — set by the Stripe webhook.
+**Employee count** (Business section) is free text; Clay enrichment fills it with the company-size band, e.g. "501-1,000".
 **Profile (edit):** First/Last name*, Email, Phone, Job title, LinkedIn URL, Website URL, Bio, Company fields, Plan Select, Status Select (Active/Paused/Pending/Expired/Cancelled), checkbox "Show in member directory", Notes.
 
 **Relationship intelligence card:** enrichment-status Badge; **"Enrich"/"Re-enrich"** (Sparkles) → `POST /api/admin/members/enrich {memberId}` ("Autofills empty company fields only... existing entries are never overwritten"). Sections: Company depth, Accounts &amp; finance contacts, Introduction strategy, Objectives &amp; budgets, Preferences.
@@ -239,7 +241,7 @@ Card "Suggested introductions" ("Tag match" pill). Sub-text: "These members shar
 
 Header "Member Success" — "Members needing attention. Health scores refresh automatically every day..." Meta `{n} member(s) flagged`. **"Recompute now"** (RefreshCw) → `POST /api/admin/members/recompute-scores`. Toast "Scores recomputed"/"Recompute failed".
 
-**5 tiles/filters:** At risk, Renewal soon, No introductions, Dormant, Upgrade ready. **Table:** Member, Flags, Churn, Engage, Upgrade, Top reason, "View member". Empty: "Everyone looks healthy" / "No matches".
+**6 tiles/filters:** At risk, Renewal soon, No introductions, Dormant, Upgrade ready, **Not opening emails** (3+ emails sent in the last 60 days, none opened — reason "Hasn't opened any of N recent emails"). While no email open has ever been recorded (Resend open tracking off) the flag never fires and a hint under the tiles reads "“Not opening emails” switches on once email open tracking is recording opens." **Table:** Member, Flags, Churn, Engage, Upgrade, Top reason, "View member". Empty: "Everyone looks healthy" / "No matches".
 
 ### RepsPanel.tsx
 
@@ -294,7 +296,11 @@ One `AssetCard` per draft (channel icon, voice subline, status Badge: draft/in_r
 **Editing:** **"Save"** → `PATCH /api/admin/marketing/assets/{id} {action:'save', title, body}`; **"Cancel"**.
 **View mode:** **"Regenerate"**, **"Edit"** (disabled if published), **"Copy"/"Copied"**, **"Reject"** → `{action:'reject'}`, **"Approve &amp; publish"/"Published"/"Sent to Metricool (draft)"/"Sent to Metricool"** → `{action:'approve'}` (card locks once published or sent to Metricool). **"Send again"** (only when `publish_target.platform='metricool'`) → confirmation Modal "Send to Metricool again?" (Cancel / Send again) → `PATCH /api/admin/marketing/assets/{id} {action:'resend'}` (resets to in_review; toast "Ready to send again"; then Approve again).
 
-**GraphicSection** (social/LinkedIn): **"Add graphic"/"Edit graphic"/"Close graphic editor"**; toggle "Use image as-is (no text overlay)". As-is: `MediaPicker` + **"Use this image"**. Template mode: Select template, per-slot AI-text inputs, `MediaPicker`, **"Render graphic"/"Re-render graphic"** → `POST /api/admin/marketing/graphics/render`.
+**Blog cards (SEO blog / Recap blog)** publish to the website: a **Hero image** picker (optional — saved as the asset's graphic; otherwise the event cover is used); the approve button reads **"Approve & publish to website"**; once live the badge reads **"Live on website"** with **"View on website"** (opens `/blog/<slug>`) and **"Unpublish"** → confirm "Take this post off the website?" — "The blog post will no longer be visible on the website. You can edit it and approve it again to re-publish it at the same address." (confirm **Unpublish**) → asset back to in review. A live post can't be approved again until unpublished. The team gets an in-app task "Blog post live on the website: <title>".
+**Facebook cards** (Facebook icon): page post, image optional — goes to Metricool like LinkedIn/Instagram.
+**TikTok cards** (music-note icon): the title is the on-screen hook (also the graphic heading); the body is the caption only, with a note "TikTok photo posts may need a final one-tap publish in the TikTok app (music/effects can't be added automatically). Caption: N / 300 characters suggested." The graphic panel notes "TikTok needs an image: templates render vertically at 1080×1920 (9:16); an as-is image should be 9:16 too." Approving with no image is refused.
+
+**GraphicSection** (social/LinkedIn/Facebook/TikTok): **"Add graphic"/"Edit graphic"/"Close graphic editor"**; toggle "Use image as-is (no text overlay)". As-is: `MediaPicker` + **"Use this image"**. Template mode: Select template, per-slot AI-text inputs, `MediaPicker`, **"Render graphic"/"Re-render graphic"** → `POST /api/admin/marketing/graphics/render`.
 
 Empty: "Campaign not found." / "No drafts yet for this campaign."
 
@@ -308,9 +314,9 @@ Empty: "The library is empty" / "No pieces match these filters".
 
 ### MarketingPage.tsx
 
-`/dashboard/marketing` — campaigns hub. **MetricoolStatusCard** above the table: badge "Not connected" / "Configured · Draft mode" / "Connected · Draft mode" / "Connected · LIVE" / "Connection failed", plus **"Test connection"** (when configured) → `GET /api/admin/marketing/metricool/status?test=1` (read-only). **"New campaign"** (Plus). Table: Campaign, Source, Drafts, Status, Created → row `/dashboard/marketing/{id}`. Empty: "No campaigns yet" / "New campaign".
+`/dashboard/marketing` — campaigns hub. **MetricoolStatusCard** above the table: badge "Not connected" ("Metricool credentials are not set, so approved social posts are only marked as published here — nothing is posted.") / "Configured · Draft mode" ("Credentials are set. Run a read-only connection test to confirm they work.") / "Connected · Draft mode" ("Approved LinkedIn, Instagram, Facebook and TikTok posts are saved as drafts in Metricool’s planner — nothing publishes until someone approves it there.") / "Connected · LIVE" ("…WILL publish to the real accounts (TikTok photo posts may still need a final tap in the TikTok app).") / "Connection failed"; after a test it lists "Brands visible: … · Timezone: …", plus **"Test connection"** (when configured) → `GET /api/admin/marketing/metricool/status?test=1` (read-only). **"New campaign"** (Plus). Table: Campaign, Source, Drafts, Status, Created → row `/dashboard/marketing/{id}`. Empty: "No campaigns yet" / "New campaign".
 
-**"New campaign" modal (lg):** Input "Campaign title"; Select "Source" — An event / A typed topic / An audio recording (transcribed); conditional: event Select, or Textarea "Topic / brief", or audio upload (mp3/m4a/wav/mp4/webm, max 25MB) → `POST /api/admin/marketing/transcribe` → editable "Transcript"; Select "Default voice" (helper: applied to blog/Instagram/press-release/sponsor; LinkedIn always produces all four voices); "Channels to generate" chip toggles ("Select all"/"Clear"; default `seo_blog`+`linkedin`); conditional "Social graphic" Select if a social channel picked.
+**"New campaign" modal (lg):** Input "Campaign title"; Select "Source" — An event / A typed topic / An audio recording (transcribed); conditional: event Select, or Textarea "Topic / brief", or audio upload (mp3/m4a/wav/mp4/webm, max 25MB) → `POST /api/admin/marketing/transcribe` → editable "Transcript"; Select "Default voice" (helper: applied to blog/Instagram/press-release/sponsor; LinkedIn always produces all four voices); "Channels to generate" chip toggles grouped Blogs · LinkedIn · Instagram · **Facebook** · **TikTok** · Newsletter · PR · Sponsor ("Select all"/"Clear"; default `seo_blog`+`linkedin`); conditional "Social graphic" Select if a social channel picked.
 
 Validation: "Please give the campaign a title."; "Pick at least one channel to generate."; "Choose an event."; "Type a topic or brief."; "Upload a recording to transcribe first."
 
@@ -389,17 +395,17 @@ Ranked prospect list for one event (`GET /api/admin/sponsorship/prospects?event_
 
 **Actions:** **"Shortlist"** (ThumbsUp) → `PATCH /api/admin/sponsorship/prospects {id, status:'shortlisted'}` (optimistic, toast "Shortlisted"); **"Dismiss"** (ThumbsDown) → `{status:'dismissed'}`; **"People"** (Users) → `POST /api/admin/sponsorship/decision-makers {prospect_id}` (degrades: "No decision-makers found...", "People search needs a paid vendor plan.", "People search failed."); **"Draft"** (PenLine) → "Draft outreach — {company_name}" modal; **"Add to event sponsors"** (Plus, hidden once converted) → `POST /api/admin/sponsorship/convert {prospect_id}` (toast "Added to event sponsors" — appears in the event's Sponsors panel); **"Details"/"Hide"** toggle → match reasons/AI rationale/description/decision-makers.
 
-**"Draft outreach" modal:** intro "Nothing is sent — every step lands in the review queue for you to edit, approve and send." Select "Voice" (Club/Sarah, default club); Select "Recipient" (if decision-makers loaded); number "Steps" (1–6, default 3); Textarea "Note for the writer (optional)". **"Add drafts to queue"** → `POST /api/admin/sponsorship/outreach/draft {prospect_id, decision_maker_id?, voice, steps, note?}` → toast "{n} draft(s) added to the review queue".
+**"Draft outreach" modal:** intro "Nothing is sent — every step lands in the review queue for you to edit, approve and send." Select "Voice" (Club/Sarah, default club); Select "Recipient" (if decision-makers loaded); number "Steps" ("How many touches in the sequence." — input allows 1–6, default 3; the server caps at 5); when Steps > 1, **"Days between steps"** (default `3, 4, 7, 7`; hint "Comma-separated: e.g. 3, 4 sends step 2 three days after step 1, and step 3 four days after step 2. Each step still needs your approval."); Textarea "Note for the writer (optional)". **"Add drafts to queue"** → `POST /api/admin/sponsorship/outreach/draft {prospect_id, decision_maker_id?, voice, steps, delays, note?}` → toast "{n} draft(s) added to the review queue".
 
 ### OutreachQueueView.tsx
 
 Header "Outreach review queue" — "Every drafted step waits here. Edit the copy, approve it, then send — nothing leaves until you approve and click Send."
 
-**Filters:** Event Select, Status Select (Draft/Approved/Sent/Replied/Failed), Voice Select. Rows grouped by status. Empty: "Nothing in the queue" / "No drafts match the current filters." or "Draft outreach from a ranked prospect and the sequence will appear here for review."
+**Filters:** Event Select, Status Select (All statuses / Draft / Approved (send by hand) / Scheduled / Sent / Replied / Bounced / Failed / Cancelled), Voice Select. Rows show step, due/sent date, **Opened** and **Replied** badges. Rows grouped by status. Empty: "Nothing in the queue" / "No drafts match the current filters." or "Draft outreach from a ranked prospect and the sequence will appear here for review."
 
-**"Review outreach" modal (xl):** To, Subject, Body (textarea), read-only Preview (`body_html`).
+**"Review outreach" modal (xl):** status Badge (+ Replied / Opened badges; when the prospect replied: "This prospect replied on <date>, so their remaining steps were stopped and nothing more is sent automatically."), **Sequence timeline** (every step with its schedule/status — "Waits for previous step" until the earlier step is sent; click a step to open it), To, Subject, Body (textarea), **"Send after (days)"** ("Days after the previous step is sent."), read-only Preview (`body_html`), note "Editing an approved email returns it to draft for re-approval."
 
-Buttons: **"Save"** → `PATCH /api/admin/sponsorship/outreach {id, subject, body_text, to_email}`; **"Approve"** (shown when not approved, only enabled for `draft`) → `{status:'approved'}` → toast "Approved — ready to send"; **"Unapprove"** (shown when approved) → `{status:'draft'}`; **"Send"** — **human approval gate**: disabled unless status `approved` AND non-empty To email → `POST /api/admin/sponsorship/outreach/send {outreach_id}` → toast "Sent — Delivered to {toEmail}."
+Buttons: **"Save"** → `PATCH /api/admin/sponsorship/outreach {id, subject, body_text, to_email, delay_days}`; on a draft: **"Approve"** → `{status:'approved'}` (send by hand) and **"Approve & schedule"** → `{status:'approved', auto_send:true}` (toast "Approved and scheduled" — the daily automation sends it when due); on an approved step: **"Schedule"/"Unschedule"** (toggle `auto_send`) and **"Unapprove"** → `{status:'draft'}`; **"Cancel step"** (draft/approved) → `cancelled` (toast "Step cancelled"); **"Back to draft"** (cancelled/failed); **"Stop sequence"** → `{stop_sequence:true}` cancels every unsent step (toast "Sequence stopped"); **"Send"** (or **"Send now"** for a scheduled step) — **human approval gate**: disabled unless status `approved` (tooltip "Approve first") AND a To email ("Add a recipient email first") → `POST /api/admin/sponsorship/outreach/send {outreach_id}` → toast "Sent — Delivered to {toEmail}."
 
 ### Sponsorship — end-to-end workflow
 
@@ -409,9 +415,9 @@ Buttons: **"Save"** → `PATCH /api/admin/sponsorship/outreach {id, subject, bod
 4. **Draft outreach:** "Draft" → voice/recipient/steps/note → "Add drafts to queue" (status `draft`, nothing sent).
 5. **Review:** OutreachQueueView — edit To/Subject/Body, "Save", preview.
 6. **Approval gate:** "Approve" required before "Send" is enabled ("Unapprove" reverts).
-7. **Send:** fires the actual email; status → `sent` → `replied`/`failed` as it resolves.
+7. **Send:** either click Send now, or use **Approve & schedule** and the daily automation sends each step when due (days after the previous step). Status → `sent` → `replied` (auto-detected from the synced Gmail inbox, which also cancels the remaining steps) / `bounced` (Resend; cancels remaining steps to that address) / `failed`.
 
-No automated send path exists — every send requires explicit Approve + Send.
+Nothing is ever sent without a human approval — the daily automation only sends steps that were explicitly approved **and** scheduled, and editing an approved step returns it to draft.
 
 ---
 
@@ -555,7 +561,9 @@ Select "Staff member". Placeholder: "Choose a staff member above to manage their
 
 `/dashboard/events`. Header "Events" — "Member nights, curated luxury, retreats — and a separate Private Events tab for the showcase cards on the Private Events page (external-link commissions, not bookable here)." **"Create event"** (hidden on Private Events tab) → `/dashboard/events/new`.
 
-**Stat tiles:** Upcoming, Private showcases, Total bookings, Revenue. **Tabs:** All, Member Events, Curated Luxury, Retreats, Past, Private Events.
+Header also has **"Import from spreadsheet"** (Upload icon, hidden on Private Events) → `ImportEventsModal`.
+
+**Stat tiles:** Upcoming, Private showcases, Total bookings, Revenue. **Tabs:** All, Member Events, Curated Luxury, Retreats, Past, **Planning**, Private Events. **Planning** holds events imported from the planning spreadsheet (status `planning`) — team-only, absent from every other tab and from the stats; empty state "Import the planning spreadsheet to bring the year’s events in and work through them."
 
 **Bookable events table:** Event, Date, Venue, Type pill, Bookings (count/capacity), Revenue, Status, row ⋮: **"Edit"** → `/dashboard/events/{id}/edit`; **"Delete"** → confirm `Delete "{title}"?` (public page + bookings removed, no auto-refund, irreversible) → **"Delete event"**, danger.
 
@@ -563,9 +571,13 @@ Empty: "No past events yet" / "No upcoming events in this category" / "Create yo
 
 **Private Events panel** (`curated_experiences` CRUD, showcase-only, external links): **"Add private event"**, per-card ActiveToggle/edit/delete. Modal: Title*, Description, Image, External link, Display order, "Active on Private Events page". Footer: Delete (editing), Cancel, **"Save changes"/"Add private event"**.
 
+### ImportEventsModal.tsx
+
+Modal "Import events from a spreadsheet". Explainer: every tab with an **Event** heading row is read; month-grid calendar tabs are skipped; cells are stored **exactly as written** — nothing is interpreted; events arrive as **planning**: team-only, not bookable, and not shown to members until an admin completes and publishes them; re-uploading the same file adds nothing twice. File picker ".xlsx or .csv — the Master Events Plan works as it is" (parsed in the browser; error "Could not read that file. It needs to be an .xlsx or .csv spreadsheet." / "No events found. Each tab needs a heading row with an \"Event\" column — month-grid calendar tabs are skipped."). It previews automatically ("Checking against events already in the CRM…") → **What this import will do**: New events · Already imported, skipped tabs, sample table. Buttons **Cancel** / **"Import N events"** (or "Nothing to import"). Done: "Added as planning" · "Already imported" — open one to choose the venue, date, capacity and prices; it can be published once those are filled in.
+
 ### EventDetailPage.tsx
 
-`/dashboard/events/{id}`. Header: **"Publish event"** (if draft); **"Cancel event"** (if published/live); **"Edit"**; **"Delete"** (confirm, danger).
+`/dashboard/events/{id}`. Header: **"Publish event"** (if draft or planning); **"Cancel event"** (if published/live); **"Edit"**; **"Delete"** (confirm, danger).
 
 **Event info card:** date, venue, pricing, options badges, description/speakers/agenda/photo gallery.
 **Stat cards:** Confirmed bookings, Revenue, Capacity (%), Checked in.
@@ -574,9 +586,11 @@ Empty: "No past events yet" / "No upcoming events in this category" / "Create yo
 
 Embeds `EventInvitesPanel`, `EventExpensesPanel`, `SponsorsPanel`.
 
+**Planning events** also show the **PlanningChecklist** ("Imported from the planning spreadsheet. It stays team-only — invisible to members and the public — until it is published."; "N things still needed before this can be published" / "Ready to publish"; items: Exact date & start time · One venue chosen · Capacity (a single number) · Description) and the **"From the planning spreadsheet"** notes card (every imported cell exactly as written — Concept, Purpose, Target audience, Location, Approx date & time, Capacity, Tickets, Sponsorship, Venue, Speaker / partner, Commercial & delivery notes; "Nothing here is used on the public site"). Publishing an incomplete event is blocked by the database with "This event still needs … before it can be published."
+
 ### EventFormPage.tsx
 
-Create/Edit. Actions: **"Save as draft"/"Save changes"**; **"Save &amp; publish"** (create only). Validation: "Title is required"; "Slug is required"; "Start date is required"; numeric fields min 0.
+Create/Edit. Actions: **"Save as draft"/"Save changes"**; **"Save &amp; publish"** (on create, and when editing a planning or draft event). Saving a planning event keeps it planning. Editing a planning event shows the same checklist + spreadsheet notes beside the form. Validation: "Title is required"; "Slug is required"; "Start date is required"; numeric fields min 0.
 
 Sections: Basic info (title, slug — hint "Used as the URL: /events/&lt;slug&gt;" —, type, description, cover image), Date &amp; time, Venue, Capacity &amp; pricing (£), Options (Travel included, Accommodation available [+price], Guest list visible, Auto-confirm bookings default true), Agenda (add/remove), Photo gallery (max 24), Speakers (add/remove).
 
@@ -771,9 +785,11 @@ Header "Enquiries" — "Notes from the public contact form. Read the brief, repl
 
 **Stat tiles:** Total, New, Replied, Closed. **Filters:** search; status buttons (default New); Owner Select.
 
-**Columns:** From (task-link icon if `related_task_id`), Subject (intent badge), Score (ScoreMeter), Source, Owner (inline Select), Received, Status.
+**"Calls booked by the AI Concierge" strip** (above the table, only when there are unread `concierge_call_booked` notifications): each with **Open** and **Mark read**. Appears only once calendar booking is switched on.
 
-**Detail modal:** status/intent badges, contact blocks, Lead score panel (`score_reasons`), Lead enrichment panel, message, "Private notes" (autosave 700ms), timestamps.
+**Columns:** From (task-link icon if `related_task_id`; under the name a call line — "Call requested: preferred <times>" or "Call booked: <date, time>"), Subject (intent badge), Score (ScoreMeter), Source ("AI Concierge" for `concierge_chat`), Owner (inline Select), Received, Status.
+
+**Detail modal:** status/intent badges, contact blocks, a **Call requested / Call booked** panel (team, preferred times or booked time, a "Google Meet link" when booked) when the concierge arranged a call, Lead score panel (`score_reasons`), Lead enrichment panel (Company, Website, Industry, **Employees** — shown as Clay's band e.g. "501-1,000", Est. revenue band, description, headquarters, company type, funding, LinkedIn links, seniority, source "Clay"), message (includes "Approx. turnover: … (stated by the visitor)" when the concierge collected it), "Private notes" (autosave 700ms), timestamps.
 
 **Actions:** **"Reply via email"** modal — Subject (prefilled "Re: Your enquiry to The Club"), Message (prefilled greeting), both required → **"Send reply"** → `POST /api/admin/enquiries/reply {enquiry_id, subject, body}`. Toast "Reply sent" (marks replied automatically).
 **"Mark replied"/"Close"/"Reopen"** → direct Supabase update. **"Delete"** → confirm "Delete this enquiry?". **"Enrich"/"Re-enrich"** → `POST /api/admin/enquiries/enrich {enquiryId}` → toast "Enrichment complete — Status: {status}". Owner dropdown → `enquiries.assigned_to`.
@@ -953,7 +969,7 @@ Header "Settings" — "Manage your club details, membership tiers, integrations,
 5. **Enquiry Routing** → `EnquiryRoutingSettings`.
 6. **Email Sync** → `EmailSyncSettings`.
 7. **Media Folders** → `MediaFoldersSettings`.
-8. **Integrations** — Stripe/GoCardless/Xero/Resend status cards (`GET /api/admin/integrations/status`). Xero: **"Sync contacts"**, **"Sync invoices"**, **"Sync spend"**, **"Disconnect"**, or **"Connect"** (OAuth via `/api/admin/xero/connect`).
+8. **Integrations** — Stripe / **Direct Debit (via Stripe)** ("UK Bacs Direct Debit for recurring membership fees, collected through Stripe (used instead of GoCardless)" — Connected only when Stripe keys are set AND `NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true`) / Xero / Resend status cards (`GET /api/admin/integrations/status`). Xero: **"Sync contacts"**, **"Sync invoices"**, **"Sync spend"**, **"Disconnect"**, or **"Connect"** (OAuth via `/api/admin/xero/connect`).
 9. **Team** — **"Add Member"** (unwired) + hardcoded roster (Sarah Restrick, Leanne — both Admin).
 
 ### AutomationTimeSettings.tsx
@@ -1030,7 +1046,7 @@ Booking card states: already booked → **"View confirmation"**; non-member → 
 
 ### PortalBillingPage.tsx
 
-"Billing." Current standing (Status/Plan/Amount incl. VAT/Next billing). **"Set up subscription"** (no sub) or **"Manage billing"** (has sub) → Supabase Edge Functions `subscription-checkout`/`billing-portal` → Stripe redirect. Reps (`parent_member_id`) see no billing buttons: "Billing for your membership is handled by your organisation's primary account." "Payments." table (up to 20 rows, type='membership'). Empty: "No membership payments yet."
+"Billing." Current standing (Status/Plan/Amount incl. VAT/Next billing). **"Set up subscription"** (no sub) or **"Manage billing"** (has sub) → Supabase Edge Functions `subscription-checkout`/`billing-portal` → Stripe redirect. **Direct Debit (only when `NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true`):** no subscription → **"Set up with Direct Debit"** (same edge function, Bacs only); has a subscription not already on an active mandate → **"Pay by Direct Debit"** (`POST /api/portal/billing/direct-debit` → Stripe-hosted Bacs set-up; future renewals then collect by Direct Debit, card still manageable via Manage billing). A **Payment method** row shows the DD status badge + "Mandate ref · …"; returning from Stripe shows "Your Direct Debit is being set up. Your bank confirms it within about 3 working days. Payments take 3–5 working days to process." or "Direct Debit set-up was cancelled. Nothing has changed." Reps (`parent_member_id`) see no billing buttons: "Billing for your membership is handled by your organisation's primary account." "Payments." table (up to 20 rows, type='membership'). Empty: "No membership payments yet."
 
 ---
 
@@ -1063,7 +1079,7 @@ Booking card states: already booked → **"View confirmation"**; non-member → 
 - **ISR cache flushes**: Hero Slides, Instagram, Membership Benefits, Membership Comparison, Testimonials, Reviews call `POST /api/admin/revalidate {paths:[...]}` after mutations.
 - **Locked sets**: Membership Benefits fixed at exactly 9 cards; Hero Slides fixed at 12 pages — both omit Add/Delete, rely on RLS. Deleting a hero row reverts to hardcoded default rather than blanking the page.
 - **Money** is stored in pence everywhere; pound inputs parsed leniently (strip `£`, commas, whitespace).
-- **Human-in-the-loop gates**: Sponsorship outreach requires explicit "Approve" then "Send" (no automated send path); Automations distinguish "Preview"/"Refresh" (dry run) from "Run now" (real send, idempotent).
+- **Human-in-the-loop gates**: Sponsorship outreach requires explicit "Approve" then "Send" — or "Approve & schedule", after which only the daily automation sends that approved step when due; Automations distinguish "Preview"/"Refresh" (dry run) from "Run now" (real send, idempotent).
 - **Two non-functional settings surfaces**: SettingsPage "Club Details" saves only to local state; Instagram "Tiles" manager is disabled behind `{false &amp;&amp; ...}` in code.
 - **Key API routes**: `/api/cron/automations`, `/api/admin/bookings/decision`, `/api/admin/chief-of-staff/report`, `/api/admin/enquiries/reply|enrich`, `/api/admin/campaigns/send`, `/api/admin/marketing/{campaigns,generate,assets,library,segments,templates,voices,graphics}`, `/api/admin/sponsorship/{match,prospects,decision-makers,convert,outreach,outreach/draft,outreach/send,deck/parse}`, `/api/admin/sponsors/{invite,proposal,roi}`, `/api/admin/introductions/{create,send,reject,generate-suggestions,why}`, `/api/admin/members/{create,import,cancel,delete,enrich,recompute-scores,resend-invite,add-rep,suggest-tags}`, `/api/admin/applications/{approve,reject}`, `/api/admin/signatures/{send,status,view}`, `/api/admin/whatsapp/send`, `/api/admin/inbox/{mailboxes,threads,thread,access}`, `/api/admin/team/{create,resend-invite}`, `/api/admin/scorecards/summary`, `/api/admin/handover/report`, `/api/admin/revalidate`, `/api/admin/integrations/status`, `/api/admin/xero/*`, `/api/admin/google/{gmail,drive}/*`, `/api/events/{book,sync}`, `/api/portal/introductions/{request,respond}`, `/api/communications/send-template`, `/api/templates/{ai-generate,send-test}`, plus Supabase Edge Functions `subscription-checkout` and `billing-portal`.
 

@@ -1,6 +1,15 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { corsHeaders } from '../_shared/cors.ts'
+import {
+  BACS_SESSION_KINDS,
+  handleAsyncCheckoutPayment,
+  handleBacsSetupSessionCompleted,
+  handleMandateUpdated,
+  markMemberDirectDebitFromSubscriptionCheckout,
+  settlePendingInvoicePayment,
+  tagInvoicePaymentMethodType,
+} from './direct-debit.ts'
 
 // ─────────────────────────────────────────────────────────────────────
 // Resend — transactional email
@@ -257,6 +266,51 @@ Deno.serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
+    // ── Direct Debit (Stripe Bacs) — additive, see ./direct-debit.ts ──
+    // Only Direct Debit objects are handled here; everything else falls
+    // through to the existing handlers below unchanged.
+    if (event.type === 'checkout.session.completed') {
+      const ddSession = event.data.object as Stripe.Checkout.Session
+      const ddKind = ddSession.metadata?.kind ?? ''
+      if (
+        ddSession.mode === 'setup' &&
+        (BACS_SESSION_KINDS as readonly string[]).includes(ddKind)
+      ) {
+        await handleBacsSetupSessionCompleted(stripe, supabaseAdmin, ddSession)
+        return new Response(JSON.stringify({ received: true, direct_debit: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+    }
+    if (event.type === 'mandate.updated') {
+      await handleMandateUpdated(stripe, supabaseAdmin, event.data.object as Stripe.Mandate)
+      return new Response(JSON.stringify({ received: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (
+      event.type === 'checkout.session.async_payment_succeeded' ||
+      event.type === 'checkout.session.async_payment_failed'
+    ) {
+      await handleAsyncCheckoutPayment(
+        supabaseAdmin,
+        event.data.object as Stripe.Checkout.Session,
+        event.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'failed',
+      )
+      return new Response(JSON.stringify({ received: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (event.type === 'invoice.paid') {
+      await settlePendingInvoicePayment(supabaseAdmin, event.data.object as Stripe.Invoice, 'paid')
+    }
+    if (event.type === 'invoice.payment_failed') {
+      await settlePendingInvoicePayment(supabaseAdmin, event.data.object as Stripe.Invoice, 'failed')
+    }
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
 
@@ -288,6 +342,12 @@ Deno.serve(async (req) => {
             : session.customer?.id ?? null
         const amountPence = session.amount_total ?? 0
         const paidAt = new Date().toISOString()
+        // Direct Debit (Bacs) checkouts complete with payment_status
+        // 'unpaid' — the debit clears days later
+        // (checkout.session.async_payment_succeeded / _failed settle it).
+        // Cards complete as 'paid', so for them this is exactly 'paid'.
+        const initialPaymentStatus = session.payment_status === 'unpaid' ? 'pending' : 'paid'
+        const initialPaidAt = initialPaymentStatus === 'paid' ? paidAt : null
 
         // Compute the next renewal date from cadence so the Subscription
         // card has a sensible value immediately. The next invoice.paid
@@ -370,8 +430,8 @@ Deno.serve(async (req) => {
                   currency: 'GBP',
                   payment_type: 'membership',
                   payment_method: 'stripe',
-                  status: 'paid',
-                  paid_at: paidAt,
+                  status: initialPaymentStatus,
+                  paid_at: initialPaidAt,
                   stripe_checkout_session_id: session.id,
                   description: 'Membership — initial subscription payment',
                 })
@@ -417,6 +477,12 @@ Deno.serve(async (req) => {
           return new Response('Failed to update member', { status: 500 })
         }
 
+        // Direct Debit subscription checkout → mark the member as paying by
+        // Direct Debit (mandate status follows via mandate.updated).
+        if (session.metadata?.payment_method_type === 'bacs_debit') {
+          await markMemberDirectDebitFromSubscriptionCheckout(supabaseAdmin, member_id)
+        }
+
         // Initial subscription payment — Flow A also needs this so the
         // dashboard Revenue MTD and Finance page reflect it. Idempotent
         // on session id.
@@ -432,8 +498,8 @@ Deno.serve(async (req) => {
             currency: 'GBP',
             payment_type: 'membership',
             payment_method: 'stripe',
-            status: 'paid',
-            paid_at: paidAt,
+            status: initialPaymentStatus,
+            paid_at: initialPaidAt,
             stripe_checkout_session_id: session.id,
             description: 'Membership — initial subscription payment',
           })
@@ -847,6 +913,11 @@ Deno.serve(async (req) => {
 
         console.log('Subscription cancelled for member:', memberId)
       }
+    }
+
+    // Direct Debit: tag membership payment rows collected by Bacs.
+    if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
+      await tagInvoicePaymentMethodType(stripe, supabaseAdmin, event.data.object as Stripe.Invoice)
     }
 
     return new Response(JSON.stringify({ received: true }), {

@@ -6,6 +6,16 @@
 // each carrying `data.email_id` — the same id we store as `resend_message_id`
 // on BOTH the `communications` (template/campaign sends) and `email_log`
 // (automations/transactional) tables. We match on that id and update both.
+// Opens/clicks stamp opened_at/clicked_at on both tables (email_log gained
+// those columns in 20261016_email_open_tracking.sql) — the Member Success
+// "Not opening emails" flag reads them. Sponsor outreach steps (whose Resend
+// id is sponsor_outreach.external_id) get opened/clicked/bounced too, and a
+// bounce stops that address's remaining follow-ups.
+//
+// Opens only arrive when OPEN TRACKING is enabled on the Resend sending
+// domain (clicks need CLICK TRACKING), and the Resend webhook must be
+// subscribed to email.opened / email.clicked / email.bounced /
+// email.delivered.
 //
 // Idempotent: opened_at/clicked_at are only set when currently null, so a
 // later duplicate event never overwrites the first (earliest) timestamp.
@@ -18,6 +28,7 @@
 import { NextRequest } from 'next/server'
 import crypto from 'crypto'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { recordOutreachEngagement } from '@/lib/sponsorship/outreach/tracking'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -116,15 +127,19 @@ export async function POST(req: NextRequest) {
   try {
     if (type === 'email.opened') {
       await markEngagement(admin, messageId, 'opened_at', nowIso)
+      await updateEmailLogStatus(admin, messageId, 'opened')
+      await recordOutreachEngagement(admin, messageId, 'opened', nowIso)
     } else if (type === 'email.clicked') {
       // A click implies an open — set both if still null.
       await markEngagement(admin, messageId, 'clicked_at', nowIso)
       await markEngagement(admin, messageId, 'opened_at', nowIso)
       await updateEmailLogStatus(admin, messageId, 'clicked')
+      await recordOutreachEngagement(admin, messageId, 'clicked', nowIso)
     } else if (type === 'email.delivered') {
       await updateEmailLogStatus(admin, messageId, 'delivered')
     } else if (type === 'email.bounced') {
       await updateEmailLogStatus(admin, messageId, 'bounced')
+      await recordOutreachEngagement(admin, messageId, 'bounced', nowIso)
     } else {
       // Unhandled event type — ack without doing anything.
       return Response.json({ ok: true, ignored: type })
@@ -140,9 +155,10 @@ export async function POST(req: NextRequest) {
 }
 
 // Set an engagement timestamp (opened_at/clicked_at) on the matching
-// `communications` row(s) only when currently null — keeps the earliest event
-// and stays idempotent across duplicate webhook deliveries. (email_log has no
-// engagement columns, so engagement is reflected there via status instead.)
+// `communications` AND `email_log` row(s) only when currently null — keeps the
+// earliest event and stays idempotent across duplicate webhook deliveries.
+// (The email_log write is a no-op error until its migration is applied;
+// supabase-js returns that as a value, it doesn't throw.)
 async function markEngagement(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   admin: any,
@@ -152,6 +168,12 @@ async function markEngagement(
 ): Promise<void> {
   await admin
     .from('communications')
+    .update({ [column]: iso })
+    .eq('resend_message_id', messageId)
+    .is(column, null)
+
+  await admin
+    .from('email_log')
     .update({ [column]: iso })
     .eq('resend_message_id', messageId)
     .is(column, null)
@@ -167,16 +189,17 @@ async function markEngagement(
     .not('status', 'in', `(${guard.join(',')})`)
 }
 
-// email_log has no opened_at/clicked_at columns — record engagement/delivery
-// via its `status` field. Don't downgrade an already-stronger status.
+// Mirror the latest engagement/delivery in email_log's `status` field (shown
+// in the Sent-mail log). Strength: sent < delivered < opened < clicked; never
+// downgrade an already-stronger status.
 async function updateEmailLogStatus(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   admin: any,
   messageId: string,
-  status: 'delivered' | 'clicked' | 'bounced',
+  status: 'delivered' | 'opened' | 'clicked' | 'bounced',
 ): Promise<void> {
-  // For delivered/clicked, don't clobber a 'failed'/'bounced' row. Bounced is
-  // a terminal failure state and always wins.
+  // For delivered/opened/clicked, don't clobber a 'failed'/'bounced' row.
+  // Bounced is a terminal failure state and always wins.
   if (status === 'bounced') {
     await admin
       .from('email_log')
@@ -184,9 +207,14 @@ async function updateEmailLogStatus(
       .eq('resend_message_id', messageId)
     return
   }
+  const stronger: Record<'delivered' | 'opened' | 'clicked', string> = {
+    delivered: '(failed,bounced,clicked,opened,delivered)',
+    opened: '(failed,bounced,clicked,opened)',
+    clicked: '(failed,bounced,clicked)',
+  }
   await admin
     .from('email_log')
     .update({ status })
     .eq('resend_message_id', messageId)
-    .not('status', 'in', '(failed,bounced,clicked)')
+    .not('status', 'in', stronger[status])
 }

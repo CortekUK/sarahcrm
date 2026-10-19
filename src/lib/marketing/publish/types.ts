@@ -4,8 +4,9 @@
 // the approval queue; only THEN does the asset route hand it to a Publisher.
 // This interface is the single seam every publisher implements: social
 // channels go through MetricoolPublisher (./metricool.ts) when Metricool is
-// configured, everything else (and social when it isn't) through the
-// MockPublisher (./mock.ts). Email channels are handled by the existing
+// configured, blog channels through BlogPublisher (./blog.ts — a public post
+// on the website's /blog), everything else (and social when Metricool isn't
+// configured) through the MockPublisher (./mock.ts). Email channels are handled by the existing
 // Resend pipeline.
 
 export type MarketingChannel =
@@ -15,6 +16,8 @@ export type MarketingChannel =
   | 'instagram_feed'
   | 'instagram_carousel'
   | 'instagram_reel'
+  | 'facebook'
+  | 'tiktok'
   | 'newsletter'
   | 'press_release'
   | 'sponsor_recap'
@@ -35,9 +38,15 @@ export interface PublishableAsset {
   scheduled_at?: string | null
   // Free-form per-asset publish hints. MetricoolPublisher reads two optional
   // keys from it (there are no dedicated columns yet):
-  //   video_url  — public video URL, REQUIRED for instagram_reel;
-  //   media_urls — extra public image URLs for instagram_carousel.
+  //   video_url  — public video URL, REQUIRED for instagram_reel; for tiktok
+  //                it makes the post a TikTok VIDEO (else a photo post);
+  //   media_urls — extra public image URLs for instagram_carousel, and for a
+  //                tiktok photo post (graphic + these → photo carousel).
   publish_target?: Record<string, unknown> | null
+  // The event this piece is about (marketing_assets.event_id, the library
+  // tag). BlogPublisher links the public post to it and falls back to the
+  // event's cover image when there is no graphic_url.
+  event_id?: string | null
 }
 
 export interface PublishResult {

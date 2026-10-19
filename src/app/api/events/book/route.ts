@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { excludeDirectDebitFromInstantCheckout } from '@/lib/billing/direct-debit'
 import { notifyAdmins } from '@/lib/email/admin-notify'
 
 export const runtime = 'nodejs'
@@ -264,6 +265,9 @@ export async function POST(req: NextRequest) {
 
     const session = autoConfirm
       ? await stripe.checkout.sessions.create({
+          // Keep instant event checkouts off Bacs Direct Debit (no-op unless
+          // Direct Debit is enabled) — see src/lib/billing/direct-debit.ts.
+          ...excludeDirectDebitFromInstantCheckout(),
           mode: 'payment',
           ...(member.stripe_customer_id
             ? { customer: member.stripe_customer_id }
@@ -284,6 +288,9 @@ export async function POST(req: NextRequest) {
           cancel_url,
         })
       : await stripe.checkout.sessions.create({
+          // Keep instant event checkouts off Bacs Direct Debit (no-op unless
+          // Direct Debit is enabled) — see src/lib/billing/direct-debit.ts.
+          ...excludeDirectDebitFromInstantCheckout(),
           mode: 'setup',
           ...(member.stripe_customer_id
             ? { customer: member.stripe_customer_id }

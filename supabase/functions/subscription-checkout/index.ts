@@ -31,6 +31,16 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Optional { payment_method: 'bacs_debit' } — UK Direct Debit through
+    // Stripe (Bacs). Absent/anything else → the existing checkout, unchanged.
+    let wantsDirectDebit = false
+    try {
+      const reqBody = await req.json()
+      wantsDirectDebit = reqBody?.payment_method === 'bacs_debit'
+    } catch {
+      /* no / invalid body → card checkout as before */
+    }
+
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -132,6 +142,19 @@ Deno.serve(async (req) => {
       },
       success_url: `${siteUrl}/portal/billing?session_id={CHECKOUT_SESSION_ID}&status=success`,
       cancel_url: `${siteUrl}/portal/billing?status=cancelled`,
+      // Direct Debit only: restrict this session to Bacs. Stripe shows the
+      // mandate and sends the mandate/advance-notice emails. The first
+      // payment is async — the webhook records it as pending until
+      // checkout.session.async_payment_succeeded / _failed.
+      ...(wantsDirectDebit
+        ? {
+            payment_method_types: ['bacs_debit'] as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
+            metadata: { member_id: member.id, plan_id: plan.id, payment_method_type: 'bacs_debit' },
+            subscription_data: {
+              metadata: { member_id: member.id, plan_id: plan.id, payment_method_type: 'bacs_debit' },
+            },
+          }
+        : {}),
     })
 
     return new Response(

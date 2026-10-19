@@ -111,8 +111,20 @@ URL: **Partners** (`/dashboard/website/partners`) and **Documents**
   the single most common way the club under-reports its own value — the outcome
   is what feeds the ROI card on both member profiles, the Commissions ledger and
   the Executive dashboard.
-- **Sponsorship outreach never sends itself.** Every AI-drafted email must be
-  explicitly **Approved** and then **Sent** — two deliberate actions, by design.
+- **Sponsorship outreach never sends without approval.** Every AI-drafted email
+  must be explicitly **Approved**, then either **Sent** by hand or **Approved &
+  scheduled** so the daily automation sends it when due. Editing an approved
+  step returns it to draft. A reply (detected from Sarah's synced inbox) or a
+  bounce stops the remaining steps automatically.
+- **Built but switched OFF until a developer enables them:** Direct Debit via
+  Stripe Bacs (GoCardless is NOT integrated), concierge calendar booking (today
+  the concierge only collects preferred call times), and Metricool LIVE
+  publishing (Draft mode is the default). "Not opening emails" on Member Success
+  stays silent until Resend open tracking records opens.
+- **Blogs publish to the club's own website** (the Journal, `/blog`) when an SEO
+  or Recap blog is approved with **Approve & publish to website**; **Unpublish**
+  takes it down. Facebook and TikTok are marketing channels alongside LinkedIn
+  and Instagram (TikTok needs an image).
 - **The Inbox is read-only.** You can read and triage threads and have the AI
   draft a reply into Gmail, but you cannot reply or compose from inside the
   Inbox screen.

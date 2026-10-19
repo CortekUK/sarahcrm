@@ -13,6 +13,10 @@
 //   • intros_total  — count of introductions the member is on either side of
 // Both are computed in BATCH (one bookings query + one introductions query for
 // all members, aggregated in JS) — never per-member, to avoid N+1.
+//   • email opens  — emails sent vs opened in the lookback window, derived
+//     from email_log + communications opened_at (lib/members/email-engagement,
+//     also batched). Drives the `not_opening` flag, which stays OFF for
+//     everyone while there is no open data at all (Resend open tracking off).
 //
 // Admin only. Reads go through a service-role client so member-facing RLS
 // doesn't hide rows. Optional ?flag=<flag> filters server-side.
@@ -21,6 +25,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { loadEmailEngagement } from '@/lib/members/email-engagement'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,6 +35,8 @@ const CHURN_AT_RISK = 60 // churn_risk_score >= 60  → at risk
 const RENEWAL_SOON_DAYS = 30 // renewal within next 30 days
 const DORMANT_DAYS = 90 // no attendance in 90+ days (or never)
 const UPGRADE_READY = 70 // upgrade_potential >= 70
+const NOT_OPENING_WINDOW_DAYS = 60 // look at emails sent in the last 60 days…
+const NOT_OPENING_MIN_SENT = 3 // …at least 3 sent and none opened → not opening
 
 type SuccessFlag =
   | 'at_risk'
@@ -37,6 +44,7 @@ type SuccessFlag =
   | 'no_intros'
   | 'dormant'
   | 'upgrade_ready'
+  | 'not_opening'
 
 const ALL_FLAGS: SuccessFlag[] = [
   'at_risk',
@@ -44,6 +52,7 @@ const ALL_FLAGS: SuccessFlag[] = [
   'no_intros',
   'dormant',
   'upgrade_ready',
+  'not_opening',
 ]
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -91,6 +100,8 @@ interface FlaggedMember {
   upgrade_potential: number
   last_attended: string | null
   intros_total: number
+  // Latest recorded email open in the lookback window (null = none recorded).
+  last_email_opened_at: string | null
   flags: SuccessFlag[]
   reasons: string[]
 }
@@ -185,6 +196,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ── Email opens (batched; trackingSince null = no open data → no flag) ──
+    const emailOpens = await loadEmailEngagement(
+      adminDb as unknown as Parameters<typeof loadEmailEngagement>[0],
+      ids,
+      NOT_OPENING_WINDOW_DAYS,
+    )
+
     const now = Date.now()
 
     // ── Derive flags + reasons per member ────────────────────────────
@@ -232,6 +250,16 @@ export async function GET(req: NextRequest) {
         flags.push('upgrade_ready')
         reasons.push(`Strong upgrade potential (${upgrade}/100)`)
       }
+      const mail = emailOpens.byMember.get(m.id)
+      if (
+        emailOpens.trackingSince &&
+        mail &&
+        mail.sent >= NOT_OPENING_MIN_SENT &&
+        mail.opened === 0
+      ) {
+        flags.push('not_opening')
+        reasons.push(`Hasn't opened any of ${mail.sent} recent emails`)
+      }
 
       if (flags.length === 0) continue
       if (filterFlag && !flags.includes(filterFlag)) continue
@@ -256,6 +284,7 @@ export async function GET(req: NextRequest) {
         upgrade_potential: upgrade,
         last_attended: last,
         intros_total: intros,
+        last_email_opened_at: mail?.lastOpenedAt ?? null,
         flags,
         reasons,
       })
@@ -274,6 +303,7 @@ export async function GET(req: NextRequest) {
       no_intros: 0,
       dormant: 0,
       upgrade_ready: 0,
+      not_opening: 0,
     }
     for (const f of flagged) for (const fl of f.flags) counts[fl] += 1
 
@@ -286,6 +316,14 @@ export async function GET(req: NextRequest) {
         renewal_soon_days: RENEWAL_SOON_DAYS,
         dormant_days: DORMANT_DAYS,
         upgrade_ready: UPGRADE_READY,
+        not_opening_window_days: NOT_OPENING_WINDOW_DAYS,
+        not_opening_min_sent: NOT_OPENING_MIN_SENT,
+      },
+      // Whether open data exists (Resend open tracking on). While false the
+      // not_opening flag is never raised.
+      email_open_tracking: {
+        active: Boolean(emailOpens.trackingSince),
+        since: emailOpens.trackingSince,
       },
     })
   } catch (e) {

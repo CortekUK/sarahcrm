@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { isDirectDebitEnabled } from '@/lib/billing/direct-debit'
 
 // POST /api/membership-application/setup
 //
@@ -198,6 +199,81 @@ export async function POST(req: NextRequest) {
         },
       })
       customerId = customer.id
+    }
+
+    // ── Direct Debit (Stripe Bacs) branch — additive ─────────────────
+    // When the applicant picks Direct Debit we don't mount card Elements.
+    // Instead we open a Stripe-hosted Checkout Session in `setup` mode for
+    // `bacs_debit`: Stripe collects the UK bank details, shows the Bacs
+    // mandate confirmation and emails the mandate. Like the card flow,
+    // NOTHING is collected now — the subscription (and first debit) is
+    // created when an admin approves. The card branch below is untouched.
+    if (body.payment_method_type === 'bacs_debit') {
+      if (!isDirectDebitEnabled()) {
+        return NextResponse.json(
+          { error: 'Direct Debit is not available yet. Please pay by card.' },
+          { status: 400 },
+        )
+      }
+      const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+      const ddMetadata = {
+        kind: 'application_bacs_mandate',
+        application_id: applicationId,
+        tier,
+        cadence,
+        quoted_amount_pence: String(quotedGross),
+        tier_label: tierLabel,
+      }
+      const session = await stripe.checkout.sessions.create({
+        mode: 'setup',
+        currency: 'gbp',
+        payment_method_types: ['bacs_debit'],
+        customer: customerId,
+        metadata: ddMetadata,
+        setup_intent_data: { metadata: ddMetadata },
+        success_url: `${origin}/membership-application/success?session_id={CHECKOUT_SESSION_ID}&application_id=${applicationId}&method=bacs_debit`,
+        cancel_url: `${origin}/membership-application?direct_debit=cancelled`,
+      })
+      const setupIntentId =
+        typeof session.setup_intent === 'string'
+          ? session.setup_intent
+          : (session.setup_intent?.id ?? null)
+
+      await admin
+        .from('membership_applications')
+        .update({
+          stripe_customer_id: customerId,
+          ...(setupIntentId ? { stripe_setup_intent_id: setupIntentId } : {}),
+        })
+        .eq('id', applicationId)
+      // New DD columns written separately so a not-yet-applied migration
+      // can't block the core write above.
+      const { error: ddColErr } = await admin
+        .from('membership_applications')
+        .update({
+          stripe_payment_method_type: 'bacs_debit',
+          stripe_checkout_session_id: session.id,
+          direct_debit_status: null,
+        })
+        .eq('id', applicationId)
+      if (ddColErr) console.warn('[setup] direct-debit columns not written:', ddColErr.message)
+
+      if (!session.url) {
+        return NextResponse.json({ error: 'Could not open Direct Debit set-up.' }, { status: 500 })
+      }
+      return NextResponse.json({ checkoutUrl: session.url, applicationId })
+    }
+
+    // Applicant switched back from Direct Debit to card on a repeat call:
+    // clear the stale method marker (best-effort, separate statement).
+    if (existingApplicationId && isDirectDebitEnabled()) {
+      await admin
+        .from('membership_applications')
+        .update({ stripe_payment_method_type: 'card' })
+        .eq('id', applicationId)
+        .then(({ error }) => {
+          if (error) console.warn('[setup] could not reset payment method type:', error.message)
+        })
     }
 
     // ── Create the SetupIntent — saves the card, charges nothing ─────

@@ -11,6 +11,10 @@
 // switch is off — or no inbox is enabled — this route reads NO inbox and
 // returns { skipped: true }. Per-inbox cursors + the fetch→upsert engine live
 // in lib/google/sync-core (reused by the backfill module).
+//
+// After a sync, sponsor outreach reply detection runs over the freshly synced
+// rows (DB only — lib/sponsorship/outreach/replies): a prospect who replied
+// gets flagged and their remaining follow-up steps are cancelled.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -19,6 +23,7 @@ import type { Database } from '@/types/database'
 import { getGoogleConfig } from '@/lib/google/client'
 import { getSyncConfig } from '@/lib/google/sync-config'
 import { syncInboxIncremental } from '@/lib/google/sync-core'
+import { detectOutreachReplies } from '@/lib/sponsorship/outreach/replies'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -85,6 +90,11 @@ async function handle(req: NextRequest) {
       matched += res.matched
     }
 
+    // Sponsor outreach replies — reads gmail_messages only; never throws.
+    const outreachReplies = await detectOutreachReplies(
+      db as unknown as Parameters<typeof detectOutreachReplies>[0],
+    )
+
     return NextResponse.json({
       ok: true,
       triggeredBy: viaCron ? 'cron' : 'admin',
@@ -92,6 +102,7 @@ async function handle(req: NextRequest) {
       fetched,
       upserted,
       matched,
+      outreachReplies: outreachReplies.matched,
     })
   } catch (e) {
     console.error('[cron/gmail-sync] failed:', e)

@@ -26,7 +26,7 @@ import { formatDateTime, cn } from '@/lib/utils'
 import { toast } from '@/lib/hooks/use-toast'
 import { apiClient, getApiErrorMessage } from '@/lib/http'
 import { formatEnrichmentSource } from '@/lib/enrichment/source-label'
-import { companyExtrasFromRaw } from '@/lib/enrichment/company-extras'
+import { companyExtrasFromRaw, employeeRangeFromRaw } from '@/lib/enrichment/company-extras'
 import {
   Inbox,
   Search,
@@ -49,6 +49,8 @@ import {
   MapPin,
   Landmark,
   Banknote,
+  PhoneCall,
+  Bell,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -70,7 +72,26 @@ function personName(p: AdminProfile | undefined): string {
 const SOURCE_LABELS: Record<string, string> = {
   contact_form: 'Contact form',
   concierge_form: 'Concierge',
+  concierge_chat: 'AI Concierge',
   website: 'Website',
+}
+
+// Who an AI-Concierge call request is routed to (enquiries.call_team).
+const CALL_TEAM_LABELS: Record<string, string> = {
+  sales: 'Membership team',
+  events: 'Events team',
+  sarah: 'Sarah',
+}
+
+type AdminNotification = Database['public']['Tables']['admin_notifications']['Row']
+
+// "Call booked: Tue 21 Oct, 10:30" / "Call requested: preferred Tue mornings",
+// or null when the enquiry carries no call (columns from the 20261016 migration;
+// undefined until it is applied, which simply hides the call UI).
+function callLine(e: EnquiryRow): string | null {
+  if (e.call_booked_start) return `Call booked: ${formatDateTime(e.call_booked_start)}`
+  if (e.call_requested_at) return `Call requested: preferred ${e.call_preferences || 'not specified'}`
+  return null
 }
 
 const STATUS_OPTIONS: { value: EnquiryStatus | 'all'; label: string }[] = [
@@ -114,10 +135,40 @@ export function EnquiriesListPage() {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<EnquiryRow | null>(null)
   const [composing, setComposing] = useState<EnquiryRow | null>(null)
+  const [callNotices, setCallNotices] = useState<AdminNotification[]>([])
 
   useEffect(() => {
     fetchEnquiries()
+    fetchCallNotices()
   }, [])
+
+  // Unread in-app notifications for calls the AI Concierge booked. Silent on
+  // error (e.g. admin_notifications not migrated yet) — the strip just hides.
+  async function fetchCallNotices() {
+    const { data, error } = await supabase
+      .from('admin_notifications')
+      .select('*')
+      .eq('kind', 'concierge_call_booked')
+      .is('read_at', null)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    if (!error && data) setCallNotices(data as AdminNotification[])
+  }
+
+  async function markNoticeRead(id: string) {
+    setCallNotices((prev) => prev.filter((n) => n.id !== id))
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    const { error } = await supabase
+      .from('admin_notifications')
+      .update({ read_at: new Date().toISOString(), read_by: user?.id ?? null })
+      .eq('id', id)
+    if (error) {
+      toast({ title: 'Could not mark as read', description: error.message, variant: 'destructive' })
+      fetchCallNotices()
+    }
+  }
 
   async function fetchEnquiries() {
     setLoading(true)
@@ -322,6 +373,51 @@ export function EnquiriesListPage() {
         <StatTile label="Closed" value={counts.closed} icon={<Archive size={14} />} tone="neutral" />
       </div>
 
+      {/* ── Calls booked by the AI Concierge (in-app notifications) ── */}
+      {callNotices.length > 0 && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-1.5 text-text-muted mb-3">
+              <Bell size={13} />
+              <span className="text-[10px] font-medium uppercase tracking-[0.16em]">
+                Calls booked by the AI Concierge
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {callNotices.map((n) => {
+                const enquiry = n.related_enquiry_id
+                  ? enquiries.find((e) => e.id === n.related_enquiry_id)
+                  : undefined
+                return (
+                  <li
+                    key={n.id}
+                    className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 border border-border rounded-md px-3 py-2 bg-surface-2/40"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text font-medium">{n.title}</p>
+                      {n.body && <p className="text-xs text-text-dim truncate">{n.body}</p>}
+                    </div>
+                    <span className="text-[11px] text-text-dim whitespace-nowrap">
+                      {formatDateTime(n.created_at)}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {enquiry && (
+                        <Button size="sm" variant="secondary" onClick={() => setSelected(enquiry)}>
+                          Open
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => markNoticeRead(n.id)}>
+                        Mark read
+                      </Button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Filters ────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row gap-3 mb-5">
         <div className="relative md:max-w-sm flex-1">
@@ -420,6 +516,12 @@ export function EnquiriesListPage() {
                           {e.email}
                           {e.company ? ` · ${e.company}` : ''}
                         </p>
+                        {callLine(e) && (
+                          <p className="mt-1 flex items-center gap-1 text-[11px] text-gold truncate max-w-[220px]">
+                            <PhoneCall size={11} className="shrink-0" />
+                            <span className="truncate">{callLine(e)}</span>
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell>
                         {intent ? (
@@ -730,6 +832,37 @@ function EnquiryDetailModal({
           onEnrich={handleEnrich}
         />
 
+        {/* AI Concierge call request / booking */}
+        {callLine(enquiry) && (
+          <div className="border border-gold/40 rounded-md px-4 py-3 bg-gold-muted">
+            <div className="flex items-center gap-1.5 text-gold mb-1.5">
+              <PhoneCall size={13} />
+              <span className="text-[10px] font-medium uppercase tracking-[0.16em]">
+                {enquiry.call_booked_start ? 'Call booked' : 'Call requested'}
+              </span>
+              {enquiry.call_team && (
+                <span className="ml-auto text-[11px] text-text-dim">
+                  {CALL_TEAM_LABELS[enquiry.call_team] ?? enquiry.call_team}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-text">{callLine(enquiry)}</p>
+            {enquiry.call_booked_start && enquiry.call_preferences && (
+              <p className="text-xs text-text-dim mt-1">Preferred: {enquiry.call_preferences}</p>
+            )}
+            {enquiry.call_meet_url && (
+              <a
+                href={enquiry.call_meet_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 text-xs text-gold hover:text-gold/80"
+              >
+                Google Meet link <ExternalLink size={11} />
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Message */}
         <div>
           <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
@@ -918,7 +1051,7 @@ function EnrichmentPanel({
             <EnrichFact
               icon={<Users size={12} />}
               label="Employees"
-              value={enquiry.company_employee_count.toLocaleString()}
+              value={employeeRangeFromRaw(enquiry.enrichment_raw, enquiry.enrichment_source) ?? enquiry.company_employee_count.toLocaleString()}
             />
           )}
           {enquiry.company_revenue_printed && (

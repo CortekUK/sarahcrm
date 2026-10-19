@@ -4,7 +4,16 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { CreditCard, ExternalLink } from 'lucide-react'
+import { CreditCard, ExternalLink, Landmark } from 'lucide-react'
+import { apiClient, getApiErrorMessage } from '@/lib/http'
+import {
+  DIRECT_DEBIT_LABEL,
+  DIRECT_DEBIT_STATUS_LABEL,
+  DIRECT_DEBIT_TIMING_COPY,
+  isDirectDebitEnabled,
+  isDirectDebitStatus,
+  type DirectDebitStatus,
+} from '@/lib/billing/direct-debit'
 import {
   PortalBadge,
   PortalButton,
@@ -62,6 +71,21 @@ const tierLabels: Record<MemberTier, string> = {
   tier_3: 'Tier III',
 }
 
+// Direct Debit (Stripe Bacs) — read separately from the main member query
+// so a not-yet-applied migration can never break this page.
+interface DirectDebitInfo {
+  payment_method_type: string | null
+  status: DirectDebitStatus | null
+  reference: string | null
+}
+
+const ddStatusVariant: Record<DirectDebitStatus, PortalBadgeVariant> = {
+  active: 'active',
+  pending: 'upcoming',
+  failed: 'urgent',
+  inactive: 'draft',
+}
+
 const paymentStatusVariant: Record<PaymentStatus, PortalBadgeVariant> = {
   paid: 'active',
   pending: 'upcoming',
@@ -76,8 +100,27 @@ export function PortalBillingPage() {
   const [planDisplay, setPlanDisplay] = useState<PlanDisplay | null>(null)
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState<'subscribe' | 'portal' | null>(null)
+  const [actionLoading, setActionLoading] = useState<
+    'subscribe' | 'portal' | 'subscribe_dd' | 'switch_dd' | null
+  >(null)
   const [error, setError] = useState<string | null>(null)
+  const directDebitEnabled = isDirectDebitEnabled()
+  const [directDebit, setDirectDebit] = useState<DirectDebitInfo | null>(null)
+  const [ddNotice, setDdNotice] = useState<string | null>(null)
+
+  // Returning from Stripe's Direct Debit pages.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const dd = params.get('direct_debit')
+    if (dd === 'success') {
+      setDdNotice(
+        `Your Direct Debit is being set up. Your bank confirms it within about 3 working days. ${DIRECT_DEBIT_TIMING_COPY}`,
+      )
+    } else if (dd === 'cancelled') {
+      setDdNotice('Direct Debit set-up was cancelled. Nothing has changed.')
+    }
+    if (dd) window.history.replaceState(null, '', window.location.pathname)
+  }, [])
 
   useEffect(() => {
     if (profile?.id) fetchData(profile.id)
@@ -97,6 +140,26 @@ export function PortalBillingPage() {
       return
     }
     setMember(memberData as MemberBilling)
+
+    // Direct Debit fields (new columns) — own query, failures ignored.
+    void supabase
+      .from('members')
+      .select('stripe_payment_method_type, direct_debit_status, direct_debit_reference')
+      .eq('id', memberData.id)
+      .maybeSingle()
+      .then(({ data, error: ddErr }) => {
+        if (ddErr || !data) return
+        const row = data as unknown as {
+          stripe_payment_method_type: string | null
+          direct_debit_status: string | null
+          direct_debit_reference: string | null
+        }
+        setDirectDebit({
+          payment_method_type: row.stripe_payment_method_type,
+          status: isDirectDebitStatus(row.direct_debit_status) ? row.direct_debit_status : null,
+          reference: row.direct_debit_reference,
+        })
+      })
 
     // Resolve the actual plan + cadence in three steps:
     //   1. Most recent approved application for this profile (has the
@@ -202,6 +265,47 @@ export function PortalBillingPage() {
     }
   }
 
+  // New subscription paid by Direct Debit — same edge function as card,
+  // restricted to Bacs via { payment_method: 'bacs_debit' }.
+  async function handleSetupDirectDebitSubscription() {
+    setActionLoading('subscribe_dd')
+    setError(null)
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('subscription-checkout', {
+        body: { payment_method: 'bacs_debit' },
+      })
+      if (fnError || !data?.url) {
+        setError(
+          await extractFunctionErrorMessage(fnError, data, 'Failed to start Direct Debit set-up'),
+        )
+        setActionLoading(null)
+        return
+      }
+      window.location.href = data.url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setActionLoading(null)
+    }
+  }
+
+  // Existing subscription → switch future payments to Direct Debit.
+  async function handleSwitchToDirectDebit() {
+    setActionLoading('switch_dd')
+    setError(null)
+    try {
+      const { data } = await apiClient.post<{ url?: string }>('/api/portal/billing/direct-debit', {})
+      if (!data.url) {
+        setError('Could not open Direct Debit set-up.')
+        setActionLoading(null)
+        return
+      }
+      window.location.href = data.url
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Could not open Direct Debit set-up.'))
+      setActionLoading(null)
+    }
+  }
+
   async function handleManageBilling() {
     setActionLoading('portal')
     setError(null)
@@ -291,6 +395,14 @@ export function PortalBillingPage() {
         </div>
       )}
 
+      {ddNotice && (
+        <div className="mb-6 px-5 py-4 border-l-2 border-bronze/70 bg-bronze/[0.06]">
+          <p className="font-[family-name:var(--font-editorial)] italic text-[13.5px] text-ivory-soft">
+            {ddNotice}
+          </p>
+        </div>
+      )}
+
       {/* Subscription summary */}
       <PortalCard className="mb-6 p-6 lg:p-8">
         <PortalSectionTitle eyebrow="Subscription">
@@ -354,13 +466,44 @@ export function PortalBillingPage() {
           </div>
         </dl>
 
+        {/* Payment method — Direct Debit (Stripe Bacs) status, when known. */}
+        {!isRep && directDebit?.payment_method_type === 'bacs_debit' && (
+          <div className="mt-6 pt-6 border-t border-graphite-line/40 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div>
+              <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
+                Payment method
+              </p>
+              <p className="inline-flex items-center gap-2 font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight">
+                <Landmark size={14} strokeWidth={1.5} className="text-bronze-light" />
+                {DIRECT_DEBIT_LABEL}
+              </p>
+            </div>
+            {directDebit.status && (
+              <PortalBadge variant={ddStatusVariant[directDebit.status]} dot>
+                {DIRECT_DEBIT_STATUS_LABEL[directDebit.status]}
+              </PortalBadge>
+            )}
+            {directDebit.reference && (
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] text-slate-haze">
+                Mandate ref · {directDebit.reference}
+              </p>
+            )}
+            <p className="basis-full font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/80">
+              {directDebit.status === 'failed' || directDebit.status === 'inactive'
+                ? 'Your Direct Debit is no longer active. Set it up again below, or update your card via Manage billing.'
+                : DIRECT_DEBIT_TIMING_COPY}
+            </p>
+          </div>
+        )}
+
         {isRep ? (
           <p className="mt-7 font-[family-name:var(--font-editorial)] italic text-[13.5px] leading-[1.7] text-ivory-soft/85">
             Billing for your membership is handled by your organisation&apos;s
             primary account.
           </p>
         ) : (
-          <div className="mt-7 flex gap-3">
+          <>
+          <div className="mt-7 flex flex-wrap gap-3">
             {hasSubscription ? (
               <PortalButton
                 variant="secondary"
@@ -379,7 +522,38 @@ export function PortalBillingPage() {
                 Set up subscription
               </PortalButton>
             )}
+            {/* Direct Debit (Stripe Bacs) — additional option, flag-gated. */}
+            {directDebitEnabled &&
+              (hasSubscription ? (
+                (directDebit?.payment_method_type !== 'bacs_debit' ||
+                  directDebit.status === 'failed' ||
+                  directDebit.status === 'inactive') && (
+                  <PortalButton
+                    variant="secondary"
+                    icon={<Landmark size={13} strokeWidth={1.5} />}
+                    loading={actionLoading === 'switch_dd'}
+                    onClick={handleSwitchToDirectDebit}
+                  >
+                    Pay by Direct Debit
+                  </PortalButton>
+                )
+              ) : (
+                <PortalButton
+                  variant="secondary"
+                  icon={<Landmark size={13} strokeWidth={1.5} />}
+                  loading={actionLoading === 'subscribe_dd'}
+                  onClick={handleSetupDirectDebitSubscription}
+                >
+                  Set up with Direct Debit
+                </PortalButton>
+              ))}
           </div>
+          {directDebitEnabled && directDebit?.payment_method_type !== 'bacs_debit' && (
+            <p className="mt-3 font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/75">
+              {DIRECT_DEBIT_LABEL} — {DIRECT_DEBIT_TIMING_COPY}
+            </p>
+          )}
+          </>
         )}
       </PortalCard>
 

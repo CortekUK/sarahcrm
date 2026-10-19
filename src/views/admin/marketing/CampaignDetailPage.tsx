@@ -13,6 +13,10 @@ import {
   FileText,
   Linkedin,
   Instagram,
+  Facebook,
+  Music2,
+  Globe,
+  EyeOff,
   Mail,
   Newspaper,
   Handshake,
@@ -21,6 +25,7 @@ import {
   Send,
 } from 'lucide-react'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Button, Badge, Card, Textarea, Input, Select, Modal } from '@/components/ui'
 import { MediaPicker } from '@/components/ui/MediaPicker'
 import { cn } from '@/lib/utils'
@@ -31,6 +36,9 @@ import {
   CHANNEL_ORDER,
   LINKEDIN_VARIANTS,
   VOICE_LABELS,
+  TIKTOK_GRAPHIC_SHAPE,
+  TIKTOK_PUBLISH_NOTE,
+  isBlogChannel,
   linkedInVariantLabel,
 } from '@/lib/marketing/channels'
 import type { MarketingChannelKey, VoiceKey } from '@/lib/marketing/channels'
@@ -45,6 +53,8 @@ const SOCIAL_GRAPHIC_CHANNELS = new Set([
   'instagram_carousel',
   'instagram_reel',
   'linkedin',
+  'facebook',
+  'tiktok',
 ])
 
 type AssetStatus =
@@ -88,6 +98,9 @@ const CHANNEL_ICON: Record<MarketingChannelKey, typeof FileText> = {
   instagram_feed: Instagram,
   instagram_carousel: Instagram,
   instagram_reel: Instagram,
+  facebook: Facebook,
+  // lucide has no TikTok brand mark — Music2 is the neutral stand-in.
+  tiktok: Music2,
   newsletter: Mail,
   press_release: Newspaper,
   sponsor_recap: Handshake,
@@ -146,6 +159,30 @@ function metricoolInfo(asset: Asset): { mode: 'draft' | 'live'; when: string | n
       ? `${pd.dateTime.replace('T', ' ').slice(0, 16)}${typeof pd.timezone === 'string' ? ` (${pd.timezone})` : ''}`
       : null
   return { mode: t.mode === 'live' ? 'live' : 'draft', when }
+}
+
+// What a website blog publish left in publish_target (see
+// src/lib/marketing/publish/blog.ts). null when the asset never went to the
+// website. live = the post is on /blog right now; otherwise it was taken
+// down (unpublished) and approving again re-publishes it at the same URL.
+function websiteInfo(
+  asset: Asset,
+): { live: boolean; url: string | null; unpublishedAt: string | null } | null {
+  const t = asset.publish_target
+  if (!t || t.platform !== 'website') return null
+  return {
+    live: asset.status === 'published',
+    url: typeof t.url === 'string' ? t.url : null,
+    unpublishedAt: typeof t.unpublished_at === 'string' ? t.unpublished_at : null,
+  }
+}
+
+function fmtDateTime(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+  } catch {
+    return iso
+  }
 }
 
 export function CampaignDetailPage() {
@@ -248,7 +285,7 @@ function AssetCard({
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(asset.title ?? '')
   const [body, setBody] = useState(asset.body ?? '')
-  const [busy, setBusy] = useState<null | 'save' | 'approve' | 'reject' | 'regenerate' | 'resend'>(null)
+  const [busy, setBusy] = useState<null | 'save' | 'approve' | 'reject' | 'regenerate' | 'resend' | 'unpublish'>(null)
   const [resendOpen, setResendOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -261,6 +298,9 @@ function AssetCard({
   const meta = channelMeta(asset.channel)
   const Icon = meta.icon
   const metricool = metricoolInfo(asset)
+  const website = websiteInfo(asset)
+  const isBlog = isBlogChannel(asset.channel)
+  const confirm = useConfirm()
   // Locked once published OR once handed to Metricool (even as a draft) — the
   // server also refuses a second approve so Metricool never gets a duplicate.
   const published = asset.status === 'published' || metricool !== null
@@ -309,6 +349,37 @@ function AssetCard({
     } catch (e) {
       toast({
         title: 'Could not reset the post',
+        description: getApiErrorMessage(e, 'Please try again.'),
+        variant: 'destructive',
+      })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // "Unpublish" — takes a live website blog post down. The asset goes back to
+  // in_review; approving it again re-publishes at the same URL.
+  async function unpublish() {
+    const ok = await confirm({
+      title: 'Take this post off the website?',
+      description:
+        'The blog post will no longer be visible on the website. You can edit it and approve it again to re-publish it at the same address.',
+      confirmLabel: 'Unpublish',
+      tone: 'warning',
+    })
+    if (!ok) return
+    setBusy('unpublish')
+    setError(null)
+    try {
+      const { data } = await apiClient.patch<{ asset: Asset }>(
+        `/api/admin/marketing/assets/${asset.id}`,
+        { action: 'unpublish' },
+      )
+      onChange(data.asset)
+      toast({ title: 'Taken off the website', description: 'The blog post is no longer public.' })
+    } catch (e) {
+      toast({
+        title: 'Could not unpublish the post',
         description: getApiErrorMessage(e, 'Please try again.'),
         variant: 'destructive',
       })
@@ -374,6 +445,8 @@ function AssetCard({
           <Badge variant={metricool.mode === 'draft' ? 'upcoming' : 'active'}>
             {metricool.mode === 'draft' ? 'Metricool draft' : 'Sent to Metricool'}
           </Badge>
+        ) : website?.live ? (
+          <Badge variant="active">Live on website</Badge>
         ) : (
           <Badge variant={STATUS_VARIANT[asset.status]}>{asset.status.replace('_', ' ')}</Badge>
         )}
@@ -388,6 +461,7 @@ function AssetCard({
             onChange={onChange}
           />
         )}
+        {isBlog && <BlogHeroSection asset={asset} disabled={published} onChange={onChange} />}
         {editing ? (
           <>
             <Textarea
@@ -418,6 +492,42 @@ function AssetCard({
             {metricool.mode === 'draft'
               ? `Sent to Metricool as a draft${metricool.when ? ` for ${metricool.when}` : ''} — not published yet. Approve it in Metricool’s planner to publish.`
               : `Sent to Metricool — scheduled to publish${metricool.when ? ` at ${metricool.when}` : ''}.`}
+          </p>
+        )}
+        {website && (
+          <p className="text-xs text-text-dim">
+            {website.live ? (
+              <>
+                Published on the website
+                {website.url && (
+                  <>
+                    {' at '}
+                    <a
+                      href={website.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gold hover:underline"
+                    >
+                      {website.url}
+                    </a>
+                  </>
+                )}
+                . The marketing team has a review task under Tasks.
+              </>
+            ) : (
+              `Taken off the website${website.unpublishedAt ? ` on ${fmtDateTime(website.unpublishedAt)}` : ''}. Approve again to re-publish it at the same address.`
+            )}
+          </p>
+        )}
+        {asset.channel === 'tiktok' && (
+          <p className="text-xs text-text-dim">
+            {TIKTOK_PUBLISH_NOTE} Caption: {(body ?? '').length} / 300 characters suggested.
+          </p>
+        )}
+        {isBlog && !published && !website && (
+          <p className="text-xs text-text-dim">
+            Approving publishes this article as a public blog post on the website (The Journal) and
+            notifies the marketing team.
           </p>
         )}
         {error && <p className="text-sm text-accent-warm">{error}</p>}
@@ -498,6 +608,29 @@ function AssetCard({
               {copied ? 'Copied' : 'Copy'}
             </Button>
             <div className="flex-1" />
+            {website?.live && (
+              <>
+                {website.url && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Globe size={14} />}
+                    onClick={() => window.open(website.url!, '_blank')}
+                  >
+                    View on website
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<EyeOff size={14} />}
+                  loading={busy === 'unpublish'}
+                  onClick={unpublish}
+                >
+                  Unpublish
+                </Button>
+              </>
+            )}
             {asset.publish_target?.platform === 'metricool' && (
               <Button
                 size="sm"
@@ -532,8 +665,12 @@ function AssetCard({
                   ? 'Sent to Metricool (draft)'
                   : 'Sent to Metricool'
                 : published
-                  ? 'Published'
-                  : 'Approve & publish'}
+                  ? website?.live
+                    ? 'Live on website'
+                    : 'Published'
+                  : isBlog
+                    ? 'Approve & publish to website'
+                    : 'Approve & publish'}
             </Button>
           </>
         )}
@@ -569,6 +706,110 @@ function AssetCard({
         </div>
       </Modal>
     </Card>
+  )
+}
+
+// ── Hero image on a blog asset ──────────────────────────────────────
+// Blog posts don't use template graphics; the image picked here is stored
+// as the asset's graphic_url and becomes the public post's hero image on
+// approval. Optional — without one the linked event's cover is used (if any).
+function BlogHeroSection({
+  asset,
+  disabled,
+  onChange,
+}: {
+  asset: Asset
+  disabled: boolean
+  onChange: (a: Asset) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [url, setUrl] = useState<string>(asset.graphic_url ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save(next: string | null) {
+    setBusy(true)
+    setError(null)
+    try {
+      const { data } = await apiClient.patch<{ asset: Asset }>(
+        `/api/admin/marketing/assets/${asset.id}`,
+        { action: 'save', graphic_url: next },
+      )
+      onChange(data.asset)
+      setUrl(next ?? '')
+      setOpen(false)
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'Could not save the image.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 overflow-hidden">
+      <div className="flex flex-col sm:flex-row">
+        <div className="sm:w-44 shrink-0 bg-surface flex items-center justify-center p-3">
+          {asset.graphic_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={asset.graphic_url}
+              alt="Blog hero image"
+              className="max-h-40 w-auto rounded-[var(--radius-sm)] shadow-sm"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-1 text-text-dim py-6">
+              <ImageIcon size={22} />
+              <span className="text-xs">No hero image</span>
+            </div>
+          )}
+        </div>
+        <div className="flex-1 p-3 flex flex-col gap-2">
+          <p className="text-sm text-text font-medium">Hero image</p>
+          <p className="text-xs text-text-dim">
+            Shown at the top of the blog post on the website. Optional — without one, the linked
+            event&rsquo;s cover image is used if there is one.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Pencil size={13} />}
+              onClick={() => setOpen((v) => !v)}
+              disabled={disabled}
+            >
+              {open ? 'Close' : asset.graphic_url ? 'Change image' : 'Add image'}
+            </Button>
+            {asset.graphic_url && !disabled && (
+              <Button size="sm" variant="ghost" icon={<X size={13} />} loading={busy && !open} onClick={() => save(null)}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {open && (
+        <div className="border-t border-border p-4 space-y-4">
+          <MediaPicker
+            label="Hero image"
+            value={url}
+            onChange={setUrl}
+            mediaType="image"
+            onMediaTypeChange={() => {}}
+            lockedToType="image"
+            bucket="gallery"
+            folder="marketing"
+            hint="Pick from Google Drive, upload, or paste a URL. A wide (landscape) image works best."
+          />
+          {error && <p className="text-sm text-accent-warm">{error}</p>}
+          <div className="flex justify-end">
+            <Button size="sm" icon={<Check size={13} />} loading={busy} onClick={() => save(url || null)} disabled={!url}>
+              Use this image
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -662,7 +903,14 @@ function GraphicSection({
       const rRes = await fetch('/api/admin/marketing/graphics/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_id: tpl.id, values, shape: tpl.shape }),
+        // TikTok photo posts are vertical 9:16 — render any template at the
+        // 'story' shape (1080×1920) for TikTok; every other channel keeps
+        // the template's own shape.
+        body: JSON.stringify({
+          template_id: tpl.id,
+          values,
+          shape: asset.channel === 'tiktok' ? TIKTOK_GRAPHIC_SHAPE : tpl.shape,
+        }),
       })
       const rJson = await rRes.json()
       if (!rRes.ok) throw new Error(rJson.error ?? 'Render failed')
@@ -782,6 +1030,8 @@ function GraphicSection({
               : asset.graphic_url
                 ? 'This rendered image accompanies the caption. Change the photo, edit the AI text or swap the template, then re-render.'
                 : 'Add an on-brand graphic to this post from a template.'}
+            {asset.channel === 'tiktok' &&
+              ' TikTok needs an image: templates render vertically at 1080×1920 (9:16); an as-is image should be 9:16 too.'}
           </p>
           <div>
             <Button

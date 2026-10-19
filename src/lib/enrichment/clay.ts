@@ -220,6 +220,7 @@ export class ClayProvider implements EnrichmentProvider {
         linkedinUrl: companyRow.linkedin_url ?? null,
         industry: companyRow.industry ?? null,
         employeeCount: sizeLowerBound(companyRow.size),
+        employeeRange: companyRow.size ?? null,
         revenue: null, // Clay only exposes a revenue bucket, not a figure
         revenuePrinted: companyRow.annual_revenue ?? null,
         description: companyRow.description ?? null,

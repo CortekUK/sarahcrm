@@ -135,8 +135,10 @@ export async function enrichMember(
     if (company) {
       if (isEmpty(member.annual_turnover) && company.revenuePrinted)
         memberUpdate.annual_turnover = company.revenuePrinted
-      if (isEmpty(member.employee_count) && company.employeeCount != null)
-        memberUpdate.employee_count = String(company.employeeCount)
+      // employee_count is free text, so keep the provider's band ("501-1,000")
+      // rather than its lower bound — a lone "501" reads as an exact headcount.
+      if (isEmpty(member.employee_count) && (company.employeeRange || company.employeeCount != null))
+        memberUpdate.employee_count = company.employeeRange || String(company.employeeCount)
       if (isEmpty(member.sector) && company.industry) memberUpdate.sector = company.industry
       if (isEmpty(member.company_linkedin_url) && company.linkedinUrl)
         memberUpdate.company_linkedin_url = company.linkedinUrl

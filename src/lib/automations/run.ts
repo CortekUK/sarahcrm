@@ -13,6 +13,7 @@ import { renderIntroEmail } from '@/lib/introductions/intro-email'
 import { generateSuggestions, pairKey } from '@/lib/introductions/suggest'
 import { scorePairForSuggestion, type MatchCandidate } from '@/lib/introductions/matching'
 import { financeEscalation } from '@/lib/automations/finance-escalation'
+import { sponsorOutreachSequences } from '@/lib/sponsorship/outreach/runner'
 import { computeMemberScores } from '@/lib/members/scoring'
 import { notifyAdmins } from '@/lib/email/admin-notify'
 import { buildChiefOfStaffData } from '@/lib/chief-of-staff/aggregate'
@@ -1666,6 +1667,9 @@ export async function runAllAutomations(dryRun: boolean): Promise<AutomationRunR
     await invoiceChasing(admin, dryRun),
     await scheduledIntroductions(admin, dryRun),
     await sponsorFollowUps(admin, dryRun),
+    // Approved + scheduled sponsor outreach follow-ups that are now due (runs
+    // reply detection first, so a prospect who replied is never chased).
+    await sponsorOutreachSequences(admin, dryRun),
     await financeEscalation(admin, dryRun),
   ]
   const totals = flows.reduce(

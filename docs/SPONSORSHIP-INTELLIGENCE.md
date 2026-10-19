@@ -14,7 +14,7 @@ The CRM already had a solid **sponsorship spine** (proposals, ROI, sponsor porta
 
 - **Match inputs = all three together:** event details (type/venue/theme/description) + the confirmed guestlist's sectors/companies + an optional free-text brief or parsed deck. (User: "all three.")
 - **Prospect pool = WARM-FIRST** (Sarah #9, verbatim): prioritise past sponsors + CRM members flagged `sponsor_aligned` + warm leads; use the data vendor for **selective, clearly-labelled COLD** targets only. Warm always ranks above cold (+20 score boost).
-- **Outreach = AI draft → human review/edit → approve → send.** Nothing sends without an explicit approve. Sends via existing Resend today; **Instantly stubbed** for automated multi-step sequences later.
+- **Outreach = AI draft → human review/edit → approve → send.** Nothing sends without an explicit approve. Sends via existing Resend. Multi-step follow-up **sequences now run in the CRM** (2026-10-16 — see "Sequences + reply tracking" below); every step still needs its own approval. `InstantlySender` stays an unused stub.
 - **Two brand voices** reused from the Marketing engine (`marketing_voices` keys `club`/`sarah`) so voice edits apply everywhere.
 - **Vendor-agnostic:** NO sponsorship file names a vendor. Everything sits behind the existing `EnrichmentProvider` abstraction, extended with company- + people-search. **Clay** is the live plug-in (Public Search API — see go-live section); Apollo has been removed.
 - **Convert bridge:** a prospect becomes a real event sponsor via "Add to event sponsors" → creates a `sponsorships` row → flows into the existing proposal/invite/ROI/portal tools.
@@ -23,8 +23,8 @@ The CRM already had a solid **sponsorship spine** (proposals, ROI, sponsor porta
 
 1. ~~**Live Clay integration.**~~ **DONE** — live via Clay's synchronous Public Search API (see go-live section; the old async-webhook assessment was wrong/obsolete).
 2. **Deck FILE upload.** `deck/parse` route supports `asset_path` (PDF via pdfjs-dist, DOCX via mammoth) **and** pasted `text`. The UI wires only the **paste-text** path — no file-upload-to-`sponsor-assets` control yet (MediaPicker is image/video-only). pptx is unsupported by design (export to PDF).
-3. **Instantly / automated sequences.** The follow-up steps are drafted, but each step is sent **manually** one-by-one via Resend after approval. No automated drip/schedule. `InstantlySender` is a stub that throws.
-4. **Reply / bounce tracking.** `sponsor_outreach` has `response_at`, `response_snippet`, and `replied`/`bounced` statuses, but nothing **populates** them — needs inbound-email parsing (ties into the Gmail-sync chunk). Manual for now.
+3. ~~**Instantly / automated sequences.**~~ **DONE in-CRM (2026-10-16)** — scheduled follow-up steps sent by the daily automation runner, each still human-approved. Instantly is no longer the plan; `InstantlySender` remains an unused stub.
+4. ~~**Reply / bounce tracking.**~~ **DONE (2026-10-16)** — replies matched from the synced Gmail table (`gmail_messages`), bounces + opens from the Resend webhook. See "Sequences + reply tracking".
 5. **Deeper cold-targeting criteria.** Sarah #9 lists sector, brand fit, client demographic, geography, sponsorship budget, existing relationships, previous engagement. We use sector/keywords/employee-range/location. "Sponsorship budget," "client demographic," and "previous-engagement scoring" are not yet modelled as filters.
 6. **Deck brief not persisted.** `deck/parse` returns a brief to the client which passes it into `match`; the deck file/brief is not stored on the event.
 7. **One-click convert + deep-link.** "Add to event sponsors" lives in the expanded prospect row; a top-level row shortcut and a direct link to the event's Sponsors panel were offered as optional polish (not yet built).
@@ -56,17 +56,29 @@ Three new admin-only RLS tables (`for all using(is_admin()) with check(is_admin(
 - `stub.ts`: capabilities false → `unavailable`.
 
 ## Outreach sender seam — `src/lib/sponsorship/outreach/`
-`OutreachSender` interface; `ResendSender` (real, wraps `sendClubEmail`, category `sponsor_outreach`); `InstantlySender` (stub, throws); `getSender(channel)`.
+`OutreachSender` interface; `ResendSender` (real, wraps `sendClubEmail`, category `sponsor_outreach`); `InstantlySender` (stub, throws — unused); `getSender(channel)`.
+Sequence modules (2026-10-16): `sequence.ts` (lifecycle, `dispatchOutreach` = the ONE send path with the hard `status==='approved'` guard, `scheduleNextStep`, `computeDueAt`, `cancelPendingSteps`), `runner.ts` (`sponsorOutreachSequences` — daily flow), `replies.ts` (`detectOutreachReplies` — Gmail-table reply matching), `tracking.ts` (`recordOutreachEngagement` — Resend open/click/bounce), `render.ts` (`renderOutreachHtml` — re-renders body_html after an edit).
 
 ## API routes — `src/app/api/admin/sponsorship/`
 - `match` POST `{event_id, brief?, deck_brief?}` — warm gather + audience signal (bookings) + selective cold (only if warm<8) + OpenAI ranking (rule fallback) + warm +20 + upsert preserving human status.
 - `prospects` GET `?event_id=` (warm-first) / PATCH `{id,status}`.
 - `decision-makers` POST `{prospect_id, role_filters?}` (persists; degrades) / GET.
 - `deck/parse` POST `{asset_path?|text?}` → `{deck_brief, target_sectors, keywords}`.
-- `outreach/draft` POST — AI first-touch + follow-ups in chosen voice → draft rows.
-- `outreach` GET (queue; flattens company_name + decision_maker_name) / PATCH (edit + approve/unapprove; cannot set `sent`).
-- `outreach/send` POST — **HARD GATE: status must be `approved`**; uses `getSender` seam; catches Instantly throw; bumps prospect → `contacted`.
+- `outreach/draft` POST `{prospect_id, decision_maker_id?, voice?, steps?, delays?, note?}` — AI first-touch + follow-ups in chosen voice → draft rows sharing one `sequence_id`; `delays[i]` = days between step i and step i+1 (default 3, 4, 7, 7).
+- `outreach` GET `?event_id=&status=&sequence_id=` (queue; flattens company_name + decision_maker_name + `prospect_replied_at`) / PATCH (edit — subject/body edits re-render `body_html`; approve / unapprove / cancel; `auto_send` = approve-and-schedule; `delay_days`; `stop_sequence`; cannot set `sent`/`replied`/`bounced`).
+- `outreach/send` POST — calls `dispatchOutreach`: **HARD GATE: status must be `approved`**; claims the row (no double send); uses `getSender` seam; bumps prospect → `contacted`; stamps the next step's `due_at`.
 - `convert` POST `{prospect_id, decision_maker_id?, package_name?, amount_pence?}` — creates a `sponsorships` row + links prospect (`converted_sponsorship_id`, status `won`). Idempotent.
+
+## Sequences + reply tracking (2026-10-16) — migration `20261016_sponsor_outreach_sequences.sql`
+**New columns** on `sponsor_outreach`: `sequence_id`, `delay_days` (days after the PREVIOUS step is sent), `due_at`, `auto_send`, `send_claimed_at`, `opened_at`, `clicked_at`, `response_gmail_message_id`; status `cancelled` added. `sponsor_prospects.replied_at`.
+
+**Lifecycle.** `draft` → (admin) `approved` → sent by hand at any time, **or** (admin) "Approve & schedule" = `approved` + `auto_send=true` (shown as **scheduled**; not a separate DB status). `due_at` stays null until the previous step is sent; then `due_at = previous.sent_at + delay_days`. A scheduled first touch (no earlier step) is due straight away; an unscheduled first touch never has a due date. **Editing the subject/body of an approved step returns it to draft** (approval, `auto_send` and `due_at` cleared) — it must be re-approved. The daily runner (`runAllAutomations` → `sponsorOutreachSequences`, at the configured UK send-hour) sends only rows that are `approved` AND `auto_send` AND `due_at <= now` AND whose prospect hasn't replied (and whose address hasn't bounced), through the same `dispatchOutreach` the Send button uses (max 50 a run). Drafts are never sent. Unapprove clears the schedule. Send errors → `failed` (admin can move it back to draft).
+
+**Reply stop.** `detectOutreachReplies` runs after every Gmail sync (`/api/cron/gmail-sync`) and again at the start of the daily runner. It reads `gmail_messages` only (never the Gmail API): an INBOUND message received after a step was sent, from the exact recipient address, or from the same company domain (not free-mail) with the step's subject (ignoring Re:/Fwd:). Out-of-office / auto-replies / mailer-daemon are ignored. On a match: that step → `replied` (+ `response_at`, `response_snippet`), every draft/approved step for the prospect → `cancelled`, `sponsor_prospects.replied_at` set, prospect → `responded` (if earlier). **Reply-To:** outreach is sent from `RESEND_FROM_EMAIL` (`noreply@…`, not synced), so every step sets Resend `reply_to` = `SPONSOR_OUTREACH_REPLY_TO`, defaulting to `GOOGLE_WORKSPACE_SUBJECT` (Sarah's synced inbox). Replies land there and sync as inbound mail from the prospect's address; matching ignores which synced mailbox a message is in. Limits: the reply-to inbox must be enabled in the Gmail sync config (`app_settings.gmail_sync_config`), otherwise nothing is caught; if neither env var is set there is no reply-to and replies go to the no-reply address; a reply from a personal address or another domain isn't caught; a forwarded thread with a changed subject from a colleague isn't caught.
+
+**Opens/bounces.** `/api/webhooks/resend` matches `data.email_id` to `sponsor_outreach.external_id`: opens/clicks stamp `opened_at`/`clicked_at` ("Opened" badge); a bounce sets `bounced` and cancels the remaining steps to that address. Opens need open tracking enabled on the Resend domain.
+
+**UI.** Queue rows show step, due/sent date, Opened and Replied badges, display status (draft/approved/scheduled/sent/replied/bounced/failed/cancelled). The editor has a Sequence timeline, "Send after (days)", Approve, Approve & schedule, Schedule/Unschedule, Unapprove, Cancel step, Back to draft, Stop sequence, Send / Send now. ProspectsView shows a "Replied" badge; the draft modal takes "Days between steps".
 
 ## UI + nav
 - New top-level **Sponsorship** nav group (`src/app/(admin)/layout.tsx`): Hub / Prospects / Review queue.

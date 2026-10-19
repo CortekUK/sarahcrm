@@ -64,3 +64,10 @@ export function companyExtrasFromRaw(raw: unknown, source: string | null | undef
 
   return EMPTY
 }
+
+// Clay's employee size band ("501-1,000", "10,001+") from a stored Clay raw,
+// for display instead of the numeric lower bound kept in integer columns.
+export function employeeRangeFromRaw(raw: unknown, source: string | null | undefined): string | null {
+  if (source !== 'clay') return null
+  return str(obj(obj(raw)?.company)?.size)
+}

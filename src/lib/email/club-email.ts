@@ -124,12 +124,15 @@ async function logEmail(entry: {
 // Single Resend sender. Reads RESEND_FROM_EMAIL (falling back to FROM_EMAIL)
 // and RESEND_FROM_NAME so the verified-domain config lives in env. Logs every
 // send to email_log (pass `category` to label it, e.g. "booking_confirmation").
+// Optional `replyTo` sets Resend's `reply_to`, so replies go to a real inbox
+// instead of the (no-reply) from-address.
 export async function sendClubEmail(args: {
   to: string
   subject: string
   html: string
   category?: string
   memberId?: string | null
+  replyTo?: string
 }): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY
   const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL
@@ -145,6 +148,7 @@ export async function sendClubEmail(args: {
         to: [args.to],
         subject: args.subject,
         html: args.html,
+        ...(args.replyTo ? { reply_to: args.replyTo } : {}),
       }),
     })
     if (!res.ok) {

@@ -12,6 +12,8 @@ import {
   FileText,
   Linkedin,
   Instagram,
+  Facebook,
+  Music2,
   Mail,
   Newspaper,
   Handshake,
@@ -69,6 +71,8 @@ const CHANNEL_ICON: Record<MarketingChannelKey, typeof FileText> = {
   instagram_feed: Instagram,
   instagram_carousel: Instagram,
   instagram_reel: Instagram,
+  facebook: Facebook,
+  tiktok: Music2, // lucide has no TikTok brand mark
   newsletter: Mail,
   press_release: Newspaper,
   sponsor_recap: Handshake,

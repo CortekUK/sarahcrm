@@ -8,6 +8,8 @@ export interface EnrichmentCompany {
   linkedinUrl: string | null
   industry: string | null
   employeeCount: number | null
+  // Provider's size band as given (Clay: "501-1,000"), when it only returns a range.
+  employeeRange?: string | null
   revenue: number | null // whole USD units, when the provider gives a figure (Clay: null — bucket only)
   revenuePrinted: string | null // display string, e.g. a Clay bucket "1B-10B"
   description: string | null // company blurb

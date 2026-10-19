@@ -16,6 +16,7 @@ import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js
 import { computeNextRenewal } from '@/lib/billing/renewal'
 import { sendInviteEmail } from '@/lib/email/invite'
 import { resolvePlanFromDb, planForTier, introQuotaForTier } from '@/lib/membership/plans'
+import { isDirectDebitStatus } from '@/lib/billing/direct-debit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -122,8 +123,35 @@ export async function POST(req: NextRequest) {
     let stripeSubscriptionId: string | null = appAny.stripe_subscription_id ?? null
     let amountPaidPence: number | null = appAny.amount_paid_pence ?? null
     let paidAt: string | null = appAny.paid_at ?? null
+    // Direct Debit only: the first invoice, so its pending payment row can be
+    // settled by the webhook (invoice.paid / invoice.payment_failed).
+    let bacsInitialInvoiceId: string | null = null
     const savedPaymentMethodId: string | null = appAny.stripe_payment_method_id ?? null
     const quotedAmountPence: number | null = appAny.quoted_amount_pence ?? null
+    // Direct Debit (Stripe Bacs) applications saved a bank-account mandate
+    // instead of a card. Bacs is not instant: the first debit is SUBMITTED
+    // at approval and clears 3–5 working days later (failures arrive later
+    // via the stripe-webhook). So for Bacs we create the subscription with
+    // allow_incomplete, record the initial payment as `pending`, and let
+    // invoice.paid / invoice.payment_failed settle it. Card logic below is
+    // unchanged.
+    const isBacs = appAny.stripe_payment_method_type === 'bacs_debit'
+
+    if (
+      isBacs &&
+      savedPaymentMethodId &&
+      !stripeSubscriptionId &&
+      (appAny.direct_debit_status === 'failed' || appAny.direct_debit_status === 'inactive')
+    ) {
+      return Response.json(
+        {
+          error:
+            'The applicant’s Direct Debit mandate was refused or cancelled by their bank. Ask them to set it up again or pay by card. The applicant has NOT been approved.',
+          charge_failed: true,
+        },
+        { status: 402 },
+      )
+    }
 
     if (savedPaymentMethodId && stripeCustomerId && !stripeSubscriptionId) {
       if (!quotedAmountPence || quotedAmountPence <= 0) {
@@ -157,15 +185,40 @@ export async function POST(req: NextRequest) {
           recurring: { interval },
           product_data: { name: tierLabel },
         })
-        const sub = await stripe.subscriptions.create({
-          customer: stripeCustomerId,
-          items: [{ price: price.id }],
-          default_payment_method: savedPaymentMethodId,
-          payment_behavior: 'error_if_incomplete',
-          off_session: true,
-          expand: ['latest_invoice.payment_intent'],
-          metadata: { application_id: app.id, tier, cadence },
-        })
+        const sub = isBacs
+          ? await stripe.subscriptions.create({
+              customer: stripeCustomerId,
+              items: [{ price: price.id }],
+              default_payment_method: savedPaymentMethodId,
+              // Bacs can't succeed synchronously — the first invoice's
+              // payment goes to `processing`. allow_incomplete avoids a 402
+              // for a payment that is merely in flight.
+              payment_behavior: 'allow_incomplete',
+              payment_settings: { payment_method_types: ['bacs_debit'] },
+              off_session: true,
+              expand: ['latest_invoice'],
+              metadata: { application_id: app.id, tier, cadence, payment_method_type: 'bacs_debit' },
+            })
+          : await stripe.subscriptions.create({
+              customer: stripeCustomerId,
+              items: [{ price: price.id }],
+              default_payment_method: savedPaymentMethodId,
+              payment_behavior: 'error_if_incomplete',
+              off_session: true,
+              expand: ['latest_invoice.payment_intent'],
+              metadata: { application_id: app.id, tier, cadence },
+            })
+
+        if (
+          isBacs &&
+          (sub.status === 'incomplete_expired' || sub.status === 'canceled' || sub.status === 'unpaid')
+        ) {
+          throw new Error(`Direct Debit subscription could not be started (status: ${sub.status})`)
+        }
+        if (isBacs) {
+          const inv = sub.latest_invoice
+          bacsInitialInvoiceId = inv && typeof inv === 'object' ? (inv.id ?? null) : (inv ?? null)
+        }
 
         stripeSubscriptionId = sub.id
         paidAt = new Date().toISOString()
@@ -195,7 +248,9 @@ export async function POST(req: NextRequest) {
           .eq('id', app.id)
         return Response.json(
           {
-            error: `Card declined / charge failed: ${msg}. The applicant has NOT been approved.`,
+            error: isBacs
+              ? `Direct Debit could not be started: ${msg}. The applicant has NOT been approved.`
+              : `Card declined / charge failed: ${msg}. The applicant has NOT been approved.`,
             charge_failed: true,
           },
           { status: 402 },
@@ -403,7 +458,7 @@ export async function POST(req: NextRequest) {
         .eq('payment_type', 'membership')
         .eq('description', `Membership — initial payment (sub ${stripeSubscriptionId})`)
         .maybeSingle()
-      if (!existingPay) {
+      if (!existingPay && !isBacs) {
         await admin.from('payments').insert({
           member_id: memberId,
           amount_pence: amountPaidPence,
@@ -415,6 +470,58 @@ export async function POST(req: NextRequest) {
           description: `Membership — initial payment (sub ${stripeSubscriptionId})`,
         })
       }
+      // Direct Debit: the debit has only been submitted — record it as
+      // pending against the first invoice; the webhook flips it to paid
+      // (invoice.paid) or failed (invoice.payment_failed) when Bacs reports.
+      if (!existingPay && isBacs) {
+        const { data: ddPay } = await admin
+          .from('payments')
+          .insert({
+            member_id: memberId,
+            amount_pence: amountPaidPence,
+            currency: 'GBP',
+            payment_type: 'membership',
+            payment_method: 'stripe',
+            status: 'pending',
+            paid_at: null,
+            stripe_invoice_id: bacsInitialInvoiceId,
+            description: `Membership — initial payment (sub ${stripeSubscriptionId})`,
+          })
+          .select('id')
+          .single()
+        if (ddPay?.id) {
+          const { error: pmtErr } = await admin
+            .from('payments')
+            .update({ stripe_payment_method_type: 'bacs_debit' })
+            .eq('id', ddPay.id)
+          if (pmtErr) console.warn('[approve] payment method type not written:', pmtErr.message)
+        }
+      }
+    }
+
+    // 5a. Direct Debit: carry the mandate onto the member record. Separate,
+    //     best-effort statements — the existing direct_debit_active flag
+    //     first, then the new columns (so an unapplied migration can't block
+    //     approval).
+    if (isBacs && savedPaymentMethodId) {
+      const ddStatus = isDirectDebitStatus(appAny.direct_debit_status)
+        ? appAny.direct_debit_status
+        : 'pending'
+      await admin
+        .from('members')
+        .update({ direct_debit_active: ddStatus === 'active' })
+        .eq('id', memberId)
+      const { error: ddErr } = await admin
+        .from('members')
+        .update({
+          stripe_payment_method_type: 'bacs_debit',
+          stripe_mandate_id: appAny.stripe_mandate_id ?? null,
+          direct_debit_status: ddStatus,
+          direct_debit_reference: appAny.direct_debit_reference ?? null,
+          direct_debit_updated_at: new Date().toISOString(),
+        })
+        .eq('id', memberId)
+      if (ddErr) console.warn('[approve] direct-debit member columns not written:', ddErr.message)
     }
 
     // 5b. Connect any prior GUEST bookings made with this email to the new
@@ -490,6 +597,7 @@ export async function POST(req: NextRequest) {
       membership_type,
       invite_sent: !existingProfile && body.send_invite !== false,
       stripe_linked: Boolean(stripeSubscriptionId),
+      ...(isBacs ? { direct_debit: true, initial_payment_status: 'pending' } : {}),
     })
   } catch (e) {
     console.error('[approve] unhandled error:', e)

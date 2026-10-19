@@ -78,8 +78,8 @@ export function MetricoolStatusCard() {
     detail = status.brandFound === false
       ? 'Connected, but the configured brand (METRICOOL_BLOG_ID) is not in this account’s brand list — check the blogId.'
       : live
-        ? 'Approved LinkedIn and Instagram posts are scheduled in Metricool and WILL publish to the real accounts.'
-        : 'Approved LinkedIn and Instagram posts are saved as drafts in Metricool’s planner — nothing publishes until someone approves it there.'
+        ? 'Approved LinkedIn, Instagram, Facebook and TikTok posts are scheduled in Metricool and WILL publish to the real accounts (TikTok photo posts may still need a final tap in the TikTok app).'
+        : 'Approved LinkedIn, Instagram, Facebook and TikTok posts are saved as drafts in Metricool’s planner — nothing publishes until someone approves it there.'
   } else {
     badge = { variant: live ? 'urgent' : 'upcoming', label: `Configured · ${modeLabel}` }
     detail = 'Credentials are set. Run a read-only connection test to confirm they work.'

@@ -148,7 +148,7 @@ All pages below are client components (`'use client'`) unless noted "server". Al
 | `/dashboard/members/[id]` | `.../dashboard/members/[id]/page.tsx` | `MemberDetailPage` | Single member's full profile/detail (dynamic `id` param). |
 | `/dashboard/members/success` | `.../dashboard/members/success/page.tsx` | `MemberSuccessPage` | Member Success AI agent — engagement/at-risk member tracking. |
 | `/dashboard/applications` | `.../dashboard/applications/page.tsx` | `ApplicationsListPage` | Review/approve pending membership applications. |
-| `/dashboard/events` | `.../dashboard/events/page.tsx` | `EventsListPage` | List all events. |
+| `/dashboard/events` | `.../dashboard/events/page.tsx` | `EventsListPage` | List all events; tabs include **Planning** (spreadsheet-imported, team-only) and the **Import from spreadsheet** button. |
 | `/dashboard/events/new` | `.../dashboard/events/new/page.tsx` | `EventFormPage` | Create a new event. |
 | `/dashboard/events/[id]` | `.../dashboard/events/[id]/page.tsx` | `EventDetailPage` | Single event details (dynamic `id`). |
 | `/dashboard/events/[id]/edit` | `.../dashboard/events/[id]/edit/page.tsx` | `EventFormPage` | Edit an existing event (dynamic `id`). |
@@ -291,6 +291,7 @@ Full link set (shown in the fullscreen mobile/menu overlay):
 | Concierge | `/concierge` |
 | Rewards | `/rewards` |
 | Gallery | `/gallery` |
+| Journal | `/blog` |
 | Testimonials | `/reviews` |
 | Private Events | `/private-event-services` |
 
@@ -300,7 +301,7 @@ Desktop inline subset (`PRIMARY_HREFS`): Memberships, Events, Testimonials — t
 
 | Column | Links |
 |---|---|
-| Discover | The Club (`/about`), Memberships (`/memberships`), Events (`/events`), Gallery (`/gallery`), Testimonials (`/reviews`) |
+| Discover | The Club (`/about`), Memberships (`/memberships`), Events (`/events`), Gallery (`/gallery`), Journal (`/blog`), Testimonials (`/reviews`) |
 | The Standard | Club Rules (`/club-rules`), Private Events (`/private-event-services`), Privacy Policy (`/privacy-policy`) |
 | Connect | Contact (`/contact-us`), Concierge (`/concierge`), Share Your Experience (`/share-your-experience`), Apply for Membership (`/membership-application`), `mailto:hello@theclubbysarahrestrick.com` |
 
@@ -313,7 +314,9 @@ Server components by default unless noted `'use client'`. Data-fetching pages us
 | `/` | `src/app/(public)/page.tsx` | server | Homepage — `NightHero`, `HeroPartnersMarquee`, `IntroChapter`, and further sections (composed from `components/website/night/home/*`). |
 | `/about` | `.../about/page.tsx` | server | "The Club" brand story page (`Chapter`/`PageHeroMedia`/`Aurora` editorial primitives), fetches hero image via Supabase. |
 | `/memberships` | `.../memberships/page.tsx` | server | Membership tiers/pricing, expandable tier rows (`TierExpandRow`). |
-| `/events` | `.../events/page.tsx` | server | Public events listing, fetched from Supabase via `createClient` (server). |
+| `/events` | `.../events/page.tsx` | server | Public events listing — upcoming events plus a past-events archive — fetched from Supabase via `createClient` (server); shows `published`, `live` and `completed` events, including to signed-out visitors. |
+| `/blog` | `.../blog/page.tsx` | server | **The Journal** — public blog listing (newest first) of marketing blog posts approved with "Approve & publish to website" (`blog_posts`, status published). Revalidates every 60 s. |
+| `/blog/[slug]` | `.../blog/[slug]/page.tsx` | server | One Journal article: hero, date, title, excerpt, article body, linked public event, membership call to action, "More from the Journal". 404 once unpublished. |
 | `/events/[slug]` | `.../events/[slug]/page.tsx` | server | Single public event detail by slug; `notFound()` if missing; uses both server client and admin client. |
 | `/events/[slug]/success` | `.../events/[slug]/success/page.tsx` | `'use client'` | Post-booking success/confirmation page for a public event booking; reads `useSearchParams` in `Suspense`. |
 | `/concierge` | `.../concierge/page.tsx` | `'use client'` | Public concierge request form (react-hook-form + zod). |

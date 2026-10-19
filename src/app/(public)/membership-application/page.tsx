@@ -28,6 +28,13 @@ import { toast } from '@/lib/hooks/use-toast'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import type { StripeElementsOptions } from '@stripe/stripe-js'
 import { getStripe } from '@/lib/stripe/client'
+import { apiClient, getApiErrorMessage } from '@/lib/http'
+import {
+  DIRECT_DEBIT_LABEL,
+  DIRECT_DEBIT_TIMING_COPY,
+  isDirectDebitEnabled,
+  type StripePaymentMethodType,
+} from '@/lib/billing/direct-debit'
 
 // ─────────────────────────────────────────────────────────────────────
 // /membership-application — premium 8-step editorial application.
@@ -350,6 +357,11 @@ export default function MembershipApplicationPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [applicationId, setApplicationId] = useState<string | null>(null)
   const [settingUp, setSettingUp] = useState(false)
+  // Direct Debit (Stripe Bacs) is an ADDITIONAL option next to card, shown
+  // only when NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true. Card stays the
+  // default, so with the flag off the flow is exactly as before.
+  const directDebitEnabled = isDirectDebitEnabled()
+  const [payMethod, setPayMethod] = useState<StripePaymentMethodType>('card')
   // Plans + pricing pulled from the DB on mount; falls back to the
   // hardcoded set if the table is empty or the fetch errors. Loading
   // happens in the background — the form is usable immediately with
@@ -458,6 +470,17 @@ export default function MembershipApplicationPage() {
     defaultValues: { interests: [], personal_interests: [] },
     mode: 'onChange',
   })
+
+  // Returning from a cancelled Stripe Direct Debit set-up page.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('direct_debit') === 'cancelled') {
+      setError(
+        'Direct Debit set-up was cancelled, so your application was not submitted. Please complete the form again, choosing card or Direct Debit.',
+      )
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   // If the applicant changes cadence after a SetupIntent was created, the
   // quoted amount we'll charge on approval is now stale — drop the card
@@ -583,6 +606,40 @@ export default function MembershipApplicationPage() {
       setSettingUp(false)
     }
   }
+
+  // Direct Debit counterpart of createSetup: saves the pending application
+  // (same /setup route, same idempotency on applicationId) and redirects to
+  // the Stripe-hosted Bacs mandate page. Nothing is collected until approval.
+  async function createDirectDebitSetup() {
+    setError(null)
+    const valid = await trigger(['payment_preference'])
+    if (!valid) return
+    setSettingUp(true)
+    try {
+      const { data } = await apiClient.post<{
+        checkoutUrl?: string
+        applicationId?: string
+        error?: string
+      }>('/api/membership-application/setup', {
+        ...getValues(),
+        application_id: applicationId,
+        payment_method_type: 'bacs_debit',
+      })
+      if (!data.checkoutUrl || !data.applicationId) {
+        setError(data.error || 'Could not start Direct Debit set-up. Please try again.')
+        setSettingUp(false)
+        return
+      }
+      setApplicationId(data.applicationId)
+      window.location.href = data.checkoutUrl
+      // Keep the button in its loading state while the browser navigates.
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Could not start Direct Debit set-up. Please try again.'))
+      setSettingUp(false)
+    }
+  }
+
+  const directDebitChosen = directDebitEnabled && payMethod === 'bacs_debit'
 
   return (
     <>
@@ -744,9 +801,13 @@ export default function MembershipApplicationPage() {
                           tier={watch('preferred_tier')}
                           tiers={tiers}
                           pricing={pricing}
+                          directDebit={directDebitChosen}
                         />
                       )}
                     />
+                  )}
+                  {step === 7 && directDebitEnabled && (
+                    <PaymentMethodChoice value={payMethod} onChange={setPayMethod} />
                   )}
                   {/* Card capture — its own final page (step IX). Reached
                       after "Continue to payment" creates the SetupIntent on
@@ -789,6 +850,16 @@ export default function MembershipApplicationPage() {
                       disabled={checkingEmail}
                     >
                       {checkingEmail ? 'Checking…' : 'Continue'}
+                    </PremiumPillButton>
+                  ) : directDebitChosen && step === STEPS.length - 2 ? (
+                    // Direct Debit: no card page — go straight to Stripe's
+                    // hosted Bacs mandate page.
+                    <PremiumPillButton
+                      type="button"
+                      onClick={createDirectDebitSetup}
+                      disabled={settingUp || !cadenceWatch}
+                    >
+                      {settingUp ? 'Preparing…' : 'Set up Direct Debit'}
                     </PremiumPillButton>
                   ) : step === STEPS.length - 2 || !clientSecret ? (
                     // Select Payment step (always), or the card page if it
@@ -1615,6 +1686,7 @@ function PaymentStep({
   tier,
   tiers,
   pricing,
+  directDebit = false,
 }: {
   value: FormData['payment_preference'] | undefined
   onChange: (v: string) => void
@@ -1622,6 +1694,8 @@ function PaymentStep({
   tier: FormData['preferred_tier'] | undefined
   tiers: TierCard[]
   pricing: Record<string, TierPricing>
+  /** Direct Debit chosen — only swaps the receipt's small print. */
+  directDebit?: boolean
 }) {
   const tierInfo = tier ? tiers.find((t) => t.value === tier) : undefined
 
@@ -1737,8 +1811,14 @@ function PaymentStep({
                   </div>
 
                   <p className="font-[family-name:var(--font-editorial)] italic text-[11.5px] text-slate-haze text-center pt-1">
-                    You&apos;ll add your card next — nothing is charged until your application is
-                    approved.
+                    {directDebit
+                      ? 'You’ll set up your Direct Debit next — nothing is collected until your application is approved.'
+                      : (
+                        <>
+                          You&apos;ll add your card next — nothing is charged until your application is
+                          approved.
+                        </>
+                      )}
                   </p>
                 </div>
               )}
@@ -1750,6 +1830,80 @@ function PaymentStep({
       {error && (
         <p className="mt-6 text-[12px] text-bronze-light italic text-center">{error}</p>
       )}
+    </Reveal>
+  )
+}
+
+// ─── Payment method choice (card / Direct Debit) ─────────────────────
+// Shown under the cadence cards only when Direct Debit is enabled. Same
+// editorial vocabulary as the cadence cards, in a compact row.
+
+function PaymentMethodChoice({
+  value,
+  onChange,
+}: {
+  value: StripePaymentMethodType
+  onChange: (v: StripePaymentMethodType) => void
+}) {
+  const options: { value: StripePaymentMethodType; label: string; body: string }[] = [
+    {
+      value: 'card',
+      label: 'Card',
+      body: 'Debit or credit card. Charged when your application is approved.',
+    },
+    {
+      value: 'bacs_debit',
+      label: DIRECT_DEBIT_LABEL,
+      body: `Set up on a secure Stripe page. ${DIRECT_DEBIT_TIMING_COPY}`,
+    },
+  ]
+  return (
+    <Reveal type="up" delay={100}>
+      <div className="mt-10">
+        <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light text-center mb-5">
+          How would you like to pay?
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5" role="radiogroup" aria-label="Payment method">
+          {options.map((o) => {
+            const active = value === o.value
+            return (
+              <button
+                type="button"
+                key={o.value}
+                role="radio"
+                aria-checked={active}
+                onClick={() => onChange(o.value)}
+                className={cn(
+                  'group relative overflow-hidden border px-6 py-5 text-left transition-all duration-500',
+                  active
+                    ? 'border-bronze bg-bronze/10 shadow-[0_0_36px_-12px_rgba(192,152,112,0.55)]'
+                    : 'border-graphite-line/50 hover:border-bronze/55 bg-graphite/40 day:bg-white day:shadow-sm day:hover:shadow-md',
+                )}
+              >
+                <CornerBrackets active={active} />
+                <div className="flex items-start gap-3">
+                  <span
+                    className={cn(
+                      'mt-1 inline-flex items-center justify-center w-5 h-5 rounded-full border shrink-0 transition-colors duration-500',
+                      active ? 'bg-bronze border-bronze text-ink' : 'border-bronze/40 text-transparent',
+                    )}
+                  >
+                    <Check size={11} strokeWidth={2.5} />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="font-[family-name:var(--font-display)] text-[20px] leading-tight text-ivory">
+                      {o.label}
+                    </h3>
+                    <p className="font-[family-name:var(--font-editorial)] italic text-[13.5px] text-ivory-soft mt-1.5 leading-[1.6]">
+                      {o.body}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </Reveal>
   )
 }

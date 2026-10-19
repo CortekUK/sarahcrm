@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { excludeDirectDebitFromInstantCheckout } from '@/lib/billing/direct-debit'
 import { notifyAdmins } from '@/lib/email/admin-notify'
 
 // POST /api/events/checkout
@@ -314,6 +315,9 @@ export async function POST(req: NextRequest) {
     const session = holdOnly
       ? // HOLD: save the card now, charge on approval. No charge today.
         await stripe.checkout.sessions.create({
+          // Keep instant event checkouts off Bacs Direct Debit (no-op unless
+          // Direct Debit is enabled) — see src/lib/billing/direct-debit.ts.
+          ...excludeDirectDebitFromInstantCheckout(),
           mode: 'setup',
           customer: customer.id,
           metadata,
@@ -323,6 +327,9 @@ export async function POST(req: NextRequest) {
         })
       : // CHARGE: take payment immediately.
         await stripe.checkout.sessions.create({
+          // Keep instant event checkouts off Bacs Direct Debit (no-op unless
+          // Direct Debit is enabled) — see src/lib/billing/direct-debit.ts.
+          ...excludeDirectDebitFromInstantCheckout(),
           mode: 'payment',
           customer: customer.id,
           line_items: [

@@ -48,7 +48,9 @@ function gbp(pence: number) {
 
 // Static metadata for each integration card. Connection status is fetched
 // live from /api/admin/integrations/status (real env presence), not hardcoded.
-type IntegrationKey = 'stripe' | 'gocardless' | 'xero' | 'resend'
+// 'gocardless' stays in the status payload for compatibility; the card now
+// shows 'direct_debit' — UK Direct Debit collected through Stripe (Bacs).
+type IntegrationKey = 'stripe' | 'gocardless' | 'direct_debit' | 'xero' | 'resend'
 
 const INTEGRATIONS: {
   key: IntegrationKey
@@ -63,9 +65,10 @@ const INTEGRATIONS: {
     icon: CreditCard,
   },
   {
-    key: 'gocardless',
-    name: 'GoCardless',
-    description: 'Direct debit collection for recurring membership fees',
+    key: 'direct_debit',
+    name: 'Direct Debit (via Stripe)',
+    description:
+      'UK Bacs Direct Debit for recurring membership fees, collected through Stripe (used instead of GoCardless)',
     icon: Landmark,
   },
   {

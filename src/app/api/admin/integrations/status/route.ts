@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { isDirectDebitEnabled } from '@/lib/billing/direct-debit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -79,6 +80,18 @@ export async function GET() {
       // on member records but not collected through a live GoCardless link.
       connected: !!(process.env.GOCARDLESS_ACCESS_TOKEN || process.env.GC_ACCESS_TOKEN),
       detail: null,
+    },
+    direct_debit: {
+      // UK Direct Debit is collected through Stripe (Bacs Debit), not
+      // GoCardless. "Connected" = Stripe keys present AND the feature flag is
+      // on (set it once Bacs Debit is activated in the Stripe Dashboard —
+      // activation itself can't be detected without a Stripe API call).
+      connected: !!stripeKey && isDirectDebitEnabled(),
+      detail: stripeKey
+        ? isDirectDebitEnabled()
+          ? `Runs through Stripe (Bacs Direct Debit) · ${stripeMode}`
+          : 'Runs through Stripe — set NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true once Bacs Debit is activated'
+        : null,
     },
     xero: {
       connected: xeroConnected,

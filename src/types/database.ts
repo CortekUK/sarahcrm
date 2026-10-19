@@ -39,6 +39,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          kind: string
+          link: string | null
+          read_at: string | null
+          read_by: string | null
+          related_enquiry_id: string | null
+          title: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          link?: string | null
+          read_at?: string | null
+          read_by?: string | null
+          related_enquiry_id?: string | null
+          title: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          link?: string | null
+          read_at?: string | null
+          read_by?: string | null
+          related_enquiry_id?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
       app_settings: {
         Row: {
           key: string
@@ -574,11 +610,13 @@ export type Database = {
       email_log: {
         Row: {
           category: string | null
+          clicked_at: string | null
           created_at: string
           error: string | null
           html: string | null
           id: string
           member_id: string | null
+          opened_at: string | null
           resend_message_id: string | null
           status: string
           subject: string | null
@@ -586,11 +624,13 @@ export type Database = {
         }
         Insert: {
           category?: string | null
+          clicked_at?: string | null
           created_at?: string
           error?: string | null
           html?: string | null
           id?: string
           member_id?: string | null
+          opened_at?: string | null
           resend_message_id?: string | null
           status?: string
           subject?: string | null
@@ -598,11 +638,13 @@ export type Database = {
         }
         Update: {
           category?: string | null
+          clicked_at?: string | null
           created_at?: string
           error?: string | null
           html?: string | null
           id?: string
           member_id?: string | null
+          opened_at?: string | null
           resend_message_id?: string | null
           status?: string
           subject?: string | null
@@ -991,6 +1033,13 @@ export type Database = {
           acknowledged_at: string | null
           admin_notes: string | null
           assigned_to: string | null
+          call_booked_end: string | null
+          call_booked_start: string | null
+          call_calendar_event_id: string | null
+          call_meet_url: string | null
+          call_preferences: string | null
+          call_requested_at: string | null
+          call_team: string | null
           company: string | null
           company_domain: string | null
           company_employee_count: number | null
@@ -1029,6 +1078,13 @@ export type Database = {
           acknowledged_at?: string | null
           admin_notes?: string | null
           assigned_to?: string | null
+          call_booked_end?: string | null
+          call_booked_start?: string | null
+          call_calendar_event_id?: string | null
+          call_meet_url?: string | null
+          call_preferences?: string | null
+          call_requested_at?: string | null
+          call_team?: string | null
           company?: string | null
           company_domain?: string | null
           company_employee_count?: number | null
@@ -1067,6 +1123,13 @@ export type Database = {
           acknowledged_at?: string | null
           admin_notes?: string | null
           assigned_to?: string | null
+          call_booked_end?: string | null
+          call_booked_start?: string | null
+          call_calendar_event_id?: string | null
+          call_meet_url?: string | null
+          call_preferences?: string | null
+          call_requested_at?: string | null
+          call_team?: string | null
           company?: string | null
           company_domain?: string | null
           company_employee_count?: number | null
@@ -1920,6 +1983,11 @@ export type Database = {
           deleted_at: string | null
           dietary_requirements: string | null
           direct_debit_active: boolean
+          stripe_payment_method_type: string | null
+          stripe_mandate_id: string | null
+          direct_debit_status: string | null
+          direct_debit_reference: string | null
+          direct_debit_updated_at: string | null
           dream_introductions: string | null
           drink_preferences: string | null
           employee_count: string | null
@@ -2021,6 +2089,11 @@ export type Database = {
           deleted_at?: string | null
           dietary_requirements?: string | null
           direct_debit_active?: boolean
+          stripe_payment_method_type?: string | null
+          stripe_mandate_id?: string | null
+          direct_debit_status?: string | null
+          direct_debit_reference?: string | null
+          direct_debit_updated_at?: string | null
           dream_introductions?: string | null
           drink_preferences?: string | null
           employee_count?: string | null
@@ -2122,6 +2195,11 @@ export type Database = {
           deleted_at?: string | null
           dietary_requirements?: string | null
           direct_debit_active?: boolean
+          stripe_payment_method_type?: string | null
+          stripe_mandate_id?: string | null
+          direct_debit_status?: string | null
+          direct_debit_reference?: string | null
+          direct_debit_updated_at?: string | null
           dream_introductions?: string | null
           drink_preferences?: string | null
           employee_count?: string | null
@@ -2264,6 +2342,11 @@ export type Database = {
           stripe_customer_id: string | null
           stripe_payment_method_id: string | null
           stripe_setup_intent_id: string | null
+          stripe_payment_method_type: string | null
+          stripe_checkout_session_id: string | null
+          stripe_mandate_id: string | null
+          direct_debit_status: string | null
+          direct_debit_reference: string | null
           stripe_subscription_id: string | null
           tiktok_url: string | null
           track: string
@@ -2321,6 +2404,11 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_payment_method_id?: string | null
           stripe_setup_intent_id?: string | null
+          stripe_payment_method_type?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_mandate_id?: string | null
+          direct_debit_status?: string | null
+          direct_debit_reference?: string | null
           stripe_subscription_id?: string | null
           tiktok_url?: string | null
           track?: string
@@ -2378,6 +2466,11 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_payment_method_id?: string | null
           stripe_setup_intent_id?: string | null
+          stripe_payment_method_type?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_mandate_id?: string | null
+          direct_debit_status?: string | null
+          direct_debit_reference?: string | null
           stripe_subscription_id?: string | null
           tiktok_url?: string | null
           track?: string
@@ -2570,6 +2663,7 @@ export type Database = {
           stripe_checkout_session_id: string | null
           stripe_invoice_id: string | null
           stripe_payment_intent_id: string | null
+          stripe_payment_method_type: string | null
           updated_at: string
           xero_invoice_id: string | null
         }
@@ -2590,6 +2684,7 @@ export type Database = {
           stripe_checkout_session_id?: string | null
           stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_payment_method_type?: string | null
           updated_at?: string
           xero_invoice_id?: string | null
         }
@@ -2610,6 +2705,7 @@ export type Database = {
           stripe_checkout_session_id?: string | null
           stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_payment_method_type?: string | null
           updated_at?: string
           xero_invoice_id?: string | null
         }

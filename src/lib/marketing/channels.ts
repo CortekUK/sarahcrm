@@ -1,7 +1,8 @@
 // Shared channel metadata for the Marketing AI Engine (Module 2).
 //
 // Pure data (no server-only imports) so it can be used by both the API routes
-// and the client views. The full 9-channel set, human labels, one-line hints,
+// and the client views. The full 11-channel set (Facebook, then TikTok,
+// added after the original 9), human labels, one-line hints,
 // and the sensible groupings used in the create modal + approval queue.
 
 export const MARKETING_CHANNELS = [
@@ -11,6 +12,8 @@ export const MARKETING_CHANNELS = [
   'instagram_feed',
   'instagram_carousel',
   'instagram_reel',
+  'facebook',
+  'tiktok',
   'newsletter',
   'press_release',
   'sponsor_recap',
@@ -28,6 +31,8 @@ export const TEXT_CHANNELS = [
   'instagram_feed',
   'instagram_carousel',
   'instagram_reel',
+  'facebook',
+  'tiktok',
   'press_release',
   'sponsor_recap',
 ] as const
@@ -45,6 +50,8 @@ export type MarketingChannelGroup =
   | 'Blogs'
   | 'LinkedIn'
   | 'Instagram'
+  | 'Facebook'
+  | 'TikTok'
   | 'Newsletter'
   | 'PR'
   | 'Sponsor'
@@ -56,6 +63,8 @@ export const CHANNEL_META: Record<MarketingChannelKey, ChannelMeta> = {
   instagram_feed: { key: 'instagram_feed', label: 'Instagram feed', hint: 'Single caption + hashtags', group: 'Instagram' },
   instagram_carousel: { key: 'instagram_carousel', label: 'Instagram carousel', hint: 'Per-slide caption lines', group: 'Instagram' },
   instagram_reel: { key: 'instagram_reel', label: 'Instagram reel', hint: 'Hook + caption', group: 'Instagram' },
+  facebook: { key: 'facebook', label: 'Facebook', hint: 'Page post, image optional', group: 'Facebook' },
+  tiktok: { key: 'tiktok', label: 'TikTok', hint: 'Short caption + vertical photo', group: 'TikTok' },
   newsletter: { key: 'newsletter', label: 'Newsletter', hint: 'Branded email → designer', group: 'Newsletter' },
   press_release: { key: 'press_release', label: 'Press release', hint: 'Formal PR structure', group: 'PR' },
   sponsor_recap: { key: 'sponsor_recap', label: 'Sponsor recap', hint: 'Recap addressed to a sponsor', group: 'Sponsor' },
@@ -66,6 +75,8 @@ export const CHANNEL_GROUP_ORDER: MarketingChannelGroup[] = [
   'Blogs',
   'LinkedIn',
   'Instagram',
+  'Facebook',
+  'TikTok',
   'Newsletter',
   'PR',
   'Sponsor',
@@ -127,3 +138,23 @@ export function isTextChannel(channel: string): channel is TextChannelKey {
 export function isMarketingChannel(channel: string): channel is MarketingChannelKey {
   return (MARKETING_CHANNELS as readonly string[]).includes(channel)
 }
+
+// ── Website blog channels ────────────────────────────────────
+// Approved pieces on these channels are published as real public blog
+// posts on the website (/blog) by BlogPublisher. press_release and
+// sponsor_recap stay copy-out.
+export const BLOG_CHANNELS = ['seo_blog', 'recap_blog'] as const
+export type BlogChannelKey = (typeof BLOG_CHANNELS)[number]
+
+export function isBlogChannel(channel: string): channel is BlogChannelKey {
+  return (BLOG_CHANNELS as readonly string[]).includes(channel)
+}
+
+// ── TikTok ───────────────────────────────────────────────────
+// TikTok photo posts are vertical 9:16 — the template graphic for a TikTok
+// asset is rendered at the 'story' shape (1080×1920), whatever the
+// template's own shape. Metricool can't add music / stickers / effects, and
+// photo-carousel auto-publish is unconfirmed, so the UI shows this note.
+export const TIKTOK_GRAPHIC_SHAPE = 'story' as const
+export const TIKTOK_PUBLISH_NOTE =
+  "TikTok photo posts may need a final one-tap publish in the TikTok app (music/effects can't be added automatically)."

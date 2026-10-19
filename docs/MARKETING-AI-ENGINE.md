@@ -179,8 +179,10 @@ Add `set_updated_at` triggers via `handle_updated_at()` where an `updated_at` co
   `published` + sets `published_at`. Stores intended target in `publish_target`.
 - `metricool.ts` — `MetricoolPublisher` (real, draft mode by default — see the Metricool
   section at the end of this doc). `metricool-client.ts` — its server-side axios client.
-- `index.ts` — `getPublisher(channel)`: MetricoolPublisher for LinkedIn/Instagram when the
-  Metricool credentials are set, else MockPublisher; MockPublisher for blog/PR.
+- `index.ts` — `getPublisher(channel)`: MetricoolPublisher for LinkedIn/Instagram/Facebook/TikTok when the
+  Metricool credentials are set, else MockPublisher; **BlogPublisher** (`blog.ts`) for seo_blog/recap_blog
+  (public post on the website's `/blog`); MockPublisher for PR/sponsor recap. See "AS BUILT — Facebook
+  channel + website blog publishing" and "AS BUILT — TikTok channel" at the end.
 
 ---
 
@@ -1243,8 +1245,9 @@ action on the finalised newsletter. Not built.)
    Cold sponsor outreach = targeted + review-before-send. These span Marketing + Gmail + Drive + accountability.
 
 ## ═══ METRICOOL INTEGRATION — HOW IT WORKS + HOW TO TEST SAFELY ═══
-Approved LinkedIn / Instagram assets publish through **Metricool's planner**. Blog, PR and sponsor-recap
-channels are NOT Metricool social — they stay on the `MockPublisher` (copy-out). Newsletter stays on Resend.
+Approved LinkedIn / Instagram / Facebook / TikTok assets publish through **Metricool's planner**. Blog channels publish
+to the website's own `/blog` (BlogPublisher — see the last section); PR and sponsor-recap stay on the
+`MockPublisher` (copy-out). Newsletter stays on Resend.
 
 **Files**
 - `src/lib/marketing/publish/metricool-client.ts` — server-only axios client. Base
@@ -1273,10 +1276,13 @@ The API needs Metricool's Advanced/Custom plan.
    Instagram post with several media (`graphic_url` + optional `publish_target.media_urls`, max 10; a single
    image if that's all there is); `instagram_reel` → Instagram REEL, which **requires** a video URL in
    `publish_target.video_url` (there is no video upload yet, so reels are refused with a clear message — we
-   never post an image as a reel).
+   never post an image as a reel); `facebook` → Facebook page post; `tiktok` → TikTok **PHOTO** post
+   (`graphic_url` + optional `publish_target.media_urls`, 1–35 images, several = photo carousel), or a TikTok
+   **VIDEO** post when `publish_target.video_url` is set (the video only).
 2. Media: each public URL (the rendered graphic is a public Supabase bucket URL) goes through Metricool's
    normalize call; its returned URL goes in the post's `media`. If normalize fails, nothing is posted.
-   Instagram with no graphic → refused ("render a graphic first"). LinkedIn without a graphic posts text-only.
+   Instagram with no graphic → refused ("render a graphic first"). TikTok with no image and no video →
+   refused the same way. LinkedIn / Facebook without a graphic post text-only.
 3. `publicationDate` = the asset's `scheduled_at` if in the future, else **now + 10 minutes**, as wall-clock
    `YYYY-MM-DDTHH:mm:ss` in `METRICOOL_TIMEZONE` (Intl; handles GMT/BST).
 4. `draft = METRICOOL_MODE !== 'live'`, `autoPublish = !draft`.
@@ -1301,6 +1307,11 @@ Network tab open, compare, then fix `buildMetricoolPostBody` / the parsers):
 - `media` = array of normalized URL **strings** (vs objects).
 - `instagramData.type` = `'POST'` for feed AND carousel, `'REEL'` for reels; `instagramData.autoPublish` mirrors autoPublish.
 - `linkedinData: { type: 'POST' }` — LinkedIn's block is undocumented (may be optional or named differently).
+- `tiktokData: { type: 'PHOTO' }` for a TikTok photo post (single image or carousel — the `media` array decides)
+  and `{ type: 'VIDEO' }` for a video post — **entirely undocumented**: the block may be optional, named
+  differently, or need extra keys (privacy level, disable comments/duet/stitch, auto-add music, a separate
+  photo/carousel flag, a video cover/thumbnail). Also confirm whether `autoPublish` is honoured for TikTok
+  PHOTO posts or whether they always land in the TikTok app's inbox for a final tap.
 - `creationDate` = now in the same timezone; `firstCommentText: ''`, `shortener: false`,
   `saveExternalMediaFiles: false`, `hasNotReadNotes: false` (copied from Metricool's example).
 - `draft: true` + `autoPublish: false` is how a planner DRAFT is saved.
@@ -1324,7 +1335,8 @@ Network tab open, compare, then fix `buildMetricoolPostBody` / the parsers):
    To try again after fixing something: delete the draft in Metricool's planner, then **Send again** on the
    card → confirm → **Approve & publish**.
 5. Create the same kind of post by hand in Metricool's planner with the browser inspector open; compare its
-   body with ours (assumption list above) — repeat for an Instagram feed post and a carousel. Fix
+   body with ours (assumption list above) — repeat for an Instagram feed post, a carousel and a TikTok photo
+   post (one image, then several). Fix
    `buildMetricoolPostBody` if anything differs.
 6. For real publishing tests, use the **test brand** with private test accounts only.
 7. Only then set `METRICOOL_MODE=live` (redeploy/restart so env is re-read) — the card then shows
@@ -1332,5 +1344,123 @@ Network tab open, compare, then fix `buildMetricoolPostBody` / the parsers):
 
 **Still out of scope:** interactive IG Stories (platform rule — prepare + tap-publish), video upload for reels,
 batch approval / a scheduler that publishes at `scheduled_at` (today the publish happens at Approve, with
-`scheduled_at` passed to Metricool as the publication time), Facebook (the body builder supports
-`facebook`, but no channel maps to it yet).
+`scheduled_at` passed to Metricool as the publication time). (Facebook and TikTok are now channels — see the
+last sections.)
+
+## AS BUILT — Facebook channel + website blog publishing (2026-10-16)
+
+Client requirement: publish to "LinkedIn, Instagram, Facebook", and for blogs "Generate first draft, Optimise
+for SEO, Add internal links, Add call-to-actions, Publish to website, Then notify marketing team for approval".
+The human gate is unchanged: **nothing publishes until an admin clicks Approve** in the approval queue.
+
+### Migration — `supabase/migrations/20261016_marketing_facebook_blog_posts.sql` (written, NOT yet applied)
+- `marketing_assets.channel` CHECK re-created with `'facebook'` **and `'tiktok'`** added (a DO block also drops
+  any differently named CHECK on the channel column first). `'tiktok'` was added to this same file in place
+  (it had never been applied) — there is no separate TikTok migration.
+- `public.blog_posts`: `id, slug (unique), title, excerpt (meta description), body_html (sanitized),
+  body_markdown, hero_image_url, event_id→events, marketing_asset_id (unique)→marketing_assets,
+  source_channel (seo_blog|recap_blog), status (published|unpublished), published_at, unpublished_at,
+  created_by, created_at, updated_at`. RLS: **"Public read published blog_posts"** (anon + authenticated,
+  `status='published'` only) + **"Admins manage blog_posts"** (`is_admin()`). `set_updated_at` trigger.
+
+### A. Facebook
+- `channels.ts`: `facebook` in `MARKETING_CHANNELS` + `TEXT_CHANNELS`, label "Facebook", own group "Facebook"
+  (after Instagram) in the create modal. `publish/types.ts` `MarketingChannel` gains `'facebook'`.
+- Generation (`generate/route.ts`): Facebook brief in `CHANNEL_BRIEFS` (warm conversational page post, 2-4
+  short paragraphs, inviting close, 0-3 hashtags, works with or without an image). It's part of the
+  single-voice text batch, so it uses the campaign's **default voice** (Club or Sarah). It's in
+  `SOCIAL_GRAPHIC_CHANNELS`, so it gets the same optional template graphic as LinkedIn/Instagram.
+- Publishing: `METRICOOL_CHANNELS.facebook = { network:'facebook', kind:'post' }` → `buildMetricoolPostBody`
+  adds `facebookData: { type: 'POST' }` (Metricool's own doc example). Media optional (text-only allowed —
+  only Instagram refuses without an image). Not configured → MockPublisher. Draft/live rules unchanged.
+- UI: Facebook icon in the approval queue + library; "Social graphic" + "Default voice" hints and the
+  Metricool status card mention Facebook.
+
+### B. Blogs → website
+- **Generation**: the `seo_blog` / `recap_blog` briefs now ask for an SEO title (<~65 chars), an opening
+  paragraph usable as the meta description, 2-3 (recap: 1-3) **internal links** using ONLY a fixed list of
+  real site paths (`SITE_LINKS` in the generate route: /memberships, /membership-application, /events,
+  /private-event-services, /concierge, /about, /contact-us, /blog) plus the event's public page
+  (`/events/<slug>`, offered only when the event is published/live/completed), and a closing
+  **call-to-action** paragraph (/membership-application or /events).
+- **Review**: blog cards in the approval queue get a **Hero image** picker (MediaPicker → saved as the asset's
+  `graphic_url`; optional) and the approve button reads **"Approve & publish to website"**.
+- **Publish** (`src/lib/marketing/publish/blog.ts`, `BlogPublisher`, chosen by `getPublisher` for blog
+  channels): Markdown → HTML (`src/lib/marketing/blog-content.ts`, subset converter, raw HTML escaped) →
+  DOMPurify sanitize; meta description = first paragraph (~155 chars); hero = `graphic_url` else the linked
+  event's `cover_image_url`; upsert `blog_posts` on `marketing_asset_id` (unique slug from the title,
+  `-2`, `-3`… on collision; a re-publish keeps the same slug and original `published_at`);
+  `revalidatePath('/blog')` + `/blog/<slug>`. Asset → `status='published'`, `published_at`,
+  `publish_target = { platform:'website', blog_post_id, slug, url, hero_image_url, published_at, externalId }`.
+  A second approve of a live post → 409.
+- **Notify marketing team (in-app only, no email)** — `src/lib/marketing/notify.ts`: an unassigned task
+  "Blog post live on the website: <title>" (Dashboard → Tasks, linked to the event) + an
+  `admin_notifications` row via `createAdminNotification` (kind `marketing_blog_published`). The older
+  `notifyAdmins()` emails, so it is NOT used.
+- **Unpublish**: "Unpublish" button on a live blog card (confirm dialog) → `PATCH /api/admin/marketing/assets/[id]
+  { action:'unpublish' }` → `blog_posts.status='unpublished'` (row kept), revalidate, asset back to
+  `in_review`, `published_at=null`, `publish_target.status='unpublished'` + `unpublished_at`. Edit and approve
+  again to re-publish at the same URL. "View on website" opens the live post.
+- **Public site**: `/blog` ("The Journal" listing, newest first) and `/blog/[slug]` (hero, date, title,
+  excerpt, article, linked public event, membership CTA; `generateMetadata` with description + Open Graph
+  image). Both `revalidate = 60`, read through `src/lib/cms/blog.ts` (cookie-free anon client, fail-soft —
+  empty list / 404 if the table is missing). The article's linked event is read exactly like the public event
+  pages read events — cookie-aware anon server client + `.in('status', ['published','live','completed'])`,
+  `title, slug` only — so recaps of COMPLETED events link to their event page, and the link shows only when
+  `/events/<slug>` would render. "Journal" added to the footer (Discover) and the full-screen
+  menu. `press_release` / `sponsor_recap` unchanged (mock / copy-out).
+
+### How to test (human)
+1. Apply the migration. 2. Create a campaign with SEO blog + Facebook. 3. Facebook card: approve with
+Metricool NOT configured → mock "published"; with Metricool configured (draft mode) → "Metricool draft".
+4. Blog card: optionally add a hero image → **Approve & publish to website** → badge "Live on website",
+link to `/blog/<slug>`; check `/blog` lists it, Tasks has the review task. 5. **Unpublish** → the post
+404s and disappears from `/blog`; approve again → back at the same URL.
+
+## AS BUILT — TikTok channel (2026-10-19)
+
+Mirrors the Facebook channel. Human gate unchanged: nothing publishes until an admin clicks Approve.
+
+### Migration
+None new — `'tiktok'` was added to the channel CHECK in the still-unapplied
+`20261016_marketing_facebook_blog_posts.sql` (see above). Applying that file covers Facebook + TikTok.
+
+### What was built
+- `channels.ts`: `tiktok` in `MARKETING_CHANNELS` + `TEXT_CHANNELS`, label "TikTok", hint "Short caption +
+  vertical photo", own group "TikTok" (after Facebook) in the create modal. New exports
+  `TIKTOK_GRAPHIC_SHAPE = 'story'` and `TIKTOK_PUBLISH_NOTE`. `publish/types.ts` `MarketingChannel` gains
+  `'tiktok'`.
+- Generation (`generate/route.ts`): TikTok brief in `CHANNEL_BRIEFS`. `title` = the **on-screen hook line**
+  (≤ ~8 words, no hashtags) — it doubles as the graphic heading, because the on-graphic heading is derived
+  from the asset's title. `body` = the caption ONLY (published verbatim): 1-3 punchy lines, lighter TikTok
+  tone but in the campaign's default voice (Club or Sarah), final line of 3-6 hashtags, whole caption
+  < 300 chars. A safety net trims a caption over TikTok's 2,200-char limit. In `SOCIAL_GRAPHIC_CHANNELS`,
+  so it gets the template graphic like the other social channels.
+- **Vertical 9:16 graphics**: `graphics/types.ts` gains a render-time shape `story` (1080×1920) in
+  `GRAPHIC_SHAPES` / `SHAPE_DIMS` / `SHAPE_LABELS` — NOT in `BUILDER_SHAPES` and never stored on a template
+  (the `marketing_templates.shape` CHECK is untouched). The render route already accepted a `shape` override,
+  so the approval queue's graphic editor passes `shape: 'story'` for TikTok assets: **any** template renders
+  vertically (the zone layout is flex-based, so top/middle/bottom just spread over the taller canvas; the
+  inline photo slot stays 360px tall). Other channels keep the template's own shape. "Use image as-is" and
+  the MediaPicker still work for a team-made 9:16 image (the card says it should be 9:16).
+- Publishing: `METRICOOL_CHANNELS.tiktok = { network:'tiktok', kind:'carousel' }`; at publish time it switches
+  to kind `video` when `publish_target.video_url` is set. Photo post = `graphic_url` + `media_urls` (max 35);
+  video post = the video only. No image and no video → `ok:false` "TikTok posts need at least one image (or a
+  video) … Nothing was sent to Metricool." `buildMetricoolPostBody` adds `tiktokData: { type: 'PHOTO' | 'VIDEO' }`
+  (**assumption** — see the inspector list). Not configured → MockPublisher. Draft/live rules unchanged.
+- UI: `Music2` icon (lucide has no TikTok mark) in the approval queue + library; TikTok cards show
+  "TikTok photo posts may need a final one-tap publish in the TikTok app (music/effects can't be added
+  automatically)." plus a caption-length count against the 300 suggestion; the graphic panel explains the
+  9:16 render. Create-modal hints and the Metricool status card mention TikTok.
+
+### Known limitation
+Metricool documents TikTok auto-publish for **videos**; for **photo carousels** it is unconfirmed, and music,
+stickers and effects can't be added by API. Expect TikTok photo posts to possibly need a final one-tap publish
+in the TikTok app.
+
+### How to test (human)
+1. Apply the migration. 2. Create a campaign with TikTok (+ "Add a template graphic"). 3. TikTok card: caption
+< 300 chars with 3-6 hashtags, the hook as title. Approve with NO graphic → refused ("TikTok posts need at least
+one image…"). 4. Add an image → the graphic renders 1080×1920. 5. Approve with Metricool NOT configured →
+mock "published"; configured (draft mode) → "Metricool draft"; check the planner draft and compare its body
+with a hand-made TikTok photo post (inspector) before ever switching to live.

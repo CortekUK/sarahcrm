@@ -38,6 +38,7 @@ import {
   Moon,
   TrendingUp,
   Building2,
+  MailX,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -49,6 +50,7 @@ type SuccessFlag =
   | 'no_intros'
   | 'dormant'
   | 'upgrade_ready'
+  | 'not_opening'
 
 interface FlaggedMember {
   id: string
@@ -65,6 +67,7 @@ interface FlaggedMember {
   upgrade_potential: number
   last_attended: string | null
   intros_total: number
+  last_email_opened_at: string | null
   flags: SuccessFlag[]
   reasons: string[]
 }
@@ -73,6 +76,9 @@ interface SuccessResponse {
   members: FlaggedMember[]
   counts: Record<SuccessFlag, number>
   total: number
+  // False while Resend open tracking produces no data — the not_opening flag
+  // is then never raised (shown as a hint under the tiles).
+  email_open_tracking?: { active: boolean; since: string | null }
 }
 
 const tierLabels: Record<MemberTier, string> = {
@@ -95,6 +101,7 @@ const FLAG_META: Record<
   no_intros: { label: 'No introductions', variant: 'draft', icon: UserPlus },
   dormant: { label: 'Dormant', variant: 'draft', icon: Moon },
   upgrade_ready: { label: 'Upgrade ready', variant: 'active', icon: TrendingUp },
+  not_opening: { label: 'Not opening emails', variant: 'draft', icon: MailX },
 }
 
 const FLAG_ORDER: SuccessFlag[] = [
@@ -103,6 +110,7 @@ const FLAG_ORDER: SuccessFlag[] = [
   'no_intros',
   'dormant',
   'upgrade_ready',
+  'not_opening',
 ]
 
 // Colour a 0–100 score meter by severity. `invert` for engagement/upgrade,
@@ -225,7 +233,7 @@ export function MemberSuccessPage() {
       />
 
       {/* Summary tiles — one per flag, doubling as filter shortcuts */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mb-6">
         {FLAG_ORDER.map((flag) => {
           const meta = FLAG_META[flag]
           const Icon = meta.icon
@@ -265,6 +273,11 @@ export function MemberSuccessPage() {
           )
         })}
       </div>
+      {data?.email_open_tracking && !data.email_open_tracking.active && (
+        <p className="-mt-3 mb-6 text-xs text-text-dim">
+          “Not opening emails” switches on once email open tracking is recording opens.
+        </p>
+      )}
 
       {/* Filters — search + All chip */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">

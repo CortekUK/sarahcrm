@@ -3,21 +3,27 @@
 // Pure data (no server-only imports) so it is safe to import from both the
 // API routes (render/preview/templates/generate) and the client builder UI.
 
-export const GRAPHIC_SHAPES = ['square', 'portrait', 'landscape'] as const
+export const GRAPHIC_SHAPES = ['square', 'portrait', 'landscape', 'story'] as const
 export type GraphicShape = (typeof GRAPHIC_SHAPES)[number]
 
 // Locked shapes. Landscape is structured-for (a parameter everywhere) but not
 // surfaced in the builder UI yet — adding it later needs no code changes.
+// 'story' (9:16, 1080×1920) is a RENDER-TIME shape only: it is never stored
+// on a template (marketing_templates.shape CHECK has no 'story', and it is
+// not in BUILDER_SHAPES). The approval queue passes shape 'story' to the
+// render route for TikTok assets so any template renders vertically.
 export const SHAPE_DIMS: Record<GraphicShape, { w: number; h: number }> = {
   square: { w: 1080, h: 1080 },
   portrait: { w: 1080, h: 1350 },
   landscape: { w: 1200, h: 627 },
+  story: { w: 1080, h: 1920 },
 }
 
 export const SHAPE_LABELS: Record<GraphicShape, string> = {
   square: 'Square · 1080×1080',
   portrait: 'Portrait / Story · 1080×1350',
   landscape: 'Landscape · 1200×627',
+  story: 'Vertical 9:16 · 1080×1920',
 }
 
 // Shapes offered in the builder today (landscape deferred).

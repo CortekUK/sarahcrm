@@ -1,8 +1,9 @@
 // MetricoolPublisher — real social publishing through Metricool's planner.
 //
-// Selected by ./index.ts for the social channels (linkedin, instagram_*) ONLY
-// when METRICOOL_USER_TOKEN, METRICOOL_USER_ID and METRICOOL_BLOG_ID are all
-// set; otherwise those channels stay on the MockPublisher.
+// Selected by ./index.ts for the social channels (linkedin, instagram_*,
+// facebook, tiktok) ONLY when METRICOOL_USER_TOKEN, METRICOOL_USER_ID and
+// METRICOOL_BLOG_ID are all set; otherwise those channels stay on the
+// MockPublisher.
 //
 // publish(asset), called by the asset route after a human clicks Approve:
 //   1. Map channel → Metricool network + post type (CHANNEL_NETWORK below).
@@ -12,6 +13,10 @@
 //      for a reel. Each URL goes through Metricool's normalize call; if any
 //      normalize fails we stop (no broken, imageless post). Instagram always
 //      needs media; a reel always needs a video (we never post an image as a reel).
+//      LinkedIn and Facebook allow text-only posts, so their media is optional.
+//      TikTok: with publish_target.video_url it is a VIDEO post (the video
+//      only); otherwise a PHOTO post — graphic_url + publish_target.media_urls
+//      (1–35 images; several = a photo carousel). TikTok always needs media.
 //   3. publicationDate = scheduled_at when it's in the future, else now + 10
 //      minutes, as wall-clock time in METRICOOL_TIMEZONE.
 //   4. POST the planner post (body built in buildMetricoolPostBody).
@@ -45,9 +50,13 @@ const PUBLISH_BUDGET_MS = 50_000
 const DEFAULT_LEAD_MS = 10 * 60_000
 // Instagram carousels allow up to 10 items.
 const MAX_CAROUSEL_ITEMS = 10
+// TikTok photo posts allow up to 35 images.
+const MAX_TIKTOK_PHOTOS = 35
 
-export type MetricoolNetwork = 'linkedin' | 'instagram' | 'facebook'
-type PostKind = 'post' | 'carousel' | 'reel'
+export type MetricoolNetwork = 'linkedin' | 'instagram' | 'facebook' | 'tiktok'
+// 'video' is only ever chosen at publish time, for a tiktok asset that has a
+// publish_target.video_url (see effectiveKind).
+type PostKind = 'post' | 'carousel' | 'reel' | 'video'
 
 // The ONLY channels Metricool handles. Anything else is a programming error
 // in ./index.ts and is refused below.
@@ -56,6 +65,22 @@ export const METRICOOL_CHANNELS: Partial<Record<MarketingChannel, { network: Met
   instagram_feed: { network: 'instagram', kind: 'post' },
   instagram_carousel: { network: 'instagram', kind: 'carousel' },
   instagram_reel: { network: 'instagram', kind: 'reel' },
+  // Facebook page post — facebookData { type: 'POST' } (the shape in
+  // Metricool's own doc example); graphic optional (text-only is allowed).
+  facebook: { network: 'facebook', kind: 'post' },
+  // TikTok — a PHOTO post by default (kind 'carousel': graphic + media_urls,
+  // 1–35 images); switched to 'video' at publish time when the asset has a
+  // publish_target.video_url. Body block tiktokData is an ASSUMPTION (below).
+  tiktok: { network: 'tiktok', kind: 'carousel' },
+}
+
+// TikTok is a video post only when a video is attached; otherwise a photo
+// post. Every other channel keeps its mapped kind.
+function effectiveKind(network: MetricoolNetwork, kind: PostKind, asset: PublishableAsset): PostKind {
+  if (network === 'tiktok') {
+    return stringOrNull((asset.publish_target ?? {}).video_url) ? 'video' : 'carousel'
+  }
+  return kind
 }
 
 // ── Wall-clock formatting ───────────────────────────────────────────────────
@@ -100,6 +125,15 @@ export function pickPublicationInstant(scheduledAt: string | null | undefined, n
 //     with several media) and 'REEL' for a reel;
 //   - linkedinData.type 'POST' is accepted for a LinkedIn post (LinkedIn's
 //     block isn't documented at all — it may be optional or named differently).
+//   - tiktokData is NOT documented at all. We send { type: 'PHOTO' } for a
+//     photo post (one image or a carousel of up to 35 — the media array
+//     decides) and { type: 'VIDEO' } for a video post. The block may be
+//     optional, named differently, or need extra keys (e.g. privacy /
+//     disableComments / autoAddMusic, or a separate photo-post flag) — copy
+//     the real body from Metricool's planner (browser inspector) to confirm.
+//   - For a TikTok PHOTO post, top-level autoPublish may not be honoured by
+//     TikTok: it can arrive as an in-app draft needing a final one-tap
+//     publish. Music / stickers / effects can't be added through the API.
 export interface MetricoolPostInput {
   network: MetricoolNetwork
   kind: PostKind
@@ -131,6 +165,9 @@ export function buildMetricoolPostBody(input: MetricoolPostInput): Record<string
     body.linkedinData = { type: 'POST' }
   } else if (input.network === 'facebook') {
     body.facebookData = { type: 'POST' }
+  } else if (input.network === 'tiktok') {
+    // ASSUMPTION — undocumented block (see the list above).
+    body.tiktokData = { type: input.kind === 'video' ? 'VIDEO' : 'PHOTO' }
   }
   return body
 }
@@ -147,10 +184,16 @@ function stringList(v: unknown): string[] {
 // The source media URLs for one asset, in order (see header, step 2).
 function sourceMedia(
   asset: PublishableAsset,
+  network: MetricoolNetwork,
   kind: PostKind,
 ): { ok: true; urls: string[] } | { ok: false; error: string } {
   const graphic = stringOrNull(asset.graphic_url)
   const hints = asset.publish_target ?? {}
+  if (kind === 'video') {
+    // TikTok video post — the video only (effectiveKind guarantees one).
+    const video = stringOrNull(hints.video_url)
+    return video ? { ok: true, urls: [video] } : { ok: true, urls: [] }
+  }
   if (kind === 'reel') {
     const video = stringOrNull(hints.video_url)
     if (!video) {
@@ -164,7 +207,8 @@ function sourceMedia(
   }
   if (kind === 'carousel') {
     const urls = [...(graphic ? [graphic] : []), ...stringList(hints.media_urls)]
-    return { ok: true, urls: Array.from(new Set(urls)).slice(0, MAX_CAROUSEL_ITEMS) }
+    const max = network === 'tiktok' ? MAX_TIKTOK_PHOTOS : MAX_CAROUSEL_ITEMS
+    return { ok: true, urls: Array.from(new Set(urls)).slice(0, max) }
   }
   return { ok: true, urls: graphic ? [graphic] : [] }
 }
@@ -179,7 +223,8 @@ export class MetricoolPublisher implements Publisher {
     if (!mapping) {
       return { ok: false, error: `Channel "${asset.channel}" is not published through Metricool.` }
     }
-    const { network, kind } = mapping
+    const { network } = mapping
+    const kind = effectiveKind(network, mapping.kind, asset)
     const mode = getMetricoolMode()
     const timezone = getMetricoolTimezone()
 
@@ -188,13 +233,20 @@ export class MetricoolPublisher implements Publisher {
       return { ok: false, error: 'This post has no text — add a caption before approving.' }
     }
 
-    const source = sourceMedia(asset, kind)
+    const source = sourceMedia(asset, network, kind)
     if (!source.ok) return { ok: false, error: source.error }
     if (network === 'instagram' && source.urls.length === 0) {
       return {
         ok: false,
         error:
           'Instagram posts need an image — render a graphic for this post first. Nothing was sent to Metricool.',
+      }
+    }
+    if (network === 'tiktok' && source.urls.length === 0) {
+      return {
+        ok: false,
+        error:
+          'TikTok posts need at least one image (or a video) — render the vertical graphic or add an image for this post first. Nothing was sent to Metricool.',
       }
     }
 
@@ -205,7 +257,7 @@ export class MetricoolPublisher implements Publisher {
       if (!res.ok) {
         return {
           ok: false,
-          error: `Metricool could not import the ${kind === 'reel' ? 'video' : 'graphic'}, so nothing was posted. ${res.message}`,
+          error: `Metricool could not import the ${kind === 'reel' || kind === 'video' ? 'video' : 'graphic'}, so nothing was posted. ${res.message}`,
         }
       }
       media.push(res.data)

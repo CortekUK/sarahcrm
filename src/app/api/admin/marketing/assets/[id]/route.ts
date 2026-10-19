@@ -1,8 +1,8 @@
 // Marketing asset mutations — the approval queue's server side.
 //
 // PATCH /api/admin/marketing/assets/[id]
-//   body: { action: 'save' | 'approve' | 'reject' | 'in_review' | 'resend',
-//           title?, body? }
+//   body: { action: 'save' | 'approve' | 'reject' | 'in_review' | 'resend'
+//                   | 'unpublish', title?, body? }
 //
 // ALL status transitions live here (never client-side). Critically, APPROVE is
 // the human publish gate: nothing is ever published without an explicit approve
@@ -20,11 +20,16 @@
 // published_at and moves the old publish_target into publish_target.previous
 // (an array, oldest first) as an audit trail — so the normal Approve flow
 // works again. It never publishes by itself.
+// Blog channels (seo_blog, recap_blog) publish to the website's /blog via
+// BlogPublisher on approve (status='published', publish_target.platform =
+// 'website'). A live post can't be approved again (409). 'unpublish' takes
+// it down (blog_posts.status='unpublished') and puts the asset back to
+// 'in_review' — approving again re-publishes it at the same URL.
 // Admin only; writes use service-role.
 
 import { NextRequest } from 'next/server'
 import { requireAdmin, getAdmin } from '@/lib/marketing/admin'
-import { getPublisher } from '@/lib/marketing/publish'
+import { getPublisher, unpublishBlogPost } from '@/lib/marketing/publish'
 import type { MarketingChannel, PublishableAsset } from '@/lib/marketing/publish'
 
 export const runtime = 'nodejs'
@@ -33,7 +38,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 interface PatchBody {
-  action?: 'save' | 'approve' | 'reject' | 'in_review' | 'resend'
+  action?: 'save' | 'approve' | 'reject' | 'in_review' | 'resend' | 'unpublish'
   title?: string
   body?: string
   // Template Graphics — persisted on save/re-render from the approval queue.
@@ -61,7 +66,7 @@ export async function PATCH(
   const admin = getAdmin()
   const { data: asset, error: loadErr } = await admin
     .from('marketing_assets')
-    .select('id, campaign_id, channel, voice, title, body, status, publish_target, graphic_url, scheduled_at')
+    .select('id, campaign_id, channel, voice, title, body, status, publish_target, graphic_url, scheduled_at, event_id')
     .eq('id', id)
     .single()
   if (loadErr || !asset) {
@@ -82,7 +87,21 @@ export async function PATCH(
     patch.template_id = body.template_id
   }
 
-  if (action === 'resend') {
+  if (action === 'unpublish') {
+    // Take a website blog post down. Never deletes the post row.
+    const prev = (asset.publish_target as Record<string, unknown> | null) ?? null
+    if (prev?.platform !== 'website') {
+      return Response.json(
+        { error: 'Only blog posts published to the website can be unpublished.' },
+        { status: 400 },
+      )
+    }
+    const res = await unpublishBlogPost(asset.id)
+    if (!res.ok) return Response.json({ error: res.error }, { status: 502 })
+    patch.status = 'in_review'
+    patch.published_at = null
+    patch.publish_target = { ...prev, status: 'unpublished', unpublished_at: res.unpublishedAt }
+  } else if (action === 'resend') {
     // Reset only — Approve must be clicked again to actually re-send.
     const prev = (asset.publish_target as Record<string, unknown> | null) ?? null
     if (prev?.platform !== 'metricool') {
@@ -131,6 +150,13 @@ export async function PATCH(
         { status: 409 },
       )
     }
+    // Already live on the website blog → refuse (no duplicate notification).
+    if (prevTarget?.platform === 'website' && asset.status === 'published') {
+      return Response.json(
+        { error: 'Already live on the website — unpublish it first to make changes.' },
+        { status: 409 },
+      )
+    }
     const publishable: PublishableAsset = {
       id: asset.id,
       channel,
@@ -140,6 +166,7 @@ export async function PATCH(
         (typeof body.graphic_url === 'string' ? body.graphic_url : (asset.graphic_url as string | null)) ?? null,
       scheduled_at: (asset.scheduled_at as string | null) ?? null,
       publish_target: prevTarget,
+      event_id: (asset.event_id as string | null) ?? null,
     }
     let result
     try {

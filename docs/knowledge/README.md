@@ -11,16 +11,16 @@ It is **documentation, not code**. Nothing here is imported at build time.
 
 | File | Size | Covers |
 |---|---|---|
-| `00-core-brief.md` | ~9 KB | Roles, front doors, sidebar, vocabulary, the rules people get wrong, and a routing table. **Always in context.** |
-| `01-routes-and-navigation.md` | ~31 KB | Every page URL → file → component, all layouts, middleware role gating, the full nav trees |
-| `02-api-endpoints.md` | ~55 KB | All ~100 API routes: methods, request/response shape, auth, external services, tables touched |
-| `03-database-schema.md` | ~74 KB | 79 tables with columns and FKs, 12 enums + ~35 CHECK vocabularies, RLS tiers, storage buckets, triggers |
-| `04-business-logic.md` | ~94 KB | Every file in `src/lib/`: scoring formulas, AI prompts, the automation trigger catalogue, hardcoded business rules |
-| `05-screens-and-components.md` | ~111 KB | Every admin/portal/staff screen and **every button on it**, plus the component catalogue and theming |
-| `06-integrations-and-config.md` | ~33 KB | OpenAI, Stripe, Resend, Google, Xero, DocuSign, WhatsApp; env vars, crons, webhooks, scripts, deploy |
-| `07-workflows-and-faq.md` | ~64 KB | 22 numbered step-by-step playbooks + a 44-question FAQ |
+| `00-core-brief.md` | ~10 KB | Roles, front doors, sidebar, vocabulary, the rules people get wrong, and a routing table. **Always in context.** |
+| `01-routes-and-navigation.md` | ~32 KB | Every page URL → file → component, all layouts, middleware role gating, the full nav trees |
+| `02-api-endpoints.md` | ~65 KB | All ~100 API routes: methods, request/response shape, auth, external services, tables touched |
+| `03-database-schema.md` | ~81 KB | 79 tables with columns and FKs, 12 enums + ~35 CHECK vocabularies, RLS tiers, storage buckets, triggers |
+| `04-business-logic.md` | ~117 KB | Every file in `src/lib/`: scoring formulas, AI prompts, the automation trigger catalogue, hardcoded business rules |
+| `05-screens-and-components.md` | ~121 KB | Every admin/portal/staff screen and **every button on it**, plus the component catalogue and theming |
+| `06-integrations-and-config.md` | ~41 KB | OpenAI, Stripe, Resend, Google, Xero, DocuSign, WhatsApp; env vars, crons, webhooks, scripts, deploy |
+| `07-workflows-and-faq.md` | ~85 KB | 22 numbered step-by-step playbooks + a 58-question FAQ |
 
-Total ≈ 472 KB ≈ 120k tokens.
+Total ≈ 555 KB ≈ 140k tokens.
 
 ## How to feed this to the assistant
 
@@ -75,3 +75,5 @@ Generated 2026-09-07 by seven parallel mapping agents reading the codebase
 directly, cross-checked against `docs/PLATFORM-USER-JOURNEY-TRAINING.md` and the
 other files in `docs/`. Where the older docs disagreed with the code, the code
 won and the doc claim was corrected.
+
+Updated 2026-10-19 for the October batch (all migrations applied 2026-10-19): Clay employee/revenue bands, Facebook + TikTok channels, Metricool status/draft mode, blogs publishing to the website Journal, sponsor follow-up sequences with reply/bounce auto-stop, email open tracking + the "Not opening emails" flag, concierge event suggestions / turnover / call requests (calendar booking OFF), Direct Debit via Stripe Bacs (OFF; GoCardless not integrated), public past events, and the planning-spreadsheet event import.

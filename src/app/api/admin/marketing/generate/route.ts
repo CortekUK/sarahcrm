@@ -3,13 +3,13 @@
 // POST /api/admin/marketing/generate
 //   body: {
 //     campaign_id: string,
-//     channels: MarketingChannelKey[],       // any of the full 9-channel set
+//     channels: MarketingChannelKey[],       // any of the full 11-channel set
 //     regenerate_asset_id?: string,          // regenerate a single asset
 //   }
 //
 // Loads the campaign, builds source context from its event / topic_brief /
 // transcript (enriched for recap + sponsor channels), then:
-//   * TEXT channels (blogs, LinkedIn, Instagram, PR, sponsor recap) → one
+//   * TEXT channels (blogs, LinkedIn, Instagram, Facebook, TikTok, PR, sponsor recap) → one
 //     structured OpenAI call, Zod-validated, one draft per channel.
 //   * NEWSLETTER → generated as REAL email blocks (email ai-schema), stored as
 //     an email_templates row (category='campaign', is_draft) and linked to the
@@ -53,14 +53,36 @@ const SOCIAL_GRAPHIC_CHANNELS = new Set<string>([
   'instagram_carousel',
   'instagram_reel',
   'linkedin',
+  // Facebook takes the same optional graphic (text-only posts are allowed).
+  'facebook',
+  // TikTok photo posts REQUIRE an image; the template graphic is rendered
+  // vertically (9:16) for TikTok in the approval queue.
+  'tiktok',
 ])
+
+// TikTok's hard caption limit. The brief aims for < 300 characters; this is
+// only a safety net so an over-long draft can never be refused at publish.
+const TIKTOK_CAPTION_MAX = 2200
+
+// Public website pages the blog channels may link to internally (SEO
+// internal links + calls to action). Only these real paths are offered to
+// the model so it never invents a URL.
+const SITE_LINKS = `Internal links you may use (site-relative paths only — never invent other URLs):
+- /memberships — membership tiers and benefits
+- /membership-application — apply for membership (the primary call to action)
+- /events — the events calendar
+- /private-event-services — bespoke private events
+- /concierge — the members' concierge service
+- /about — about The Club and Sarah Restrick
+- /contact-us — get in touch
+- /blog — The Journal (other articles)`
 
 interface GenerateBody {
   campaign_id?: string
   channels?: string[]
   regenerate_asset_id?: string | null
   // Default voice for the single-voice text channels (blogs, instagram_*,
-  // press_release, sponsor_recap). LinkedIn ignores this — it always
+  // facebook, tiktok, press_release, sponsor_recap). LinkedIn ignores this — it always
   // produces all four variants. Defaults to 'club'.
   default_voice?: string | null
   // Template Graphics. The AI writes the caption + derives the on-graphic
@@ -88,11 +110,13 @@ interface VoiceRow {
 const CLUB_VOICE = `Voice — "The Club by Sarah Restrick" (formal luxury): warm, considered and intimate, never corporate or salesy. British English spelling. Confident and understated — this is a private membership community of exceptional people, not a mass mailing list. Short, elegant sentences. Specific over flowery. Refer naturally to the three core member experiences where relevant: curated luxury events, bespoke member introductions, and a warm communications practice.`
 
 const CHANNEL_BRIEFS: Record<TextChannelKey, string> = {
-  seo_blog: `seo_blog: a search-optimised long-form blog article (roughly 500-800 words). "title" is an SEO-friendly headline; "body" is the full article in clean Markdown — an intro, 2-4 short sections with "## " subheadings, and a closing line. Weave the topic's natural keywords in without stuffing. No fabricated statistics or quotes.`,
-  recap_blog: `recap_blog: a warm event recap / write-up (roughly 400-700 words). "title" is an evocative headline; "body" is Markdown — a scene-setting intro, the highlights (lean on the event's speakers, agenda, atmosphere and — where noted — attendees and photos), a memorable moment or two, and a closing line that looks ahead. Celebratory but understated. Only use details present in the source; never invent quotes or numbers.`,
+  seo_blog: `seo_blog: a search-optimised long-form blog article for the website's Journal (roughly 500-800 words). "title" is an SEO-friendly headline (under ~65 characters, the main keyword near the start); "body" is the full article in clean Markdown — an opening paragraph of 1-2 sentences that works as the search meta description (it is used as one), 2-4 short sections with "## " subheadings, and a closing line. Weave the topic's natural keywords in without stuffing. Add 2-3 INTERNAL links as Markdown links [anchor text](/path) using ONLY the internal links listed below (plus the event page if one is given in the source), with descriptive anchor text — never "click here". End with a short call-to-action paragraph that links to /membership-application or /events (whichever fits). No fabricated statistics or quotes.`,
+  recap_blog: `recap_blog: a warm event recap / write-up for the website's Journal (roughly 400-700 words). "title" is an evocative headline (under ~65 characters); "body" is Markdown — a scene-setting opening paragraph of 1-2 sentences (used as the search meta description), the highlights (lean on the event's speakers, agenda, atmosphere and — where noted — attendees and photos), a memorable moment or two, and a closing line that looks ahead. Add 1-3 INTERNAL links as Markdown links [anchor text](/path) using ONLY the internal links listed below (plus the event page if one is given in the source), and end with a short call-to-action paragraph inviting readers to the next events (/events) or to apply (/membership-application). Celebratory but understated. Only use details present in the source; never invent quotes or numbers.`,
   linkedin: `linkedin: a single LinkedIn post (roughly 120-220 words) in the Club voice. "title" is a short internal label (e.g. the hook line); "body" is the post text — a strong first-line hook, 2-4 short paragraphs, tasteful line breaks, an inviting close. At most a few relevant hashtags on the final line. No "click the link in bio"-style filler.`,
   instagram_feed: `instagram_feed: a single Instagram feed caption. "title" is a short internal label; "body" is the caption — an arresting first line, 1-3 short lines of copy, and a final line with 5-10 relevant hashtags. Warm and visual. Text only (Instagram Stories cannot be auto-published, so do NOT write Story frames).`,
   instagram_carousel: `instagram_carousel: an Instagram carousel. "title" is a short internal label; "body" holds one line per slide, each prefixed "Slide 1:", "Slide 2:", … (aim for 4-7 slides — a hook slide, value slides, a closing/CTA slide), followed by a blank line and a "Caption:" line for the post with 5-10 hashtags. Concise, punchy per slide.`,
+  facebook: `facebook: a single Facebook page post. "title" is a short internal label; "body" is the post — a warm, conversational opening line, 2-4 short paragraphs that tell the story (Facebook readers will read a little more than on Instagram), and an inviting close (e.g. an invitation to an upcoming event or to find out more about membership). At most 1-3 relevant hashtags, or none. No "link in bio" filler and no raw URLs unless one is given in the source. Works with or without an image.`,
+  tiktok: `tiktok: a single TikTok photo post (a vertical image, or a short swipeable photo carousel). "title" is the ON-SCREEN HOOK LINE — at most ~8 words, a scroll-stopping line that is overlaid on the vertical graphic (so no hashtags, no emoji strings, no quotation marks around it). "body" is ONLY the caption that gets posted, exactly as it should appear: 1-3 short, punchy lines in a lighter, more conversational TikTok tone that still sounds like the brand voice above (never slangy, never clickbait, no "link in bio" filler, no raw URLs), then a final line of 3-6 relevant hashtags. Keep the WHOLE caption, hashtags included, under 300 characters. No "Hook:" / "Caption:" labels in the body.`,
   instagram_reel: `instagram_reel: an Instagram reel. "title" is a short internal label; "body" starts with "Hook:" (a 1-line scroll-stopper), then "Caption:" (2-4 short lines describing the reel), then a final line of 5-10 relevant hashtags. Text only — no scene-by-scene video direction unless it helps the caption.`,
   press_release: `press_release: a formal press release. "title" is the release HEADLINE. "body" is Markdown structured as: a dateline (CITY — Date, using only a real date if present in the source, else omit), 2-4 body paragraphs written in third person and formal register, an optional short quote ONLY if a real one exists in the source, and a closing "About The Club by Sarah Restrick" boilerplate paragraph (a private membership community curated by Sarah Restrick offering curated luxury events, bespoke member introductions and a warm communications practice). No hype, no fabricated statistics.`,
   sponsor_recap: `sponsor_recap: a warm recap addressed directly to the event's sponsor, thanking them and reflecting on the partnership. "title" is a short internal label. "body" is the message (roughly 200-350 words) — open by addressing the sponsor, recap the event and how their sponsorship package/benefits and brand alignment came through, note the value delivered, and close warmly with a look toward continuing the partnership. Use ONLY sponsor details present in the source; if none are provided, keep it graceful and general.`,
@@ -283,6 +307,11 @@ function formatEventContext(e: Record<string, unknown>): string {
     lines.push(`Agenda: ${JSON.stringify(e.agenda).slice(0, 1500)}`)
   }
   if (e.cover_image_url) lines.push(`Cover image URL (a real asset — safe to use): ${e.cover_image_url}`)
+  // Public event page — a valid internal link for the blog channels. Only
+  // offered when the event is actually visible on the website.
+  if (e.slug && ['published', 'live', 'completed'].includes(String(e.status ?? ''))) {
+    lines.push(`Event page on the website (internal link): /events/${e.slug}`)
+  }
   if (e.gallery_urls && Array.isArray(e.gallery_urls) && e.gallery_urls.length > 0) {
     lines.push(`Event photos: ${e.gallery_urls.length} image(s) available from the gallery.`)
   }
@@ -350,7 +379,7 @@ export async function POST(req: NextRequest) {
       const { data: event } = await admin
         .from('events')
         .select(
-          'title, description, event_type, speakers, agenda, venue_name, venue_city, start_date, end_date, cover_image_url, gallery_urls',
+          'title, slug, status, description, event_type, speakers, agenda, venue_name, venue_city, start_date, end_date, cover_image_url, gallery_urls',
         )
         .eq('id', campaign.event_id)
         .single()
@@ -469,7 +498,11 @@ ${voiceContext[textBatchVoice]}
 You will receive source material and a list of channels. For EACH requested channel, produce exactly ONE asset. Return an object with an "assets" array; each item has "channel" (one of the requested channel keys), "title", and "body". Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — where a detail is missing, write around it gracefully. Produce only the requested channels, one asset each.
 
 Channel briefs:
-${channelBriefs}`
+${channelBriefs}${
+        singleVoiceTextChannels.some((c) => c === 'seo_blog' || c === 'recap_blog')
+          ? `\n\n${SITE_LINKS}`
+          : ''
+      }`
 
       const userMessage = `Campaign: "${campaign.title}"
 
@@ -534,7 +567,12 @@ Requested channels (produce exactly one asset for each): ${singleVoiceTextChanne
       const byChannel = new Map<TextChannelKey, { title: string; body: string }>()
       for (const a of validation.data.assets) {
         if ((singleVoiceTextChannels as readonly string[]).includes(a.channel)) {
-          byChannel.set(a.channel, { title: a.title, body: a.body })
+          // TikTok rejects captions over 2,200 characters — trim defensively.
+          const text =
+            a.channel === 'tiktok' && a.body.length > TIKTOK_CAPTION_MAX
+              ? a.body.slice(0, TIKTOK_CAPTION_MAX).trimEnd()
+              : a.body
+          byChannel.set(a.channel, { title: a.title, body: text })
         }
       }
 
