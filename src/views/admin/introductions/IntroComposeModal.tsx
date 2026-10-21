@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/Select'
 import { Send, CalendarClock, Sparkles, Mail, AlertCircle, MousePointerClick, Check, X } from 'lucide-react'
 import { DateTimeField } from '@/components/ui/DateTimeField'
 import { defaultIntroEmail } from '@/lib/introductions/intro-email'
+import { IntroHistoryBadge, useIntroHistory } from './IntroHistoryBadge'
 
 export interface ComposeMember {
   id: string
@@ -95,6 +96,8 @@ export function IntroComposeModal({
   initial?: { a: SideInitial; b: SideInitial } | null
   onSent: () => void
 }) {
+  // Each member's introductions so far — both sides count once this is sent.
+  const history = useIntroHistory(open && memberA && memberB ? [memberA.id, memberB.id] : [])
   const [a, setA] = useState<SideState>(blankSide)
   const [b, setB] = useState<SideState>(blankSide)
   const [templates, setTemplates] = useState<TemplateRow[]>([])
@@ -210,6 +213,13 @@ export function IntroComposeModal({
               </p>
             </div>
           </div>
+
+          {history.data && (
+            <div className="flex flex-wrap gap-2 min-w-0">
+              <IntroHistoryBadge name={memberA.name} history={history.data[memberA.id]} />
+              <IntroHistoryBadge name={memberB.name} history={history.data[memberB.id]} />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <SideEditor label="First introduction" member={memberA} other={memberB} state={a} setState={setA} templates={templates} onTemplate={(id) => applyTemplate('a', id)} onSubmit={(m) => submitSide('a', m)} />

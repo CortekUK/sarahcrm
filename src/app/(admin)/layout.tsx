@@ -12,6 +12,12 @@ import { Toaster } from '@/components/ui-shadcn/toaster'
 import { ConfirmDialogProvider } from '@/components/admin/ConfirmDialog'
 import { ProgressProvider } from '@/components/admin/TopProgressBar'
 import { HelpAssistant } from '@/components/admin/HelpAssistant'
+import { ChatProvider, useChat } from '@/lib/chat/ChatProvider'
+import { chatEnabled } from '@/lib/http/chat-client'
+import { ChatNavIcon, UnreadBadge } from '@/components/ui/chat'
+import { FeedRealtimeProvider } from '@/lib/feed/FeedRealtime'
+import type { FeedLinks } from '@/lib/feed/types'
+import { NotificationsBell } from '@/views/feed/NotificationsBell'
 import {
   LayoutDashboard,
   Users,
@@ -42,6 +48,7 @@ import {
   Gauge,
   Target,
   MessageCircle,
+  MessagesSquare,
   ShieldCheck,
   UserCog,
   BookOpen,
@@ -52,6 +59,8 @@ import {
   HeartPulse,
   ContactRound,
   Sunrise,
+  Menu,
+  Newspaper,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -159,6 +168,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Engage',
     items: [
+      // Member chat (services/chat) — hidden until NEXT_PUBLIC_CHAT_URL is set.
+      ...(chatEnabled ? [{ to: '/dashboard/messages', label: 'Messages', icon: MessagesSquare }] : []),
+      // Member Feed (same service) — Club feed + group feeds, with moderation.
+      ...(chatEnabled ? [{ to: '/dashboard/feed', label: 'Feed', icon: Newspaper }] : []),
       { to: '/dashboard/inbox', label: 'Inbox', icon: Inbox },
       { to: '/dashboard/enquiries', label: 'Enquiries', icon: Inbox },
       { to: '/dashboard/reviews', label: 'Reviews', icon: Quote },
@@ -240,6 +253,13 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
+// Notification deep links for admins: every post opens on the Feed page
+// (group posts via ?group=, so admins outside the group can still open them).
+const FEED_LINKS: FeedLinks = {
+  feed: '/dashboard/feed',
+  groupPost: (groupId, postId) => `/dashboard/feed?group=${groupId}&post=${postId}`,
+}
+
 function isNavGroup(item: NavItem | NavGroup): item is NavGroup {
   return 'children' in item
 }
@@ -268,6 +288,7 @@ function NavLink({
   Icon,
   active,
   badge,
+  unread,
   highlight,
 }: {
   to: string
@@ -275,6 +296,8 @@ function NavLink({
   Icon: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
   active: boolean
   badge?: string
+  /** live chat unread count — red badge (1 … 9+) */
+  unread?: number
   highlight?: boolean
 }) {
   return (
@@ -306,6 +329,7 @@ function NavLink({
         )}
       />
       <span className="flex-1 truncate">{label}</span>
+      {!!unread && <UnreadBadge count={unread} />}
       {badge && (
         <span className="text-[9px] font-medium uppercase tracking-[0.1em] px-1.5 py-0.5 rounded-full bg-[var(--color-gold)]/15 text-[var(--color-gold-dark)]">
           {badge}
@@ -432,7 +456,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [query, setQuery] = useState('')
+  // Below lg the sidebar is an off-canvas drawer.
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const navCounts = useNavCounts(pathname)
+  const { totalUnread } = useChat()
+  const unreadFor = (to: string) => (to === '/dashboard/messages' ? totalUnread : undefined)
 
   const trimmedQuery = query.trim().toLowerCase()
   const filteredNav = trimmedQuery
@@ -444,6 +472,22 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     router.replace('/admin/login')
   }
 
+  // Drawer: close on navigation and Esc; lock page scroll while open.
+  useEffect(() => {
+    setDrawerOpen(false)
+  }, [pathname])
+  useEffect(() => {
+    if (!drawerOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setDrawerOpen(false)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [drawerOpen])
+
   // `theme-night-admin` re-maps the cream/gold tokens to the night
   // palette. In day mode we drop it so the admin shell falls back to
   // the default cream + gold tokens defined in @theme. The night
@@ -453,12 +497,25 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const themeClass = theme === 'day' ? '' : 'theme-night-admin'
 
   return (
-    <div className={cn('min-h-screen bg-[var(--color-bg)] flex', themeClass)}>
+    <div className={cn('min-h-dvh bg-[var(--color-bg)] flex', themeClass)}>
+      {/* Mobile drawer backdrop (< lg only). */}
+      <div
+        aria-hidden
+        onClick={() => setDrawerOpen(false)}
+        className={cn(
+          'fixed inset-0 z-40 bg-[rgba(14,16,20,0.55)] backdrop-blur-[1px] transition-opacity duration-300 lg:hidden',
+          drawerOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+      />
       {/* Sidebar — graphite spine. The vertical gradient (graphite-3 top
           → graphite bottom) reads as a soft elevation against the ink
           main canvas. Right border is a single bronze-tinted hairline. */}
       <aside
-        className="fixed left-0 top-0 bottom-0 w-[244px] flex flex-col z-40 border-r border-[var(--color-border)]"
+        className={cn(
+          'fixed left-0 top-0 bottom-0 w-[244px] flex flex-col z-50 lg:z-40 border-r border-[var(--color-border)]',
+          'transition-transform duration-300 ease-out lg:translate-x-0',
+          drawerOpen ? 'translate-x-0 shadow-[var(--shadow-xl)]' : '-translate-x-full',
+        )}
         style={{
           background:
             'linear-gradient(180deg, var(--color-graphite-3) 0%, var(--color-graphite) 100%)',
@@ -477,7 +534,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
               priority
               className="w-[38px] h-[38px] object-contain shrink-0"
             />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="font-[family-name:var(--font-display)] text-[19px] text-[var(--color-ivory)] leading-none tracking-[0.01em]">
                 The Club
               </h1>
@@ -485,6 +542,13 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                 by Sarah Restrick
               </p>
             </div>
+            {/* Feed notifications (desktop; the mobile top bar has its own). */}
+            <NotificationsBell
+              links={FEED_LINKS}
+              align="start"
+              className="hidden lg:block -mr-2 shrink-0"
+              iconClassName="text-[var(--color-ivory-soft)] hover:bg-[var(--color-ivory)]/[0.06] hover:text-[var(--color-gold)]"
+            />
           </div>
         </div>
 
@@ -529,6 +593,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                       Icon={item.icon}
                       active={active}
                       badge={count && count > 0 ? String(count) : undefined}
+                      unread={unreadFor(item.to)}
                     />
                   )
                 })}
@@ -562,6 +627,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                         Icon={item.icon}
                         active={active}
                         badge={count && count > 0 ? String(count) : undefined}
+                        unread={unreadFor(item.to)}
                       />
                     )
                   })}
@@ -631,7 +697,39 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           scrollbar on the entire window. Constrain here; let individual
           scroll containers (e.g. the Table component) handle their own
           overflow. */}
-      <main className="ml-[244px] flex-1 min-w-0 overflow-x-hidden min-h-screen">{children}</main>
+      <main className="ml-0 lg:ml-[244px] flex-1 min-w-0 overflow-x-hidden min-h-dvh">
+        {/* Slim mobile top bar (< lg): menu, wordmark, Messages badge. 56px —
+            pages that fill the viewport subtract it (h-[calc(100dvh-3.5rem)]). */}
+        <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-graphite)] px-3 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={drawerOpen}
+            className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-ivory-soft)] hover:bg-[var(--color-ivory)]/[0.06] hover:text-[var(--color-ivory)]"
+          >
+            <Menu size={20} strokeWidth={1.6} />
+          </button>
+          <Link href="/dashboard" className="flex min-w-0 items-center gap-2">
+            <Image src="/logo-gold.png" alt="" width={26} height={26} className="h-[26px] w-[26px] shrink-0 object-contain" />
+            <span className="truncate font-[family-name:var(--font-display)] text-[17px] leading-none text-[var(--color-ivory)]">
+              The Club
+            </span>
+          </Link>
+          <span className="flex-1" />
+          <NotificationsBell
+            links={FEED_LINKS}
+            iconClassName="text-[var(--color-ivory-soft)] hover:text-[var(--color-gold)]"
+            size={20}
+          />
+          <ChatNavIcon
+            href="/dashboard/messages"
+            className="mr-1 p-2 text-[var(--color-ivory-soft)] hover:text-[var(--color-gold)]"
+            size={20}
+          />
+        </div>
+        {children}
+      </main>
 
       {/* Floating help assistant — answers "how do I…" questions from the
           knowledge base in docs/knowledge/. Inside the themed wrapper so it
@@ -649,16 +747,21 @@ export default function AdminGroupLayout({
   return (
     <AuthProvider>
       <QueryProvider>
-        {/* Suspense is required because ProgressProvider reads
-            useSearchParams() to fire the bar on every nav change. */}
-        <Suspense fallback={null}>
-          <ProgressProvider>
-            <ConfirmDialogProvider>
-              <AdminLayoutInner>{children}</AdminLayoutInner>
-              <Toaster />
-            </ConfirmDialogProvider>
-          </ProgressProvider>
-        </Suspense>
+        {/* One chat socket per signed-in admin — live unread badge + Messages. */}
+        <ChatProvider>
+          {/* Suspense is required because ProgressProvider reads
+              useSearchParams() to fire the bar on every nav change. */}
+          <Suspense fallback={null}>
+            <ProgressProvider>
+              <ConfirmDialogProvider>
+                <FeedRealtimeProvider>
+                  <AdminLayoutInner>{children}</AdminLayoutInner>
+                  <Toaster />
+                </FeedRealtimeProvider>
+              </ConfirmDialogProvider>
+            </ProgressProvider>
+          </Suspense>
+        </ChatProvider>
       </QueryProvider>
     </AuthProvider>
   )

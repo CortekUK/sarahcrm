@@ -1405,3 +1405,71 @@ h1, h2, h3, h4, h5, h6 {
     display: none;
   }
 }
+
+/* ============================================================
+   CHAT THEME — src/components/ui/chat + src/views/chat
+   ============================================================
+   Chat follows the ACTIVE theme everywhere (portal + admin, day +
+   night). The night-palette tokens (ink / graphite / ivory / bronze)
+   are the ones that flip with the ThemeToggle in BOTH shells (raw =
+   night, remapped to cream by html.theme-day), so `.chat-theme` points
+   the legacy semantic tokens the house kit uses (surface, text, gold,
+   border…) at them, plus a few chat-only tokens for the list, thread
+   and bubbles. Put it on the chat root; Modals rendered inside inherit. */
+.chat-theme {
+  --color-bg: var(--color-ink);
+  --color-bg-alt: var(--color-graphite);
+  --color-surface: var(--color-graphite-2);
+  --color-surface-2: var(--color-graphite-3);
+  --color-surface-3: color-mix(in srgb, var(--color-graphite-3) 90%, var(--color-ivory));
+  --color-text: var(--color-ivory);
+  --color-text-muted: var(--color-ivory-soft);
+  --color-text-dim: var(--color-slate-haze);
+  --color-gold: var(--color-bronze);
+  --color-gold-light: var(--color-bronze-light);
+  --color-gold-dark: var(--color-bronze-dark);
+  --color-gold-muted: var(--color-bronze-muted);
+  --color-border: var(--color-graphite-line);
+  --color-border-hover: color-mix(in srgb, var(--color-graphite-line) 75%, var(--color-ivory) 25%);
+  --color-border-gold: var(--color-bronze-line);
+
+  /* Chat-only surfaces */
+  --chat-list-bg: var(--color-graphite-2);
+  --chat-thread-bg: var(--color-graphite);
+  --chat-header-bg: var(--color-graphite-2);
+  --chat-bubble-theirs: var(--color-graphite-2);
+  --chat-bubble-mine: color-mix(in srgb, var(--color-bronze-light) 18%, var(--color-graphite-2));
+  --chat-bubble-mine-border: color-mix(in srgb, var(--color-bronze-light) 35%, transparent);
+
+  background-color: var(--chat-thread-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+/* Night: deeper canvas, elevated "theirs" bubble, brighter accents. */
+html.theme-night .chat-theme {
+  --chat-list-bg: var(--color-graphite);
+  --chat-header-bg: var(--color-graphite);
+  --chat-thread-bg: var(--color-ink);
+  --chat-bubble-theirs: var(--color-graphite-3);
+  --chat-bubble-mine: color-mix(in srgb, var(--color-bronze) 30%, var(--color-graphite-2));
+  --chat-bubble-mine-border: color-mix(in srgb, var(--color-bronze) 45%, transparent);
+  --color-accent: #7AA189;
+  --color-accent-warm: #D9866A;
+  --color-accent-blue: #7CA0BE;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.6);
+}
+.chat-theme h1,
+.chat-theme h2,
+.chat-theme h3,
+.chat-theme h4,
+.chat-theme h5,
+.chat-theme h6 {
+  color: var(--color-text);
+  font-family: var(--font-heading);
+}
+.chat-theme a {
+  color: inherit;
+}

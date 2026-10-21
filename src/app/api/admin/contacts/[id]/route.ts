@@ -1,3 +1,4 @@
+// GET    /api/admin/contacts/[id]  — one contact's full record (deep links, directory flag)
 // PATCH  /api/admin/contacts/[id]  — edit one contact from the detail drawer
 // DELETE /api/admin/contacts/[id]  — remove one contact
 //
@@ -27,6 +28,7 @@ const EDITABLE = [
   'notes',
   'email_subscribed',
   'sms_subscribed',
+  'directory_hidden',
 ] as const
 
 async function requireAdmin() {
@@ -54,6 +56,25 @@ function getServiceClient() {
   )
 }
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireAdmin()
+  if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
+
+  const { id } = await params
+  const admin = getServiceClient()
+  // '*' so the route keeps working before directory_hidden's migration lands.
+  const { data, error } = await admin.from('contacts').select('*').eq('id', id).maybeSingle()
+  if (error) {
+    console.error('[contacts] read failed', error)
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+  if (!data) return Response.json({ error: 'Contact not found.' }, { status: 404 })
+  return Response.json({ contact: data })
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -78,6 +99,8 @@ export async function PATCH(
         return Response.json({ error: 'Unknown sector.' }, { status: 400 })
       }
       patch.sector = v
+    } else if (field === 'directory_hidden') {
+      patch.directory_hidden = Boolean(v)
     } else if (field === 'email_subscribed' || field === 'sms_subscribed') {
       patch[field] = Boolean(v)
       // Stamp the opt-out time so the marketing side can report on it.

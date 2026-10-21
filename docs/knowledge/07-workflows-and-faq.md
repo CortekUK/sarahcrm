@@ -43,10 +43,17 @@ minimum 8 characters, at least one letter and one number).
 ### 1B. Member-requested (member asks The Club to introduce them to someone)
 1. The member signs in to the portal, opens **Network** (`/portal/network`) — the member directory, each card showing the other person's industry, interests, events attended and introductions made.
 2. They click **Request introduction** on the member they're interested in, write why, and click **Send request to The Club**.
-3. The portal blocks duplicate requests: *"An introduction with this member is already in progress."* Each member also has a **Monthly Intro Quota** set by their tier, which caps how many requests/introductions they can generate in a period.
+3. The portal blocks duplicate requests: *"An introduction with this member is already in progress."* Each member also has a **Monthly Intro Quota** set by their tier. It is a guide, not a cap: members can always request, and on each request row (and in Review & send) the team sees an introduction-history badge — this month, allowance, total, last introduction, open requests — and decides.
 4. The request lands instantly in the admin **Introductions** list at status **Requested**.
 5. Admin reviews it: either proceed exactly as in 1A from step 6 onward (approve → draft the two emails → send), or click **Reject request** with an optional reason — the requesting member is notified of the rejection.
 6. From here on the flow (send, accept/decline, outcome, commission) is identical to the admin-initiated path.
+
+### 1C. Wider network (member asks for an introduction to a non-member contact)
+1. In the portal, **Network** → switch the top control to **Wider network**. Members see the club's CRM contacts (not members) as **name, company, role and industry only** — never email, phone, LinkedIn, website, notes or location.
+2. Search or pick an industry chip, then **Request introduction** → reason (required) + desired outcome → **Send request to The Club**. The card then shows **Requested**. A second request for the same person is refused while one is open.
+3. Sarah gets an in-app notification and the request appears on **Introductions** under **Wider network requests**, with the contact's full CRM details and a link to their contact record.
+4. Sarah makes the introduction herself (no automatic emails), then clicks **Approve**, **Mark completed** or **Decline**, optionally with an internal note. The row's introduction-history badge shows how many introductions the member has had this month / in total against their allowance; **Mark completed** adds to it. Nothing is ever blocked.
+5. To keep someone out of the directory: **Contacts** → open the contact → tick **Hide from member directory**.
 
 ### Member accepting/declining an introduction proposed to them
 1. Member opens **Introductions** in the portal (`/portal/introductions`) — introductions proposed to them appear here.
@@ -523,9 +530,11 @@ Eight tabs:
 3. **Concierge** — **Make a request** (type, brief, dates, location, guests, budget) → **Send request**; track "Where things stand" (Received → Sourcing → Quote ready → Confirmed → Delivered). Lands instantly in admin Concierge.
 4. **Rewards** — claim partner offers, see claim history.
 5. **Introductions** — accept/decline proposed introductions, record outcomes.
-6. **Network** — the member directory; request an introduction to anyone.
+6. **Network** — the member directory: **Members** (request an introduction, or **Message** once introduced) and **Wider network** (the club's non-member contacts — name/company/role only; request an introduction via Sarah).
 7. **Billing** — subscription state, next billing date, **Set up subscription** / **Manage billing** (opens the Stripe customer portal for their own card), full payment history. When Direct Debit is switched on: **Set up with Direct Debit** / **Pay by Direct Debit**, plus a *Payment method* row with the mandate status and reference.
 8. **Profile** — name, bio, photo, contact, company detail, objectives ("What you're working towards" / "Who you'd like to meet"), and **Tags & interests** (Industry / Looking For / Interests). The quality of these fields directly drives the quality of the introductions the platform will suggest to and for them — coach new members to fill this in fully.
+
+Plus **Messages** (header chat icon / Community → Messages) once member chat is switched on — see Playbook 23.
 
 ---
 
@@ -554,6 +563,34 @@ They see **"Your sponsorship"** and five blocks: **Assets required** (upload a f
 3. Columns (shared stages): Applicant/New → Qualified → Proposal/Quote → Won/Closed.
 4. Cards labelled by source: Membership · Sponsorship · Concierge · Introduction · Introduced business · Event booking · Sponsor · Applicant.
 5. **The board is read-only.** You never drag a card. Click it to open the real underlying record (the member, sponsorship, concierge request, application) and change status there — the board reflects it automatically. This is deliberate: one source of truth per record, never two places to update.
+
+
+---
+
+## PLAYBOOK 23 — Member chat (Messages)
+
+Only switched on when the chat service is deployed (`NEXT_PUBLIC_CHAT_URL`); until then the Messages links are hidden.
+1. **Where:** members use **Portal → Messages** (`/portal/messages`, also the chat icon in the header). The team uses **Messages** (`/dashboard/messages`) in the sidebar. A red badge (1, 2 … 9+) on the icon / nav item counts unread messages and updates live.
+2. **Starting a chat:** there's no New button — the left column lists your conversations and, under **Start a conversation**, everyone you can message. Click a name and type; the conversation is created when you send the first message.
+3. **Who can message whom:** the team can message anyone. Members can message the Club team, and other members **only once an introduction between them is Accepted or Completed** — the **Message** button on those introduction cards opens the chat. Blocking works both ways and stops new messages.
+4. **Groups:** everyone is automatically in **The Club** (the main group). Only Sarah (the owner) creates groups: Messages → **New group** → title, description, "Members can join themselves", members → **Create group**. Open a group → ⋮ → **Group settings** to rename, add/remove members, or **Archive group**.
+5. **Event chats:** every published event gets a chat for its confirmed bookings. If a booking is cancelled the member drops out of that chat automatically (re-booking brings them back). It becomes read-only 7 days after the event ends.
+   **Mute:** open a chat → ⋮ → **Mute** — its unread count still shows (grey, with a bell-off icon) but no longer counts towards the red badge. ⋮ → **Unmute** to undo.
+6. **Oversight:** Sarah sees **All chats** (every DM, group and event chat, read-only, never marks anything read) and **Reports**. She can give the same oversight to team members in **Team access** → **Grant** / **Revoke**. Other admins see only chats they are in.
+7. **Reports:** members can report a conversation (⋮ → Report conversation) or one message (hover → ⋯ → Report message). Review in Messages → **Reports** → **Open chat** → **Reviewed** or **Dismiss**.
+8. Photos: up to 6 per message, images only, 10 MB each. There are no email/push notifications for new messages yet — the badge is the only signal.
+
+## PLAYBOOK 24 — Member Feed (Club feed, group posts, notifications)
+
+Runs on the same chat service as Messages (`NEXT_PUBLIC_CHAT_URL`); hidden until it's configured, and needs the migration `20261022_member_feed.sql`.
+1. **Where:** members use **Portal → Community → Feed** (`/portal/feed`, the first Community item). The team uses **Feed** (`/dashboard/feed`, under Engage next to Messages). Every group chat also has **Chat | Posts** at the top of the thread — **Posts** is that group's own feed, visible only to the group's members (the team sees every group's posts; on the admin Feed page pick a group from the pills). The main group "The Club"'s Posts tab *is* the Club feed.
+2. **Posting:** click **Share an update…** → write (up to 5,000 characters) and/or **Photo** (up to 4 images, 10 MB each) → **Post**. It appears instantly for everyone viewing the feed. All active members can post on the Club feed; group feeds are for that group's members. Archived groups are read only.
+3. **Likes and comments:** **Like** toggles a heart (counts update live; nobody sees who liked). **Comment** opens the comments: the newest 20 show first (**View older comments** for more), **Reply** adds one level of replies (collapsed behind **View N replies**).
+4. **Your own posts:** ⋯ → **Edit post** (change the text, remove photos with ×, or add photos up to 4; **Save** lights up once something changed; the post shows "Edited") or **Delete post**. You can delete your own comments too.
+5. **Moderation (team):** on any post ⋯ → **Pin to top** / **Unpin** (pinned posts sit above the rest), **Hide post** / **Unhide post** (hidden posts are greyed with a **Hidden** label for the team; members — except the author — no longer see them), **Remove post** (deleted for everyone with its comments). On comments: **Hide comment** / **Delete comment** (a top-level comment takes its replies with it).
+6. **Reports:** members can ⋯ → **Report post** / **Report comment**. They land in **Messages → Reports** (labelled "Feed post" / "Feed comment", with the reported text) → **Open post** → moderate → **Reviewed** or **Dismiss**.
+7. **@mentions:** type **@** and a name in a post, comment or reply, then pick the person from the list (↑/↓ and Enter, or tap). They show as a gold **@Name** and the person gets a notification. Members can mention people they've been introduced to, the Club team, anyone already in that post's conversation and — in a group — the group's members; the team can mention anyone active. Blocked people never appear. Mentioning someone doesn't unlock messaging or show them anything extra.
+8. **Notifications:** the **bell** (portal header; admin sidebar top / mobile top bar) shows a red count. You're notified when someone comments on your post, replies to your comment, mentions you, or posts in a group you're in (not when you mute that group, and never for your own actions; Club-feed posts don't notify). Click one to jump to the post; **Mark all read** clears the badge. In-app only — no email or push. Chat's unread badge is separate.
 
 ---
 
@@ -735,3 +772,30 @@ Only published, live and completed events are public. Planning, draft and cancel
 
 **58. The employee count on a member says "501-1,000" — is that a mistake?**
 No. Clay gives company size as a band, and enrichment stores that band as written so it isn't mistaken for an exact headcount. Enrichment only fills empty fields — type over it if you know the real number.
+
+**59. A member says they can't message another member — why?**
+Members can only message each other after an introduction between them is **Accepted** or **Completed** (or if either is on the team). Check Introductions for that pair. If one of them has blocked the other, the chat shows "You can't message this person" and neither can send.
+
+**60. How do I let a team member read members' chats or handle reports?**
+Only Sarah can grant it: Messages → **Team access** → **Grant** next to their name (Revoke removes it). They then get the **All chats** and **Reports** tabs. Oversight is read-only and never marks messages as read.
+
+**61. Why don't I see Messages in the sidebar or the member portal?**
+Messages only appears once the chat service is deployed and `NEXT_PUBLIC_CHAT_URL` is set (a developer task). If it's set but the page says "Messages are offline", the chat service is unreachable — new messages appear once it's back.
+
+**62. Which people can members see in the Network's "Wider network", and what do they see?**
+The club's CRM contacts who aren't members (anyone linked to a member, flagged as a member, hidden by an admin, or missing a first or last name is left out). Members see only name, company, role and industry — never email, phone, LinkedIn, website, notes or location — and the only thing they can do is **Request introduction**, which comes to Sarah. To keep someone out: Contacts → open them → tick **Hide from member directory**.
+
+**63. A member asked to meet one of our contacts — where is it and what do I do?**
+Introductions → **Wider network requests** (you also get an in-app notification). Each row shows the member's reason and desired outcome plus the contact's full details and a **contact record** link. Make the introduction yourself — nothing is emailed automatically — then click **Approve**, **Mark completed** or **Decline** (optional internal note). To judge their allowance, every request row shows an **introduction history** badge for the requesting member — e.g. *"3 intros this month · 2 of 4 allowance · 11 total · last 12 Oct"* (amber once they reach their monthly allowance; click it for what the numbers mean). Members can always request and never see their allowance; nothing is ever blocked — it's your call. A completed wider-network request counts in that history.
+
+**64. A member posted something inappropriate on the Feed — how do I take it down?**
+On the post ⋯ → **Hide post** to take it out of members' view straight away (it stays greyed with a **Hidden** label for the team and the author, and **Unhide post** restores it), or ⋯ → **Remove post** to delete it for everyone with its comments. Comments have the same ⋯ → **Hide comment** / **Delete comment**. Reported posts and comments are in **Messages → Reports** → **Open post**.
+
+**65. How do I keep an announcement at the top of the Feed?**
+On the post ⋯ → **Pin to top** (team only). Pinned posts show above everything else with a **Pinned** label, newest pin first (up to 5). ⋯ → **Unpin** puts it back in date order. Pinning works on the Club feed and on each group's Posts.
+
+**66. Why didn't a member get a notification for a new post?**
+Notifications are in-app only (the bell — no email or push). Posts on the Club feed don't notify anyone; posts in a group notify that group's members except the author and anyone who has **muted** the group in Messages. Comment and reply notifications go to the post's author and the comment's author — never to the person who wrote it.
+
+**67. Why can't a member find someone when they type @ in the Feed?**
+Members can only mention people they've had an **accepted or completed introduction** with, the Club team, people already in that post's conversation (its author and commenters), and — in a group's Posts — that group's members. Lapsed members and anyone blocked (either way) never appear. If a mention was typed by hand for someone outside those rules, it's saved as plain text with no link and no notification. The team can mention any active member.

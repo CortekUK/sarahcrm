@@ -104,6 +104,7 @@ Source: `.env.local.example` (partial/illustrative) + `grep process.env.` across
 | `GOCARDLESS_ACCESS_TOKEN` / `GC_ACCESS_TOKEN` | Either satisfies a "GoCardless connected" presence check; no live SDK integration |
 | `DEV_ADMIN_EMAIL` / `DEV_ADMIN_PASSWORD` | Local dev admin account credentials, consumed by `scripts/provision-dev-accounts.mjs` |
 | `DEV_MEMBER_EMAIL` / `DEV_MEMBER_PASSWORD` | Local dev member account credentials, same script |
+| `NEXT_PUBLIC_CHAT_URL` | Base URL of the member chat service (`services/chat` on Railway, e.g. `https://chat.theclubgroup.co`, local `http://localhost:4100`). Unset/empty → Messages **and the Member Feed (+ notifications bell)** are hidden in portal + admin, no errors. The feed needs migration `20261022_member_feed.sql` (tables `feed_posts`, `feed_comments`, `feed_likes`, `member_notifications`, private bucket `feed-media`). |
 
 **Note:** `.env.local.example` only documents Supabase/OpenAI/Resend/DocuSign/Clay —
 it is stale relative to the actual `.env` and the code's `process.env.*`

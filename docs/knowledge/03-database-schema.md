@@ -172,6 +172,15 @@ Grouped by feature area. "Used by" lists the top-level directories under `src/` 
 - **RLS:** admin-all; a member can SELECT introductions where they're `member_a` or `member_b`.
 - **Used by:** admin introductions workflow (create/send/reject/why), portal (member request/respond), communications, chief-of-staff, Xero sync, automations (follow-up nudges).
 
+#### `contact_intro_requests` + `contacts.directory_hidden`
+*What it means for the business:* a member asking Sarah to introduce them to someone in the club's wider network (a CRM contact who isn't a member), from Portal → Network → Wider network.
+- **Migration:** `20261022_directory_contact_intros.sql` (written for review — apply manually).
+- **Key columns:** `requester_member_id -> members` (cascade), `contact_id -> contacts` (cascade), `reason`, `desired_outcome`, `status text` (`pending | approved | declined | completed`, default `pending`), `handled_by -> profiles`, `handled_at`, `admin_note`, `created_at`. Unique partial index: one `pending` request per member+contact.
+- **`contacts.directory_hidden boolean default false`:** admin switch ("Hide from member directory" in the contact drawer).
+- **Who appears in the wider network:** contacts with `member_id is null`, `is_member_flag = false`, `directory_hidden = false`, and both a first and last name.
+- **RLS:** admin-only (`is_admin()`); members have NO policy — they reach it only through `/api/portal/directory/*` (service role). SQL functions `directory_contacts()` / `directory_contact_sectors()` return only id, first/last name, company, job title and sector (EXECUTE granted to `service_role` only).
+- **Quota:** like member→member requests, requesting is never blocked; the requester's soft `intros_used_this_month` is bumped when Sarah marks the request **completed**. Admin-facing counts come from `src/lib/introductions/history.ts` (made = member intros with `sent_at` either side + completed contact requests; this month = Europe/London calendar month), not that counter.
+
 ---
 
 ### 2.4 Payments & billing

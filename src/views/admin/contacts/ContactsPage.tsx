@@ -17,6 +17,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { toast } from '@/lib/hooks/use-toast'
+import { apiClient } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { SECTOR_LABELS } from '@/lib/contacts/sectors'
 import { ImportContactsModal } from './ImportContactsModal'
@@ -128,6 +129,17 @@ export function ContactsPage() {
     // Sector is deliberately NOT a dependency — the pill counts must stay
     // stable when you click between sectors.
   }, [debounced, subscribedOnly])
+
+  // Deep link (?contact=<id>, e.g. from a wider-network intro request) opens
+  // that contact's drawer straight away.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('contact')
+    if (!id) return
+    apiClient
+      .get<{ contact: Contact }>(`/api/admin/contacts/${id}`)
+      .then(({ data }) => setSelected(data.contact))
+      .catch(() => toast({ title: 'Contact not found', variant: 'destructive' }))
+  }, [])
 
   useEffect(() => {
     loadList()

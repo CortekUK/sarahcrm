@@ -2,7 +2,7 @@
 
 Seven post-roadmap items built by four parallel agents, reviewed by the orchestrator.
 Status: BUILT, `tsc` clean, full `next build` passes (isolated copy). NOT committed.
-**6 migrations written, NOT applied yet** (awaiting user go-ahead).
+**6 migrations APPLIED 2026-10-19 (verified).** TikTok channel + Clay employee-band fix + help KB update added 2026-10-19.
 Safety during build: no emails sent, no Google Calendar calls, no live Stripe/Resend/Metricool/OpenAI calls.
 
 Earlier same week (also uncommitted): Apollo → **Clay** enrichment (live, Search API, manual-only),

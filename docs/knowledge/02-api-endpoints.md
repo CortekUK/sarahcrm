@@ -32,6 +32,9 @@ deviations are called out per-route.
 | `src/app/api/admin/introductions/generate-suggestions/route.ts` | POST | Run deterministic tag-matching engine across all active members and insert new `suggested` introduction rows (never emails, never re-suggests existing pairs) | Admin |
 | `src/app/api/admin/introductions/reject/route.ts` | POST | Decline an introduction (mark `declined`, store internal note), optionally email the requester a polite decline note | Admin |
 | `src/app/api/admin/introductions/send/route.ts` | POST | Per-recipient introduction email sender: for each side (a/b) send now, schedule for a date, or skip; tracks quota usage against monthly intro allowance | Admin |
+| `src/app/api/admin/introductions/contact-requests/route.ts` | GET | Wider-network intro requests with the contact's full CRM details + requester quota (`?status=open` default \| pending \| approved \| declined \| completed \| all) | Admin |
+| `src/app/api/admin/introductions/contact-requests/[id]/route.ts` | PATCH | `{ status: approved\|declined\|completed\|pending, note? }` — status + admin note only, no email; first move to `completed` bumps the requester's `intros_used_this_month` (soft, never blocks) | Admin |
+| `src/app/api/admin/introductions/history/route.ts` | GET | `?member_ids=a,b,c` (≤100) → `{ history: { [id]: { quota, thisMonth, total, pendingRequests, lastIntroAt } } }` — made = member↔member intros with `sent_at` (either side) + completed wider-network requests; this month = London calendar month; pending = own `suggested` requests + pending/approved contact requests. 4 grouped queries; display-only | Admin |
 | `src/app/api/admin/introductions/why/route.ts` | POST | AI-generated explanation (OpenAI structured output) of why two members are a good introduction match, grounded in each member's profile facts | Admin |
 
 ### Notes
@@ -331,6 +334,9 @@ All routes: `runtime='nodejs'`, `dynamic='force-dynamic'`. No `maxDuration` over
 | `src/app/api/membership-application/setup/route.ts` | POST | First half of application flow: creates pending application + Stripe customer + SetupIntent | Public |
 | `src/app/api/portal/billing/direct-debit/route.ts` | POST | Member with an existing Stripe subscription switches future payments to UK Direct Debit (Stripe Bacs) via a Stripe-hosted setup page | Logged-in member; 400/disabled unless `NEXT_PUBLIC_STRIPE_BACS_DEBIT_ENABLED=true` |
 | `src/app/api/portal/introductions/request/route.ts` | POST | Member requests an introduction to another member (status `suggested`) | Logged-in member (Supabase session) |
+| `src/app/api/portal/directory/contacts/route.ts` | GET | Wider-network directory page: non-member CRM contacts as `{ id, name, company, role, sectorLabel, requested }`, keyset-paged (`?q=&sector=&cursor=&limit=` ≤50), via SQL fn `directory_contacts()` | Active member or admin (session), then service role |
+| `src/app/api/portal/directory/sectors/route.ts` | GET | Sector filter options `{ key, label, count }` for the wider network (excludes Unsegmented), via `directory_contact_sectors()` | Active member or admin |
+| `src/app/api/portal/directory/contacts/[id]/request-intro/route.ts` | POST | Member asks Sarah for an intro to a CRM contact → `contact_intro_requests` row (`pending`) + in-app `admin_notifications` (`directory_contact_intro_request`); 409 if one is already pending/approved; never emails | Active member |
 | `src/app/api/portal/introductions/respond/route.ts` | POST | Member accepts/declines an introduction; rolls up overall status | Logged-in member (Supabase session) |
 | `src/app/api/webhooks/resend/route.ts` | POST | Resend email engagement webhook (delivered/opened/clicked/bounced) → updates `communications`/`email_log` | Public; Svix signature via `RESEND_WEBHOOK_SECRET` (optional but recommended) |
 

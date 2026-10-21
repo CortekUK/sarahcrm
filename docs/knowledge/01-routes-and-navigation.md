@@ -48,10 +48,10 @@ Login routes: `/login` = member login (also default landing link from the public
 ## 3. `(admin)` route group — Admin Dashboard (`/dashboard/*`)
 
 **Layout: `src/app/(admin)/layout.tsx`** (`'use client'`)
-- Provider stack: `AuthProvider` → `QueryProvider` → `Suspense` → `ProgressProvider` (src/components/admin/TopProgressBar.tsx, top loading bar on route change, needs Suspense because it reads `useSearchParams`) → `ConfirmDialogProvider` (src/components/admin/ConfirmDialog.tsx) → `AdminLayoutInner` + `<Toaster />` (src/components/ui-shadcn/toaster).
+- Provider stack: `AuthProvider` → `QueryProvider` → `ChatProvider` (one member-chat socket per signed-in admin; no-op when `NEXT_PUBLIC_CHAT_URL` is unset) → `Suspense` → `ProgressProvider` (src/components/admin/TopProgressBar.tsx, top loading bar on route change, needs Suspense because it reads `useSearchParams`) → `ConfirmDialogProvider` (src/components/admin/ConfirmDialog.tsx) → `AdminLayoutInner` + `<Toaster />` (src/components/ui-shadcn/toaster).
 - Fixed left sidebar (244px), graphite gradient background, bronze/gold accents. Contains: brand header (logo + "The Club" / "by Sarah Restrick"), a nav-filtering search box, the grouped nav tree (see §3.1), and a footer with the signed-in admin's avatar/name/email, a Settings link, Sign out button, and theme toggle.
 - Theme: `theme-night-admin` class applied to the shell unless day theme is active.
-- Badge counts (`useNavCounts`): live head-count queries against Supabase, refreshed on route change, badging `/dashboard/applications` (pending `membership_applications`), `/dashboard/bookings` (pending `bookings`), `/dashboard/finance` (overdue `payments`).
+- Badge counts (`useNavCounts`): live head-count queries against Supabase, refreshed on route change, badging `/dashboard/applications` (pending `membership_applications`), `/dashboard/bookings` (pending `bookings`), `/dashboard/finance` (overdue `payments`). `/dashboard/messages` instead shows a live red chat-unread badge (1…9+) from `ChatProvider`.
 - Sign-out redirects to `/admin/login`.
 
 ### 3.1 Admin sidebar nav tree (exact, from `NAV_SECTIONS` in `src/app/(admin)/layout.tsx`)
@@ -86,6 +86,8 @@ Login routes: `/login` = member login (also default landing link from the public
 **Section: Engage**
 | Label | Href | Icon | Notes |
 |---|---|---|---|
+| Messages | `/dashboard/messages` | MessagesSquare | first Engage item; only when chat is configured; red live unread badge |
+| Feed | `/dashboard/feed` | Newspaper | Member Feed (Club feed + group pills); only when chat is configured. Notifications bell sits in the sidebar header (desktop) and the mobile top bar |
 | Inbox | `/dashboard/inbox` | Inbox | |
 | Enquiries | `/dashboard/enquiries` | Inbox | |
 | Reviews | `/dashboard/reviews` | Quote | |
@@ -180,6 +182,8 @@ All pages below are client components (`'use client'`) unless noted "server". Al
 | `/dashboard/communications/contracts/editor` | `.../communications/contracts/editor/page.tsx` | `ContractEditorPage` (`@/components/contracts/editor/ContractEditorPage`) | Contract document editor; `useSearchParams` in `Suspense`. Own `layout.tsx` at `.../contracts/editor/layout.tsx`. |
 | `/dashboard/finance` | `.../dashboard/finance/page.tsx` | `FinancePage` | Payments/invoices/finance overview. |
 | `/dashboard/commissions` | `.../dashboard/commissions/page.tsx` | `CommissionsPage` | Sales/referral commissions tracking. |
+| `/dashboard/messages` (`?tab=mine\|all\|reports\|team&c=<id>`) | `.../dashboard/messages/page.tsx` | `MessagesAdminPage` | Member chat. Tabs Mine / All chats (overseers, read-only unless a participant) / Reports (overseers; includes Feed post/comment reports) / Team access (owner). Owner: New group + Group settings. Group threads: **Chat \| Posts** (`&view=posts`). |
+| `/dashboard/feed` (`?group=<conversationId>&post=<id>`) | `.../dashboard/feed/page.tsx` | `FeedAdminPage` → `views/feed/FeedView` | Member Feed with moderation: Club feed or a group's posts (pills). Shows hidden posts greyed with "Hidden"; ⋯ Pin/Unpin, Hide/Unhide, Remove; comments Hide/Delete. |
 | `/dashboard/whatsapp` | `.../dashboard/whatsapp/page.tsx` | `WhatsAppInboxPage` | WhatsApp messaging inbox (integration). |
 | `/dashboard/automations` | `.../dashboard/automations/page.tsx` | `AutomationsPage` | Workflow automations configuration. |
 | `/dashboard/marketing` | `.../dashboard/marketing/page.tsx` | `MarketingPage` | Marketing campaigns overview. |
@@ -212,7 +216,7 @@ All pages below are client components (`'use client'`) unless noted "server". Al
 ## 4. `(portal)` route group — Member Portal (`/portal/*`)
 
 **Layout: `src/app/(portal)/layout.tsx`** (`'use client'`)
-- Provider stack: `AuthProvider` → `PortalLayoutInner`. (No `QueryProvider` here, unlike admin/staff.)
+- Provider stack: `AuthProvider` → `QueryProvider` → `ChatProvider` → `PortalLayoutInner` (+ `Toaster`). `ChatProvider` opens one chat socket per signed-in member (only when `NEXT_PUBLIC_CHAT_URL` is set) and drives the header Messages icon's red unread badge.
 - Fixed top header (night/editorial style matching public site: `NightHeader`-like chrome, graphite on scroll). Desktop nav shows: Dashboard, Events, Concierge, Rewards inline, plus a "Community" dropdown folding in Introductions and Network. Right side: theme toggle + user-menu pill (avatar, name) opening a dropdown with "View profile", "Billing", "Sign out". Mobile: fullscreen overlay nav with all items flattened plus Billing/Profile.
 - Sign-out redirects to `/login`.
 - Footer: copyright + "Held in confidence".
@@ -225,8 +229,10 @@ All pages below are client components (`'use client'`) unless noted "server". Al
 | Events | `/portal/events` | primary desktop bar |
 | Concierge | `/portal/concierge` | primary desktop bar |
 | Rewards | `/portal/rewards` | primary desktop bar |
+| Feed | `/portal/feed` | FIRST item in the "Community" dropdown + mobile overlay — "Updates, wins and photos from members." Only when chat is configured. Notifications bell (red count) in the header at every width |
 | Introductions | `/portal/introductions` | "Community" dropdown — "Your curated matches and suggestions." |
 | Network | `/portal/network` | "Community" dropdown — "Members across Manchester, Leeds and London." |
+| Messages | `/portal/messages` | "Community" dropdown + mobile overlay + chat icon (with red unread badge, 1…9+) in the header — only when chat is configured |
 | Billing | `/portal/billing` | user-menu dropdown + mobile overlay |
 | Profile | `/portal/profile` | user-menu dropdown + mobile overlay |
 
@@ -243,9 +249,11 @@ All are `'use client'`, rendering `views/portal/**` components.
 | `/portal/concierge` | `.../portal/concierge/page.tsx` | `PortalConciergePage` | Member submits/tracks concierge requests. |
 | `/portal/rewards` | `.../portal/rewards/page.tsx` | `PortalRewardsPage` | Member views/redeems partner rewards & benefits. |
 | `/portal/introductions` | `.../portal/introductions/page.tsx` | `PortalIntroductionsPage` | **This is where a member views and responds to introductions the admin has set up between them and another member** — accepts/declines curated matches and suggestions. |
-| `/portal/network` | `.../portal/network/page.tsx` | `PortalNetworkPage` | Browse the member directory/network across the club's locations (Manchester, Leeds, London). |
+| `/portal/network` | `.../portal/network/page.tsx` | `PortalNetworkPage` (+ `views/portal/network/*`) | The member directory. Segmented control **Members \| Wider network**: Members = active showcase members (profile modal; **Message** once an intro is accepted/completed, else Request introduction); Wider network = the club's non-member CRM contacts, name/company/role/sector only, infinite-scrolled, only action Request introduction (goes to Sarah). |
 | `/portal/billing` | `.../portal/billing/page.tsx` | `PortalBillingPage` | View/manage membership billing, invoices, payment method. |
 | `/portal/profile` | `.../portal/profile/page.tsx` | `PortalProfilePage` | Edit member's own profile details. |
+| `/portal/messages` (`?c=<conversationId>`) | `.../portal/messages/page.tsx` | `PortalMessagesPage` → `views/chat/MessagesView` | Member chat: DMs with introduced members and the Club team, groups, event chats. Light gold/ivory card inside the night portal shell. Group threads: **Chat \| Posts** (`&tab=posts`, `&post=<id>` opens a post). |
+| `/portal/feed` (`?post=<id>`) | `.../portal/feed/page.tsx` | `PortalFeedPage` → `views/feed/FeedView` | Member Feed: the Club-wide feed — post updates/photos, like, comment (one level of replies). `?post=` opens a post in a modal (notification links). |
 
 Note: to *initiate* an introduction between two people, the admin does this from `/dashboard/introductions` (create/manage flow in `IntroductionsListPage`/`IntroductionDetailPage`); the member-facing side to view/respond is `/portal/introductions`.
 

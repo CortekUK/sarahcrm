@@ -5,6 +5,14 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { AuthProvider, useAuth } from '@/providers/AuthProvider'
+import { QueryProvider } from '@/providers/QueryProvider'
+import { ChatProvider, useChat } from '@/lib/chat/ChatProvider'
+import { chatEnabled } from '@/lib/http/chat-client'
+import { ChatNavIcon, UnreadBadge } from '@/components/ui/chat'
+import { FeedRealtimeProvider } from '@/lib/feed/FeedRealtime'
+import { NotificationsBell } from '@/views/feed/NotificationsBell'
+import type { FeedLinks } from '@/lib/feed/types'
+import { Toaster } from '@/components/ui-shadcn/toaster'
 import { Avatar } from '@/components/ui/Avatar'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { cn } from '@/lib/utils'
@@ -17,10 +25,12 @@ import {
   CreditCard,
   BellRing,
   Gift,
+  MessageCircle,
   LogOut,
   Menu,
   X,
   ChevronDown,
+  Newspaper,
 } from 'lucide-react'
 
 // Member portal shell — night/editorial vocabulary matching the public
@@ -42,6 +52,17 @@ const NAV_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; end:
 ]
 
 const COMMUNITY_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; description: string }[] = [
+  // Member Feed (served by the chat service) — first in Community when configured.
+  ...(chatEnabled
+    ? [
+        {
+          to: '/portal/feed',
+          label: 'Feed',
+          icon: Newspaper,
+          description: 'Updates, wins and photos from members.',
+        },
+      ]
+    : []),
   {
     to: '/portal/introductions',
     label: 'Introductions',
@@ -54,7 +75,25 @@ const COMMUNITY_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard
     icon: Users,
     description: 'Members across Manchester, Leeds and London.',
   },
+  // Member chat — only listed when the chat service is configured.
+  ...(chatEnabled
+    ? [
+        {
+          to: '/portal/messages',
+          label: 'Messages',
+          icon: MessageCircle,
+          description: 'Private conversations with members and the Club team.',
+        },
+      ]
+    : []),
 ]
+
+// Notification deep links: main-feed posts open on /portal/feed, group posts
+// in that group's Posts tab inside Messages.
+const FEED_LINKS: FeedLinks = {
+  feed: '/portal/feed',
+  groupPost: (groupId, postId) => `/portal/messages?c=${groupId}&tab=posts&post=${postId}`,
+}
 
 // Mobile overlay — everything in one flat list since space allows it there.
 const MOBILE_NAV_ITEMS = [
@@ -66,6 +105,7 @@ const MOBILE_NAV_ITEMS = [
 
 function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const { signOut, profile } = useAuth()
+  const { totalUnread } = useChat()
   const router = useRouter()
   const pathname = usePathname()
   const [scrolled, setScrolled] = useState(false)
@@ -141,7 +181,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-ink text-ivory flex flex-col">
+    <div className="min-h-dvh bg-ink text-ivory flex flex-col">
       {/* ── Header ────────────────────────────────────────────────── */}
       <header
         className={cn(
@@ -301,6 +341,9 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                                   )}
                                 >
                                   {item.label}
+                                  {item.to === '/portal/messages' && (
+                                    <UnreadBadge count={totalUnread} className="ml-2 align-middle" />
+                                  )}
                                 </p>
                                 <p className="mt-1 font-[family-name:var(--font-editorial)] italic text-[12px] text-ivory/60 leading-snug">
                                   {item.description}
@@ -323,6 +366,19 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
               only logout we had before was too easy to miss; folding
               it into a labelled dropdown makes the flow discoverable. */}
           <div className="flex items-center gap-2.5 shrink-0">
+            <NotificationsBell
+              links={FEED_LINKS}
+              iconClassName="text-ivory/75 hover:text-bronze-light"
+            />
+            <ChatNavIcon
+              href="/portal/messages"
+              className={cn(
+                'p-2 transition-colors',
+                pathname.startsWith('/portal/messages')
+                  ? 'text-bronze-light'
+                  : 'text-ivory/75 hover:text-bronze-light',
+              )}
+            />
             <ThemeToggle variant="icon" className="hidden lg:inline-flex" />
 
             <div ref={userMenuRef} className="hidden lg:block relative">
@@ -458,6 +514,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
               >
                 <item.icon size={18} strokeWidth={1.5} className="opacity-70" />
                 {item.label}
+                {item.to === '/portal/messages' && <UnreadBadge count={totalUnread} />}
                 {active && (
                   <span
                     aria-hidden
@@ -508,6 +565,8 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
       <main className="flex-1 pt-[72px]">{children}</main>
 
       {/* ── Footer ────────────────────────────────────────────────── */}
+      {/* Hidden on Messages — that page is a full-height app surface. */}
+      {!pathname.startsWith('/portal/messages') && (
       <footer className="border-t border-graphite-line/60 bg-ink">
         <div className="max-w-[1600px] mx-auto px-6 lg:px-10 py-7 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze">
@@ -518,6 +577,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
           </p>
         </div>
       </footer>
+      )}
     </div>
   )
 }
@@ -529,7 +589,16 @@ export default function PortalGroupLayout({
 }) {
   return (
     <AuthProvider>
-      <PortalLayoutInner>{children}</PortalLayoutInner>
+      {/* QueryProvider + ChatProvider: one chat socket per signed-in member,
+          powering the header unread badge and /portal/messages. */}
+      <QueryProvider>
+        <ChatProvider>
+          <FeedRealtimeProvider>
+            <PortalLayoutInner>{children}</PortalLayoutInner>
+            <Toaster />
+          </FeedRealtimeProvider>
+        </ChatProvider>
+      </QueryProvider>
     </AuthProvider>
   )
 }

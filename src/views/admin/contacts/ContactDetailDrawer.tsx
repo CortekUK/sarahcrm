@@ -9,8 +9,9 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Badge } from '@/components/ui/Badge'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
+import { apiClient, getApiErrorMessage } from '@/lib/http'
 import { SECTOR_KEYS, SECTOR_LABELS } from '@/lib/contacts/sectors'
-import { ExternalLink, Trash2, Save } from 'lucide-react'
+import { ExternalLink, Trash2, Save, EyeOff } from 'lucide-react'
 
 // One contact's full record. Read-only Clay enrichment on the left, the
 // hand-editable fields on the right.
@@ -40,6 +41,8 @@ export interface Contact {
   source: string | null
   notes: string | null
   created_at: string
+  // Absent until the 20261022 directory migration is applied.
+  directory_hidden?: boolean
 }
 
 interface Props {
@@ -81,10 +84,46 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
   const [form, setForm] = useState<FormState | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Member-directory visibility, saved on toggle (independent of the form).
+  const [hidden, setHidden] = useState<boolean | null>(null)
+  const [hiding, setHiding] = useState(false)
 
   useEffect(() => {
     setForm(contact ? toForm(contact) : null)
+    setHidden(null)
+    if (!contact) return
+    // The list payload doesn't carry the flag, so read it from the record.
+    let cancelled = false
+    apiClient
+      .get<{ contact: { directory_hidden?: boolean } }>(`/api/admin/contacts/${contact.id}`)
+      .then(({ data }) => {
+        if (!cancelled && typeof data.contact.directory_hidden === 'boolean') {
+          setHidden(data.contact.directory_hidden)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [contact])
+
+  async function toggleHidden(next: boolean) {
+    if (!contact) return
+    setHiding(true)
+    try {
+      await apiClient.patch(`/api/admin/contacts/${contact.id}`, { directory_hidden: next })
+      setHidden(next)
+      toast({ title: next ? 'Hidden from the member directory' : 'Shown in the member directory' })
+    } catch (e) {
+      toast({
+        title: 'Could not update',
+        description: getApiErrorMessage(e, 'Please try again.'),
+        variant: 'destructive',
+      })
+    } finally {
+      setHiding(false)
+    }
+  }
 
   if (!contact || !form) return null
 
@@ -176,6 +215,29 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
             Used to match this contact on re-import, so it can&apos;t be edited here.
           </p>
         </div>
+
+        {/* Member directory visibility */}
+        {hidden !== null && !contact.is_member_flag && (
+          <label className="flex items-start gap-3 rounded-[var(--radius-md)] border border-border bg-surface-2 px-3.5 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-[var(--color-gold)]"
+              checked={hidden}
+              disabled={hiding}
+              onChange={(e) => toggleHidden(e.target.checked)}
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-sm text-text">
+                <EyeOff size={13} className="text-text-muted" />
+                Hide from member directory
+              </span>
+              <span className="block text-xs text-text-dim mt-0.5">
+                Members browsing the Wider network see only name, company, role and sector.
+                Tick to keep this contact out of it entirely.
+              </span>
+            </span>
+          </label>
+        )}
 
         {/* Editable */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

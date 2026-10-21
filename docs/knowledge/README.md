@@ -18,7 +18,7 @@ It is **documentation, not code**. Nothing here is imported at build time.
 | `04-business-logic.md` | ~117 KB | Every file in `src/lib/`: scoring formulas, AI prompts, the automation trigger catalogue, hardcoded business rules |
 | `05-screens-and-components.md` | ~121 KB | Every admin/portal/staff screen and **every button on it**, plus the component catalogue and theming |
 | `06-integrations-and-config.md` | ~41 KB | OpenAI, Stripe, Resend, Google, Xero, DocuSign, WhatsApp; env vars, crons, webhooks, scripts, deploy |
-| `07-workflows-and-faq.md` | ~85 KB | 22 numbered step-by-step playbooks + a 58-question FAQ |
+| `07-workflows-and-faq.md` | ~85 KB | 24 numbered step-by-step playbooks + a 67-question FAQ |
 
 Total ≈ 555 KB ≈ 140k tokens.
 

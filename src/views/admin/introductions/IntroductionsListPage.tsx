@@ -18,6 +18,9 @@ import { formatDate, formatCurrency } from '@/lib/utils'
 import { Plus, Search, Inbox, Sparkles, TrendingUp } from 'lucide-react'
 import { CreateIntroductionModal } from './CreateIntroductionModal'
 import { IntroComposeModal, type ComposeMember } from './IntroComposeModal'
+import { ContactIntroRequestsPanel } from './ContactIntroRequestsPanel'
+import { IntroHistoryBadge, useIntroHistory } from './IntroHistoryBadge'
+import { useQueryClient } from '@tanstack/react-query'
 import { Modal } from '@/components/ui/Modal'
 import { StatCard } from '@/components/ui/StatCard'
 import { toast } from '@/lib/hooks/use-toast'
@@ -129,6 +132,12 @@ export function IntroductionsListPage() {
   const requests = useMemo(
     () => intros.filter((i) => i.status === 'suggested' && i.requested_by),
     [intros],
+  )
+
+  // How many introductions each requesting member has had (one batched call).
+  const qc = useQueryClient()
+  const requestHistory = useIntroHistory(
+    requests.map((i) => i.requested_by ?? '').filter(Boolean),
   )
 
   // AI-generated suggestions awaiting review (no requester = engine-created).
@@ -315,6 +324,7 @@ export function IntroductionsListPage() {
     if (!error && data) {
       setIntros(data as unknown as IntroRow[])
     }
+    qc.invalidateQueries({ queryKey: ['admin', 'intro-history'] })
     setLoading(false)
   }
 
@@ -487,6 +497,13 @@ export function IntroductionsListPage() {
                         <span className="text-text-dim">Desired outcome:</span> {intro.desired_outcome}
                       </p>
                     )}
+                    {intro.requested_by && (
+                      <IntroHistoryBadge
+                        className="mt-1.5"
+                        name={reqName}
+                        history={requestHistory.data?.[intro.requested_by]}
+                      />
+                    )}
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <Button
@@ -507,6 +524,9 @@ export function IntroductionsListPage() {
           </div>
         </div>
       )}
+
+      {/* Wider-network requests (member → CRM contact, from the portal directory) */}
+      <ContactIntroRequestsPanel />
 
       {/* AI suggestions inbox */}
       {aiSuggestions.length > 0 && (

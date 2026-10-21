@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { Avatar } from '@/components/ui/Avatar'
 import { formatDate } from '@/lib/utils'
-import { Handshake } from 'lucide-react'
+import { Handshake, MessageCircle } from 'lucide-react'
 import {
   PortalBadge,
   PortalButton,
@@ -16,6 +17,9 @@ import {
   type PortalBadgeVariant,
 } from '@/components/portal/PortalChrome'
 import { toast } from '@/lib/hooks/use-toast'
+import { useChat } from '@/lib/chat/ChatProvider'
+import { useCreateDm } from '@/lib/chat/hooks'
+import { getApiErrorMessage } from '@/lib/http/chat-client'
 import type { Database } from '@/types/database'
 
 type IntroStatus = Database['public']['Enums']['intro_status']
@@ -29,6 +33,8 @@ interface IntroRow {
   outcome: string | null
   created_at: string
   other_member_id: string
+  /** profiles.id behind the other member — what chat DMs are keyed on */
+  other_profile_id: string | null
   mineRequest: boolean
   mySent: boolean
   myResponse: IntroResponse
@@ -69,6 +75,9 @@ const statusLabels: Record<IntroStatus, string> = {
 
 export function PortalIntroductionsPage() {
   const { user } = useAuth()
+  const router = useRouter()
+  const { enabled: chatOn } = useChat()
+  const createDm = useCreateDm()
   const [intros, setIntros] = useState<IntroRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'requested' | 'active' | 'past'>('all')
@@ -107,14 +116,14 @@ export function PortalIntroductionsPage() {
       supabase
         .from('introductions')
         .select(
-          'id, status, match_score, match_reason, outcome, created_at, requested_by, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, member_b_id, members!introductions_member_b_id_fkey(profiles(first_name, last_name, company_name, avatar_url, job_title))',
+          'id, status, match_score, match_reason, outcome, created_at, requested_by, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, member_b_id, members!introductions_member_b_id_fkey(profile_id, profiles(first_name, last_name, company_name, avatar_url, job_title))',
         )
         .eq('member_a_id', memberId)
         .order('created_at', { ascending: false }),
       supabase
         .from('introductions')
         .select(
-          'id, status, match_score, match_reason, outcome, created_at, requested_by, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, member_a_id, members!introductions_member_a_id_fkey(profiles(first_name, last_name, company_name, avatar_url, job_title))',
+          'id, status, match_score, match_reason, outcome, created_at, requested_by, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, member_a_id, members!introductions_member_a_id_fkey(profile_id, profiles(first_name, last_name, company_name, avatar_url, job_title))',
         )
         .eq('member_b_id', memberId)
         .order('created_at', { ascending: false }),
@@ -125,7 +134,7 @@ export function PortalIntroductionsPage() {
 
     for (const row of (introsARes.data ?? []) as unknown as Array<Record<string, unknown>>) {
       const m = row.members as
-        | { profiles: { first_name: string | null; last_name: string | null; company_name: string | null; avatar_url: string | null; job_title: string | null } }
+        | { profile_id: string | null; profiles: { first_name: string | null; last_name: string | null; company_name: string | null; avatar_url: string | null; job_title: string | null } }
         | undefined
       const otherId = row.member_b_id as string
       otherMemberIds.push(otherId)
@@ -137,6 +146,7 @@ export function PortalIntroductionsPage() {
         outcome: row.outcome as string | null,
         created_at: row.created_at as string,
         other_member_id: otherId,
+        other_profile_id: m?.profile_id ?? null,
         mineRequest: (row.requested_by as string | null) === memberId,
         mySent: Boolean(row.email_a_sent_at),
         myResponse: (row.member_a_response as IntroResponse) ?? 'pending',
@@ -149,7 +159,7 @@ export function PortalIntroductionsPage() {
     }
     for (const row of (introsBRes.data ?? []) as unknown as Array<Record<string, unknown>>) {
       const m = row.members as
-        | { profiles: { first_name: string | null; last_name: string | null; company_name: string | null; avatar_url: string | null; job_title: string | null } }
+        | { profile_id: string | null; profiles: { first_name: string | null; last_name: string | null; company_name: string | null; avatar_url: string | null; job_title: string | null } }
         | undefined
       const otherId = row.member_a_id as string
       otherMemberIds.push(otherId)
@@ -161,6 +171,7 @@ export function PortalIntroductionsPage() {
         outcome: row.outcome as string | null,
         created_at: row.created_at as string,
         other_member_id: otherId,
+        other_profile_id: m?.profile_id ?? null,
         mineRequest: (row.requested_by as string | null) === memberId,
         mySent: Boolean(row.email_b_sent_at),
         myResponse: (row.member_b_response as IntroResponse) ?? 'pending',
@@ -211,6 +222,21 @@ export function PortalIntroductionsPage() {
     () => intros.filter((i) => i.mySent && !['completed', 'declined'].includes(i.status)),
     [intros],
   )
+
+  // Accepted/completed introductions can continue in Messages.
+  async function openChat(intro: IntroRow) {
+    if (!intro.other_profile_id) return
+    try {
+      const d = await createDm.mutateAsync(intro.other_profile_id)
+      router.push(`/portal/messages?c=${d.id}`)
+    } catch (e) {
+      toast({
+        title: 'Couldn’t open the conversation',
+        description: getApiErrorMessage(e, 'Please try again.'),
+        variant: 'destructive',
+      })
+    }
+  }
 
   if (loading) {
     return (
@@ -390,10 +416,24 @@ export function PortalIntroductionsPage() {
               </div>
             )}
 
-            {/* Date */}
-            <p className="mt-4 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-dim">
-              {formatDate(intro.created_at)}
-            </p>
+            {/* Date + Message (accepted / completed only) */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-dim">
+                {formatDate(intro.created_at)}
+              </p>
+              {chatOn && intro.other_profile_id && (intro.status === 'accepted' || intro.status === 'completed') && (
+                <PortalButton
+                  size="sm"
+                  variant="secondary"
+                  loading={createDm.isPending && createDm.variables === intro.other_profile_id}
+                  disabled={createDm.isPending}
+                  onClick={() => openChat(intro)}
+                  icon={<MessageCircle size={13} strokeWidth={1.6} />}
+                >
+                  Message {intro.other.first_name || ''}
+                </PortalButton>
+              )}
+            </div>
           </div>
         </div>
       </PortalCard>

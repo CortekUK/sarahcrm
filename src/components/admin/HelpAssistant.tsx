@@ -13,6 +13,7 @@
 // toggle like the rest of the dashboard.
 
 import { useCallback, useEffect, useRef, useState, Fragment } from 'react'
+import { usePathname } from 'next/navigation'
 import { LifeBuoy, ChevronDown, ArrowUp, RotateCcw, Archive } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -81,6 +82,12 @@ function MessageBody({ content }: { content: string }) {
 
 export function HelpAssistant() {
   const [open, setOpen] = useState(false)
+  // On Messages the launcher must never cover the composer: hidden on small
+  // screens, and lifted above the docked composer (its live height is
+  // published as --chat-composer-h by the Composer) on larger ones.
+  // Full-height chat-style surfaces (Messages, Feed): hide the launcher on
+  // phones/tablets and lift it above the docked composer on desktop.
+  const onMessages = /^\/dashboard\/(messages|feed)(\/|$)/.test(usePathname() ?? '')
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: GREETING },
   ])
@@ -220,7 +227,11 @@ export function HelpAssistant() {
           onClick={() => setOpen(true)}
           aria-label="Open the help assistant"
           title="Help (⌘/)"
-          className="group fixed bottom-5 right-5 z-40 flex items-center gap-2.5 rounded-full border border-[var(--color-bronze)]/45 bg-[var(--color-graphite)]/90 backdrop-blur-md pl-3.5 pr-4 py-2.5 shadow-[var(--shadow-lg)] transition-colors hover:border-[var(--color-bronze)]/70 hover:bg-[var(--color-graphite)]"
+          style={onMessages ? { bottom: 'calc(var(--chat-composer-h, -44px) + 64px)' } : undefined}
+          className={cn(
+            'group fixed bottom-5 right-5 z-40 flex items-center gap-2.5 rounded-full border border-[var(--color-bronze)]/45 bg-[var(--color-graphite)]/90 backdrop-blur-md pl-3.5 pr-4 py-2.5 shadow-[var(--shadow-lg)] transition-colors hover:border-[var(--color-bronze)]/70 hover:bg-[var(--color-graphite)]',
+            onMessages && 'max-md:hidden',
+          )}
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-bronze)]/40 bg-[var(--color-bronze)]/15">
             <LifeBuoy size={15} strokeWidth={1.6} className="text-[var(--color-gold)]" />
