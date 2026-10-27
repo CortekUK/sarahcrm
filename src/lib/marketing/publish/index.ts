@@ -21,7 +21,8 @@ import { isBlogChannel } from '@/lib/marketing/channels'
 
 export * from './types'
 export { MockPublisher } from './mock'
-export { MetricoolPublisher } from './metricool'
+export { MetricoolPublisher, withdrawMetricoolPost } from './metricool'
+export * from './schedule'
 export { BlogPublisher, unpublishBlogPost } from './blog'
 
 const mock = new MockPublisher()

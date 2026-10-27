@@ -36,10 +36,13 @@ export interface PublishableAsset {
   // When the piece should go out (marketing_assets.scheduled_at). Metricool
   // uses it as the publication time if it's in the future.
   scheduled_at?: string | null
-  // Free-form per-asset publish hints. MetricoolPublisher reads two optional
+  // Free-form per-asset publish hints. MetricoolPublisher reads these optional
   // keys from it (there are no dedicated columns yet):
   //   video_url  — public video URL, REQUIRED for instagram_reel; for tiktok
   //                it makes the post a TikTok VIDEO (else a photo post);
+  //   video_meta — {duration_s,width,height,size_bytes} read in the browser
+  //                (reels; display/warnings only, never sent);
+  //   cover_url  — optional reel cover (9:16 JPEG) → videoThumbnailUrl;
   //   media_urls — extra public image URLs for instagram_carousel, and for a
   //                tiktok photo post (graphic + these → photo carousel).
   publish_target?: Record<string, unknown> | null

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   addMonths,
   eachDayOfInterval,
@@ -17,6 +18,7 @@ import {
 } from 'date-fns'
 import { Calendar, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { SelectMenu } from './SelectMenu'
 
 // Brand-styled date + time picker — a replacement for native
 // <input type="datetime-local">, whose popup is unstyleable browser
@@ -60,10 +62,24 @@ export function DateTimeField({
   const fmt = dateOnly ? DATE_FORMAT : VALUE_FORMAT
   const ph = placeholder ?? (dateOnly ? 'Select date' : 'Select date & time')
   const minDay = useMemo(() => (min ? startOfDay(min) : null), [min])
+  // Datetime mode: the earliest selectable moment, rounded UP to the 5-minute
+  // grid — nothing before it can be picked (past days, hours or minutes).
+  const minTime = useMemo(() => {
+    if (!min || dateOnly) return null
+    const d = new Date(min)
+    d.setSeconds(0, 0)
+    const rem = d.getMinutes() % 5
+    if (rem) d.setMinutes(d.getMinutes() + (5 - rem))
+    return d
+  }, [min, dateOnly])
   const selected = useMemo(() => parseValue(value, fmt), [value, fmt])
   const [open, setOpen] = useState(false)
-  // Flip the popover above the field when there isn't room below it.
-  const [dropUp, setDropUp] = useState(false)
+  // The calendar renders in a portal with fixed positioning so a scrolling
+  // parent (e.g. a Modal body) can't clip it; flips above the field when
+  // there isn't room below and stays inside the viewport horizontally.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   // The month currently shown in the calendar grid.
   const [viewMonth, setViewMonth] = useState<Date>(selected ?? new Date())
   const ref = useRef<HTMLDivElement>(null)
@@ -77,7 +93,11 @@ export function DateTimeField({
   useEffect(() => {
     if (!open) return
     function onDoc(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (ref.current?.contains(t) || popRef.current?.contains(t)) return
+      // The hour/minute SelectMenu lists render in their own portal.
+      if (t instanceof Element && t.closest('[data-radix-popper-content-wrapper]')) return
+      setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
@@ -90,12 +110,54 @@ export function DateTimeField({
     }
   }, [open])
 
+  // Place the portal popover against the trigger; re-place on scroll/resize.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null)
+      return
+    }
+    function place() {
+      const trigger = triggerRef.current
+      const pop = popRef.current
+      if (!trigger) return
+      const r = trigger.getBoundingClientRect()
+      const ph = pop?.offsetHeight ?? 380
+      const pw = pop?.offsetWidth ?? 300
+      const gap = 8
+      const below = window.innerHeight - r.bottom
+      const top =
+        below >= ph + gap || r.top < ph + gap
+          ? Math.min(r.bottom + gap, Math.max(gap, window.innerHeight - ph - gap))
+          : r.top - ph - gap
+      const left = Math.min(Math.max(gap, r.left), Math.max(gap, window.innerWidth - pw - gap))
+      setPos({ top, left })
+    }
+    place()
+    // Second pass once the popover has its real size.
+    const raf = requestAnimationFrame(place)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
+
   const hour = selected ? selected.getHours() : 9
   const minute = selected ? Math.round(selected.getMinutes() / 5) * 5 : 0
 
   function emit(next: Date) {
-    onChange(format(next, fmt))
+    // Never emit a time before the minimum — snap to the earliest allowed.
+    const safe = minTime && next < minTime ? minTime : next
+    onChange(format(safe, fmt))
   }
+
+  // On the minimum's day, hours/minutes before it are disabled.
+  const onMinDay = !!(minTime && selected && isSameDay(selected, minTime))
+  const hourDisabled = (h: number) => onMinDay && h < minTime!.getHours()
+  const minuteDisabled = (h: number, m: number) =>
+    onMinDay && (h < minTime!.getHours() || (h === minTime!.getHours() && m < minTime!.getMinutes()))
 
   function pickDay(day: Date) {
     if (minDay && isBefore(startOfDay(day), minDay)) return
@@ -133,16 +195,10 @@ export function DateTimeField({
         </label>
       )}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
-          setOpen((v) => {
-            if (!v && ref.current) {
-              const rect = ref.current.getBoundingClientRect()
-              // ~360px popover; open upward if not enough space below.
-              setDropUp(window.innerHeight - rect.bottom < 360)
-            }
-            return !v
-          })
+          setOpen((v) => !v)
         }}
         className={cn(
           'w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-surface text-sm rounded-[var(--radius-md)] border text-left transition-colors',
@@ -173,13 +229,16 @@ export function DateTimeField({
       {hint && !error && <p className="mt-1 text-xs text-text-dim">{hint}</p>}
       {error && <p className="mt-1 text-xs text-accent-warm">{error}</p>}
 
-      {open && (
+      {open && typeof document !== 'undefined' && createPortal(
         <div
-          className={cn(
-            'absolute z-50 w-[300px] rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-lg)] p-3.5',
-            dropUp ? 'bottom-full mb-2' : 'top-full mt-2',
-          )}
-          style={{ background: 'var(--color-surface)' }}
+          ref={popRef}
+          className="fixed z-[60] w-[300px] max-w-[calc(100vw-16px)] rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-lg)] p-3.5"
+          style={{
+            background: 'var(--color-surface)',
+            top: pos?.top ?? -9999,
+            left: pos?.left ?? -9999,
+            visibility: pos ? 'visible' : 'hidden',
+          }}
         >
           {/* Month header */}
           <div className="flex items-center justify-between mb-3">
@@ -247,33 +306,37 @@ export function DateTimeField({
             })}
           </div>
 
-          {/* Time row */}
+          {/* Time row — branded SelectMenu popups (no native <select>). */}
           {!dateOnly && (
           <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
             <Clock size={14} className="text-gold shrink-0" />
-            <select
-              value={hour}
-              onChange={(e) => setTime(Number(e.target.value), minute)}
-              className="flex-1 px-2 py-1.5 bg-surface text-sm rounded-[var(--radius-md)] border border-border focus:border-gold focus:outline-none"
-            >
-              {HOURS.map((h) => (
-                <option key={h} value={h}>
-                  {String(h).padStart(2, '0')}
-                </option>
-              ))}
-            </select>
+            <div className="flex-1 min-w-0">
+            <SelectMenu
+              size="sm"
+              ariaLabel="Hour"
+              value={String(hour)}
+              onValueChange={(v) => setTime(Number(v), minute)}
+              options={HOURS.map((h) => ({
+                value: String(h),
+                label: String(h).padStart(2, '0'),
+                disabled: hourDisabled(h),
+              }))}
+            />
+            </div>
             <span className="text-text-dim">:</span>
-            <select
-              value={minute}
-              onChange={(e) => setTime(hour, Number(e.target.value))}
-              className="flex-1 px-2 py-1.5 bg-surface text-sm rounded-[var(--radius-md)] border border-border focus:border-gold focus:outline-none"
-            >
-              {MINUTES.map((m) => (
-                <option key={m} value={m}>
-                  {String(m).padStart(2, '0')}
-                </option>
-              ))}
-            </select>
+            <div className="flex-1 min-w-0">
+            <SelectMenu
+              size="sm"
+              ariaLabel="Minute"
+              value={String(minute)}
+              onValueChange={(v) => setTime(hour, Number(v))}
+              options={MINUTES.map((m) => ({
+                value: String(m),
+                label: String(m).padStart(2, '0'),
+                disabled: minuteDisabled(hour, m),
+              }))}
+            />
+            </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -283,7 +346,10 @@ export function DateTimeField({
             </button>
           </div>
           )}
-        </div>
+        </div>,
+        // Portal into the nearest theme root (admin night/day, chat) so the
+        // calendar keeps the page's colours; fall back to <body>.
+        ref.current?.closest<HTMLElement>('.theme-night-admin, .chat-theme') ?? document.body,
       )}
     </div>
   )

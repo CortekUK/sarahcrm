@@ -280,7 +280,8 @@ const FLAT_NAV: NavItem[] = NAV_SECTIONS.flatMap((section) =>
         ]
       : [{ to: item.to, label: item.label, icon: item.icon }],
   ),
-)
+  // A group's own link can repeat its first child's (e.g. Marketing) — keep one.
+).filter((item, i, all) => all.findIndex((o) => o.to === item.to) === i)
 
 function NavLink({
   to,

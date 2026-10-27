@@ -11,14 +11,28 @@
 //   2. Collect the media: graphic_url (the rendered PNG's PUBLIC bucket URL),
 //      plus publish_target.media_urls for a carousel, or publish_target.video_url
 //      for a reel. Each URL goes through Metricool's normalize call; if any
-//      normalize fails we stop (no broken, imageless post). Instagram always
-//      needs media; a reel always needs a video (we never post an image as a reel).
+//      normalize fails we stop (no broken, imageless post).
+//      An Instagram carousel may MIX images and videos (slide order = media
+//      order; slide 1 = graphic_url may itself be a video). Videos go through
+//      the SAME normalize endpoint as images (Metricool's only media-import
+//      call), with a longer timeout; Metricool tells photo from video by the
+//      file itself, so `media` stays a plain list of URLs. Verified with a
+//      real draft: a PNG + MP4 carousel was accepted and read back with both
+//      items. Instagram always
+//      needs media; a reel always needs a video (we never post an image as a reel —
+//      an old reel draft's graphic_url is ignored). A reel may carry an optional
+//      cover image (publish_target.cover_url, a 9:16 JPEG made by the approval
+//      queue): it is normalized like any image and sent as the top-level
+//      `videoThumbnailUrl` (Metricool swagger ScheduledPost; the planner's
+//      "upload cover" option). Reels also send instagramData.showReelOnFeed: true
+//      (the planner's "Show Reel on Feed" toggle).
 //      LinkedIn and Facebook allow text-only posts, so their media is optional.
 //      TikTok: with publish_target.video_url it is a VIDEO post (the video
 //      only); otherwise a PHOTO post — graphic_url + publish_target.media_urls
 //      (1–35 images; several = a photo carousel). TikTok always needs media.
-//   3. publicationDate = scheduled_at when it's in the future, else now + 10
-//      minutes, as wall-clock time in METRICOOL_TIMEZONE.
+//   3. publicationDate = scheduled_at when it's in the future, else now, as
+//      wall-clock time in METRICOOL_TIMEZONE. (The admin sets scheduled_at from
+//      the card's Schedule panel — see ./schedule.ts.)
 //   4. POST the planner post (body built in buildMetricoolPostBody).
 //
 // SAFETY — METRICOOL_MODE (read per request):
@@ -34,8 +48,12 @@
 // that is safe to show (no token, no axios config).
 
 import type { MarketingChannel, Publisher, PublishableAsset, PublishResult } from './types'
+import { hasCarouselVideoExtension } from '@/lib/marketing/graphics/carousel'
+import { metricoolPostState } from './schedule'
 import {
   createPost,
+  deletePost,
+  getPost,
   getMetricoolMode,
   getMetricoolTimezone,
   normalizeMedia,
@@ -47,7 +65,6 @@ import {
 const PUBLISH_BUDGET_MS = 50_000
 // Without a future scheduled_at the post is set this far ahead — gives
 // Metricool time to process the media and the team a window to check it.
-const DEFAULT_LEAD_MS = 10 * 60_000
 // Instagram carousels allow up to 10 items.
 const MAX_CAROUSEL_ITEMS = 10
 // TikTok photo posts allow up to 35 images.
@@ -101,13 +118,14 @@ export function toWallClock(date: Date, timeZone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`
 }
 
-// Future scheduled_at → that instant; otherwise now + 10 minutes.
+// Future scheduled_at → that instant; otherwise NOW — approving = publish
+// immediately (Metricool accepts the current minute and publishes it at once).
 export function pickPublicationInstant(scheduledAt: string | null | undefined, now: Date): Date {
   if (scheduledAt) {
     const t = new Date(scheduledAt)
     if (!Number.isNaN(t.getTime()) && t.getTime() > now.getTime()) return t
   }
-  return new Date(now.getTime() + DEFAULT_LEAD_MS)
+  return now
 }
 
 // ── Post body ───────────────────────────────────────────────────────────────
@@ -142,6 +160,8 @@ export interface MetricoolPostInput {
   publication: { dateTime: string; timezone: string }
   creation: { dateTime: string; timezone: string }
   mode: MetricoolMode
+  /** Reel cover image (normalized URL) → Metricool `videoThumbnailUrl`. */
+  videoThumbnailUrl?: string | null
 }
 
 export function buildMetricoolPostBody(input: MetricoolPostInput): Record<string, unknown> {
@@ -160,7 +180,11 @@ export function buildMetricoolPostBody(input: MetricoolPostInput): Record<string
     hasNotReadNotes: false,
   }
   if (input.network === 'instagram') {
-    body.instagramData = { type: input.kind === 'reel' ? 'REEL' : 'POST', autoPublish: !draft }
+    body.instagramData =
+      input.kind === 'reel'
+        ? { type: 'REEL', autoPublish: !draft, showReelOnFeed: true }
+        : { type: 'POST', autoPublish: !draft }
+    if (input.kind === 'reel' && input.videoThumbnailUrl) body.videoThumbnailUrl = input.videoThumbnailUrl
   } else if (input.network === 'linkedin') {
     body.linkedinData = { type: 'POST' }
   } else if (input.network === 'facebook') {
@@ -206,9 +230,26 @@ function sourceMedia(
     return { ok: true, urls: [video] }
   }
   if (kind === 'carousel') {
+    // Slide order = media order: graphic_url (slide 1) then media_urls
+    // (slides 2..n). Exact duplicate URLs are dropped; the approval queue
+    // gives every slide its own render/copy URL so none collapse.
     const urls = [...(graphic ? [graphic] : []), ...stringList(hints.media_urls)]
     const max = network === 'tiktok' ? MAX_TIKTOK_PHOTOS : MAX_CAROUSEL_ITEMS
-    return { ok: true, urls: Array.from(new Set(urls)).slice(0, max) }
+    const unique = Array.from(new Set(urls))
+    if (network === 'instagram' && unique.length > max) {
+      return {
+        ok: false,
+        error: `Instagram carousels allow at most ${max} slides (this one has ${unique.length}). Remove some slides — nothing was sent to Metricool.`,
+      }
+    }
+    if (network === 'instagram' && unique.length === 1) {
+      return {
+        ok: false,
+        error:
+          'An Instagram carousel needs at least 2 slides — render more slides first. Nothing was sent to Metricool.',
+      }
+    }
+    return { ok: true, urls: unique.slice(0, max) }
   }
   return { ok: true, urls: graphic ? [graphic] : [] }
 }
@@ -252,15 +293,33 @@ export class MetricoolPublisher implements Publisher {
 
     // Normalize every media URL; any failure stops the publish.
     const media: string[] = []
-    for (const url of source.urls) {
-      const res = await normalizeMedia(url, deadline)
+    for (const [i, url] of source.urls.entries()) {
+      const isVideo = kind === 'reel' || kind === 'video' || hasCarouselVideoExtension(url)
+      const res = await normalizeMedia(url, deadline, { video: isVideo })
       if (!res.ok) {
+        const what = isVideo ? 'video' : 'graphic'
+        const which = source.urls.length > 1 ? ` (slide ${i + 1})` : ''
         return {
           ok: false,
-          error: `Metricool could not import the ${kind === 'reel' || kind === 'video' ? 'video' : 'graphic'}, so nothing was posted. ${res.message}`,
+          error: `Metricool could not import the ${what}${which}, so nothing was posted. ${res.message}`,
         }
       }
       media.push(res.data)
+    }
+
+    // Reel cover (optional) — imported like any image; a failed import stops
+    // the publish so the reel never goes out with a cover nobody chose.
+    let videoThumbnailUrl: string | null = null
+    const cover = kind === 'reel' ? stringOrNull((asset.publish_target ?? {}).cover_url) : null
+    if (cover) {
+      const res = await normalizeMedia(cover, deadline)
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: `Metricool could not import the reel cover, so nothing was posted. ${res.message} Remove the cover (the reel then uses its first frame) or try again.`,
+        }
+      }
+      videoThumbnailUrl = res.data
     }
 
     const now = new Date()
@@ -274,6 +333,7 @@ export class MetricoolPublisher implements Publisher {
       publication: publicationDate,
       creation: { dateTime: toWallClock(now, timezone), timezone },
       mode,
+      videoThumbnailUrl,
     })
 
     const created = await createPost(body, deadline)
@@ -313,8 +373,46 @@ export class MetricoolPublisher implements Publisher {
         // Keep the per-asset hints so a re-send still has them.
         ...(stringOrNull(hints.video_url) ? { video_url: stringOrNull(hints.video_url) } : {}),
         ...(stringList(hints.media_urls).length ? { media_urls: stringList(hints.media_urls) } : {}),
+        ...(hints.video_meta && typeof hints.video_meta === 'object' ? { video_meta: hints.video_meta } : {}),
+        ...(stringOrNull(hints.cover_url) ? { cover_url: stringOrNull(hints.cover_url) } : {}),
         raw: created.data.raw,
       },
     }
   }
+}
+
+// ── Withdraw (unschedule / before a re-send) ────────────────────────────────
+// Removes a still-pending Metricool planner post so a re-send can never leave
+// two scheduled copies. Never deletes a post that is (or may be) published.
+//   'deleted'   → it was pending and is now gone from Metricool;
+//   'gone'      → it no longer existed (deleted in the planner already);
+//   'published' → it is published / publishing — left untouched.
+// { ok:false } = we could not confirm the state or the delete failed — the
+// caller must NOT create another post.
+export type WithdrawOutcome =
+  | { ok: true; result: 'deleted' | 'gone' | 'published'; providerStatuses: string[] }
+  | { ok: false; error: string }
+
+export async function withdrawMetricoolPost(postId: string, publishAtIso: string | null): Promise<WithdrawOutcome> {
+  const deadline = Date.now() + PUBLISH_BUDGET_MS
+  const read = await getPost(postId, deadline)
+  if (!read.ok) {
+    return { ok: false, error: `Could not check the post on Metricool: ${read.message}` }
+  }
+  const snapshot = read.data.found ? read.data.post : null
+  const statuses = snapshot?.providerStatuses ?? []
+  const state = metricoolPostState(snapshot, publishAtIso, new Date())
+  if (state !== 'pending') return { ok: true, result: state, providerStatuses: statuses }
+
+  const del = await deletePost(postId, deadline)
+  if (del.ok) {
+    console.log('[marketing/publish] Metricool post deleted', { metricoolPostId: postId, alreadyGone: del.data.alreadyGone })
+    return { ok: true, result: del.data.alreadyGone ? 'gone' : 'deleted', providerStatuses: statuses }
+  }
+  // A failed/timed-out delete may still have gone through — confirm.
+  const again = await getPost(postId, deadline)
+  if (again.ok && !again.data.found) {
+    return { ok: true, result: 'deleted', providerStatuses: statuses }
+  }
+  return { ok: false, error: `Metricool did not delete the scheduled post: ${del.message}` }
 }

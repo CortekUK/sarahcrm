@@ -19,6 +19,7 @@ import {
   coerceTemplate,
 } from '@/lib/marketing/graphics/resolve'
 import { SHAPE_DIMS } from '@/lib/marketing/graphics/types'
+import { prepareRenderInputs } from '@/lib/marketing/graphics/image-prep'
 import type { MarketingTemplate, SlotValues } from '@/lib/marketing/graphics/types'
 
 export const runtime = 'nodejs'
@@ -74,10 +75,20 @@ export async function GET(req: NextRequest) {
   const filled = withPlaceholders(template, values)
 
   try {
-    return new ImageResponse(renderGraphic({ template, values: filled, shape, origin: req.nextUrl.origin }), {
-      width: dims.w,
-      height: dims.h,
+    // EXIF auto-orient + pre-size every photo (satori ignores EXIF rotation).
+    const prepared = await prepareRenderInputs({
+      template,
+      values: filled,
+      shape,
+      origin: req.nextUrl.origin,
     })
+    return new ImageResponse(
+      renderGraphic({ template: prepared.template, values: prepared.values, shape, origin: req.nextUrl.origin }),
+      {
+        width: dims.w,
+        height: dims.h,
+      },
+    )
   } catch (e) {
     console.error('[marketing/graphics/preview] render failed:', e)
     return Response.json({ error: 'Preview render failed.' }, { status: 502 })

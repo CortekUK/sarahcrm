@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef, useState } from 'react'
 import * as Select from '@radix-ui/react-select'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import { cn } from '@/lib/utils'
 interface Option {
   value: string
   label: string
+  disabled?: boolean
 }
 
 export function SelectMenu({
@@ -36,6 +38,11 @@ export function SelectMenu({
   size?: 'sm' | 'md'
   ariaLabel?: string
 }) {
+  // Portal the list into the nearest theme root (admin night/day, chat) so it
+  // keeps the page's colours instead of falling back to <body>'s defaults.
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+
   const trigger =
     size === 'sm'
       ? 'px-2.5 py-1.5 text-xs'
@@ -48,8 +55,15 @@ export function SelectMenu({
           {label}
         </label>
       )}
-      <Select.Root value={value} onValueChange={onValueChange}>
+      <Select.Root
+        value={value}
+        onValueChange={onValueChange}
+        onOpenChange={(open) => {
+          if (open) setContainer(triggerRef.current?.closest<HTMLElement>('.theme-night-admin, .chat-theme') ?? null)
+        }}
+      >
         <Select.Trigger
+          ref={triggerRef}
           aria-label={ariaLabel ?? label}
           className={cn(
             'inline-flex w-full items-center justify-between gap-2 bg-surface text-text rounded-[var(--radius-md)] border border-border outline-none text-left transition-colors',
@@ -63,7 +77,7 @@ export function SelectMenu({
             <ChevronDown size={15} strokeWidth={1.6} className="text-text-dim" />
           </Select.Icon>
         </Select.Trigger>
-        <Select.Portal>
+        <Select.Portal container={container ?? undefined}>
           <Select.Content
             position="popper"
             sideOffset={4}
@@ -74,9 +88,11 @@ export function SelectMenu({
                 <Select.Item
                   key={o.value}
                   value={o.value}
+                  disabled={o.disabled}
                   className={cn(
                     'relative flex cursor-pointer select-none items-center rounded-[var(--radius-md)] py-2 pl-3 pr-8 text-sm text-text outline-none',
                     'data-[highlighted]:bg-surface-2 data-[state=checked]:text-gold data-[state=checked]:font-medium',
+                    'data-[disabled]:opacity-35 data-[disabled]:cursor-not-allowed data-[disabled]:pointer-events-none',
                   )}
                 >
                   <Select.ItemText>{o.label}</Select.ItemText>

@@ -106,26 +106,50 @@ export async function getFileParents(fileId: string, subject?: string): Promise<
   return res.data.parents ?? []
 }
 
-// Streams a private Drive file's bytes (for our proxy route / copy-to-Storage).
-export async function getFileStream(
-  fileId: string,
-  subject?: string,
-): Promise<{ stream: NodeJS.ReadableStream; mimeType: string; name: string }> {
+export interface DriveFileMeta {
+  name: string
+  mimeType: string
+  /** Bytes, from Drive metadata. Undefined for Google-native docs. */
+  sizeBytes?: number
+}
+
+// Metadata only (name, type, size) — no bytes are downloaded. Lets callers
+// refuse oversize files before starting a download.
+export async function getFileMeta(fileId: string, subject?: string): Promise<DriveFileMeta> {
   const drive = driveClient(subject)
   const meta = await drive.files.get({
     fileId,
-    fields: 'name, mimeType',
+    fields: 'name, mimeType, size',
     supportsAllDrives: true,
   })
+  return {
+    name: meta.data.name ?? fileId,
+    mimeType: meta.data.mimeType ?? 'application/octet-stream',
+    sizeBytes: meta.data.size ? Number(meta.data.size) : undefined,
+  }
+}
+
+// Opens the raw byte stream of a Drive file (no metadata call).
+export async function getFileMediaStream(
+  fileId: string,
+  subject?: string,
+): Promise<NodeJS.ReadableStream> {
+  const drive = driveClient(subject)
   const res = await drive.files.get(
     { fileId, alt: 'media', supportsAllDrives: true },
     { responseType: 'stream' },
   )
-  return {
-    stream: res.data as unknown as NodeJS.ReadableStream,
-    mimeType: meta.data.mimeType ?? 'application/octet-stream',
-    name: meta.data.name ?? fileId,
-  }
+  return res.data as unknown as NodeJS.ReadableStream
+}
+
+// Streams a private Drive file's bytes (for our proxy route / copy-to-Storage).
+export async function getFileStream(
+  fileId: string,
+  subject?: string,
+): Promise<{ stream: NodeJS.ReadableStream; mimeType: string; name: string; sizeBytes?: number }> {
+  const meta = await getFileMeta(fileId, subject)
+  const stream = await getFileMediaStream(fileId, subject)
+  return { stream, ...meta }
 }
 
 export type { drive_v3 }

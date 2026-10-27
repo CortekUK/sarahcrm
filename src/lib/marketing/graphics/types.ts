@@ -104,6 +104,73 @@ export interface SlotValues {
   // rendered template. as_is_url is that raw image. No renderer, no overlay.
   as_is?: boolean
   as_is_url?: string
+  // Instagram carousel only (channel 'instagram_carousel'). One entry per
+  // slide, in posting order. All slides share the asset's template_id and
+  // carousel_shape (Instagram needs one aspect ratio across a carousel).
+  // The rendered PNGs are ALSO mirrored where the publisher reads them:
+  // slide 1 → asset.graphic_url, slides 2..n → publish_target.media_urls.
+  slides?: CarouselSlide[]
+  carousel_shape?: GraphicShape
+}
+
+// One Instagram carousel slide (see SlotValues.slides).
+//   heading / subtext — the on-image text for this slide (AI-written, editable)
+//   photo_url         — the photo picked for this slide (null = none yet)
+//   as_is             — post photo_url as-is (centre-cropped to the carousel
+//                       shape), no template overlay
+//   rendered_url      — the finished media for this slide (rendered template
+//                       PNG, the cropped as-is copy, or — for a video slide —
+//                       the video URL itself); null = not ready
+//   media_type        — 'image' (default; slides saved before videos existed
+//                       have no media_type and are images) or 'video'. A video
+//                       slide is posted as-is: no template, heading/subtext or
+//                       crop; photo_url holds the video URL and rendered_url
+//                       mirrors it once it passes the carousel video checks.
+//   duration_s / width / height / size_bytes — video metadata read in the
+//                       browser when the video is picked (null = unknown);
+//                       used by the client + server carousel video checks.
+export type CarouselSlideMediaType = 'image' | 'video'
+
+export interface CarouselSlide {
+  heading: string
+  subtext: string
+  photo_url: string | null
+  as_is: boolean
+  rendered_url?: string | null
+  media_type?: CarouselSlideMediaType
+  duration_s?: number | null
+  width?: number | null
+  height?: number | null
+  size_bytes?: number | null
+}
+
+// Instagram carousel limits.
+export const CAROUSEL_MAX_SLIDES = 10
+export const CAROUSEL_MIN_SLIDES = 2
+
+// Instagram carousel VIDEO limits (Instagram API via Metricool) — see
+// docs/MARKETING-AI-ENGINE.md "Carousel videos" for the sources.
+//   - MP4 / MOV (M4V = MP4) only; MP4 recommended (Metricool converts MOV).
+//   - 3 s minimum, 60 s maximum (Metricool can't auto-publish a carousel with
+//     a video over 60 s).
+//   - 100 MB per video: Instagram's API carousel-video cap is the strictest
+//     figure published (Metricool's general video page says 500 MB) — we take
+//     the lower one so a post never bounces at Instagram.
+//   - Aspect ratio between 4:5 (0.8) and 16:9 (1.78).
+export const CAROUSEL_VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v'] as const
+export const CAROUSEL_VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/x-m4v'] as const
+export const CAROUSEL_VIDEO_MIN_S = 3
+export const CAROUSEL_VIDEO_MAX_S = 60
+export const CAROUSEL_VIDEO_MAX_MB = 100
+export const CAROUSEL_VIDEO_MAX_BYTES = CAROUSEL_VIDEO_MAX_MB * 1024 * 1024
+export const CAROUSEL_VIDEO_MIN_RATIO = 4 / 5
+export const CAROUSEL_VIDEO_MAX_RATIO = 16 / 9
+
+// All carousel slides use the template's shape, except landscape (Instagram
+// carousels look best tall; 1.91:1 is cramped) → forced to portrait 4:5.
+// No template → portrait.
+export function carouselShapeFor(templateShape?: GraphicShape | null): GraphicShape {
+  return templateShape === 'square' ? 'square' : 'portrait'
 }
 
 // The locked brand line always rendered on every graphic.

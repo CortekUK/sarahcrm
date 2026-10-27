@@ -62,7 +62,7 @@ export const CHANNEL_META: Record<MarketingChannelKey, ChannelMeta> = {
   linkedin: { key: 'linkedin', label: 'LinkedIn', hint: 'Single post, Club voice', group: 'LinkedIn' },
   instagram_feed: { key: 'instagram_feed', label: 'Instagram feed', hint: 'Single caption + hashtags', group: 'Instagram' },
   instagram_carousel: { key: 'instagram_carousel', label: 'Instagram carousel', hint: 'Per-slide caption lines', group: 'Instagram' },
-  instagram_reel: { key: 'instagram_reel', label: 'Instagram reel', hint: 'Hook + caption', group: 'Instagram' },
+  instagram_reel: { key: 'instagram_reel', label: 'Instagram reel', hint: 'Video + caption', group: 'Instagram' },
   facebook: { key: 'facebook', label: 'Facebook', hint: 'Page post, image optional', group: 'Facebook' },
   tiktok: { key: 'tiktok', label: 'TikTok', hint: 'Short caption + vertical photo', group: 'TikTok' },
   newsletter: { key: 'newsletter', label: 'Newsletter', hint: 'Branded email → designer', group: 'Newsletter' },

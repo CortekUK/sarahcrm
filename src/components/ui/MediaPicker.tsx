@@ -18,6 +18,14 @@ import {
 import { cn } from '@/lib/utils'
 import type { StorageBucket } from './ImageUpload'
 import { DriveGalleryPicker } from '@/components/admin/DriveGalleryPicker'
+import { tusUpload } from '@/lib/storage/tus'
+import {
+  MEDIA_IMPORT_MAX_BYTES,
+  MEDIA_IMPORT_MAX_MB,
+  MEDIA_TOO_LARGE_MESSAGE,
+  TUS_CHUNK_BYTES,
+  formatBytes,
+} from '@/lib/media/limits'
 
 // Universal media picker for hero/CMS surfaces.
 //
@@ -50,9 +58,14 @@ interface MediaPickerProps {
   folder?: string
   label?: string
   hint?: string
+  /** Upload size cap in MB — never above the project limit (500 MB). */
   maxMB?: number
   /** Hide the image/video toggle when a context only accepts one type. */
   lockedToType?: MediaType
+  /** File-input accept override (e.g. 'video/mp4,video/quicktime,.mp4,.mov'). */
+  accept?: string
+  /** Replaces the dropzone's format/size line (e.g. a channel's own limits). */
+  uploadHint?: string
 }
 
 export function MediaPicker({
@@ -66,21 +79,33 @@ export function MediaPicker({
   folder = '',
   label,
   hint,
-  maxMB = 50,
+  maxMB = MEDIA_IMPORT_MAX_MB,
   lockedToType,
+  accept: acceptOverride,
+  uploadHint,
 }: MediaPickerProps) {
+  const limitMB = Math.min(maxMB, MEDIA_IMPORT_MAX_MB)
   const [source, setSource] = useState<Source>('upload')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [driveOpen, setDriveOpen] = useState(false)
+  // Local upload progress (loaded/total null = indeterminate).
+  const [progress, setProgress] = useState<{ name: string; loaded: number | null; total: number } | null>(
+    null,
+  )
+  const uploadAbortRef = useRef<AbortController | null>(null)
 
   const uploadFile = useCallback(
     async (file: File) => {
       setError(null)
-      const limitBytes = maxMB * 1024 * 1024
+      const limitBytes = Math.min(maxMB * 1024 * 1024, MEDIA_IMPORT_MAX_BYTES)
       if (file.size > limitBytes) {
-        setError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB — max ${maxMB} MB).`)
+        setError(
+          limitBytes >= MEDIA_IMPORT_MAX_BYTES
+            ? `${formatBytes(file.size)} — ${MEDIA_TOO_LARGE_MESSAGE}`
+            : `File is too large (${formatBytes(file.size)} — max ${limitMB} MB).`,
+        )
         return
       }
       const ext = (file.name.split('.').pop() ?? 'bin').toLowerCase()
@@ -93,28 +118,103 @@ export function MediaPicker({
       const path = `${folder ? folder.replace(/\/$/, '') + '/' : ''}${stamp}-${random}-${safe}.${ext}`
 
       setUploading(true)
+      const controller = new AbortController()
+      uploadAbortRef.current = controller
       try {
-        const { error: uploadErr } = await supabase.storage
-          .from(bucket)
-          .upload(path, file, {
+        if (file.size > TUS_CHUNK_BYTES) {
+          // Large file → resumable (TUS) upload in 6 MB chunks with real progress.
+          setProgress({ name: file.name, loaded: 0, total: file.size })
+          const { data: sess } = await supabase.auth.getSession()
+          const token = sess.session?.access_token
+          if (!token) throw new Error('Your session has expired — please sign in again.')
+          const anon = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim()
+          await tusUpload({
+            supabaseUrl: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim(),
+            headers: { authorization: `Bearer ${token}`, apikey: anon },
+            bucket,
+            objectName: path,
+            contentType: file.type || 'application/octet-stream',
             cacheControl: '3600',
             upsert: false,
-            contentType: file.type || undefined,
+            totalBytes: file.size,
+            source: file,
+            signal: controller.signal,
+            onProgress: (loaded, total) => setProgress({ name: file.name, loaded, total }),
           })
-        if (uploadErr) {
-          setError(uploadErr.message)
-          return
+        } else {
+          setProgress({ name: file.name, loaded: null, total: file.size })
+          const { error: uploadErr } = await supabase.storage
+            .from(bucket)
+            .upload(path, file, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: file.type || undefined,
+            })
+          if (uploadErr) {
+            setError(uploadErr.message)
+            return
+          }
         }
+        if (controller.signal.aborted) return
         const { data } = supabase.storage.from(bucket).getPublicUrl(path)
         onChange(data.publicUrl)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Upload failed')
+        if (controller.signal.aborted) {
+          setError('Upload cancelled.')
+        } else {
+          setError(err instanceof Error ? err.message : 'Upload failed')
+        }
       } finally {
+        if (uploadAbortRef.current === controller) uploadAbortRef.current = null
         setUploading(false)
+        setProgress(null)
       }
     },
-    [bucket, folder, maxMB, onChange],
+    [bucket, folder, maxMB, limitMB, onChange],
   )
+
+  const progressPct =
+    progress && progress.loaded != null && progress.total > 0
+      ? Math.min(100, Math.round((progress.loaded / progress.total) * 100))
+      : null
+
+  // Shared progress readout for the dropzone + Replace bar.
+  const progressBlock = progress ? (
+    <div className="w-full space-y-1.5 text-left">
+      <div className="flex items-center justify-between gap-3 text-[11px]">
+        <span className="text-text truncate min-w-0">
+          Uploading {progress.name}
+          <span className="text-text-dim"> · {formatBytes(progress.total)}</span>
+        </span>
+        <span className="flex items-center gap-2 shrink-0">
+          {progressPct != null && (
+            <span className="tabular-nums text-text-muted">
+              {progressPct}% ({formatBytes(progress.loaded)} of {formatBytes(progress.total)})
+            </span>
+          )}
+          {progress.loaded != null && (
+            <button
+              type="button"
+              onClick={() => uploadAbortRef.current?.abort()}
+              className="text-accent-warm hover:underline"
+            >
+              Cancel
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+        {progressPct != null ? (
+          <div
+            className="h-full bg-gold transition-[width] duration-300"
+            style={{ width: `${progressPct}%` }}
+          />
+        ) : (
+          <div className="h-full w-1/3 bg-gold/70 animate-pulse" />
+        )}
+      </div>
+    </div>
+  ) : null
 
   function onPick(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -122,8 +222,8 @@ export function MediaPicker({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const accept = mediaType === 'image' ? 'image/*' : 'video/*'
   const effectiveType = lockedToType ?? mediaType
+  const accept = acceptOverride ?? (effectiveType === 'image' ? 'image/*' : 'video/*')
   const hasValue = !!value
 
   // Shared file-input element — rendered once at the root so both the
@@ -173,6 +273,7 @@ export function MediaPicker({
                 src={value}
                 poster={posterUrl || undefined}
                 controls
+                playsInline
                 preload="metadata"
                 className="w-full h-full object-cover"
               />
@@ -236,6 +337,7 @@ export function MediaPicker({
               Remove
             </button>
           </div>
+          {progressBlock && <div className="px-3 py-2.5 border-t border-border">{progressBlock}</div>}
         </div>
       ) : (
         /* ─── EMPTY state — type + source pickers + dropzone ──────── */
@@ -314,13 +416,15 @@ export function MediaPicker({
                       Click to upload {effectiveType === 'image' ? 'an image' : 'a video'}
                     </span>
                     <span className="text-[11px] text-text-dim">
-                      {effectiveType === 'image'
-                        ? 'PNG, JPG, WebP — up to 8 MB'
-                        : 'MP4 / WebM — up to 50 MB'}
+                      {uploadHint ??
+                        (effectiveType === 'image'
+                          ? 'PNG, JPG, WebP — up to 8 MB recommended'
+                          : `MP4 / WebM — up to ${limitMB} MB`)}
                     </span>
                   </>
                 )}
               </button>
+              {progressBlock && <div className="px-5 pb-5 -mt-3">{progressBlock}</div>}
             </div>
           ) : source === 'drive' ? (
             <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 px-5 py-8 flex flex-col items-center justify-center gap-2 text-center">
@@ -411,6 +515,7 @@ export function MediaPicker({
       {/* Google Drive media library picker (copies chosen asset in → public URL) */}
       <DriveGalleryPicker
         open={driveOpen}
+        accept={effectiveType}
         onClose={() => setDriveOpen(false)}
         onSelect={(url) => {
           onChange(url)

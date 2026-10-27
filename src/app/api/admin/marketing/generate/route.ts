@@ -41,7 +41,10 @@ import type {
 import { generateNewsletterDraft } from '@/lib/marketing/newsletter'
 import { buildSlotValues } from '@/lib/marketing/graphics/store'
 import { coerceShape, coerceBackground, coerceSlots } from '@/lib/marketing/graphics/resolve'
-import type { MarketingTemplate } from '@/lib/marketing/graphics/types'
+import { carouselShapeFor } from '@/lib/marketing/graphics/types'
+import type { CarouselSlide, MarketingTemplate, SlotValues } from '@/lib/marketing/graphics/types'
+import { parseCarouselBody, slidesFromText } from '@/lib/marketing/graphics/carousel'
+import { labelStripOptions, stripPostLabels } from '@/lib/marketing/reel'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,7 +54,8 @@ export const dynamic = 'force-dynamic'
 const SOCIAL_GRAPHIC_CHANNELS = new Set<string>([
   'instagram_feed',
   'instagram_carousel',
-  'instagram_reel',
+  // NOT instagram_reel: a reel is a VIDEO the admin attaches in the approval
+  // queue (publish_target.video_url) — no template graphic is assigned.
   'linkedin',
   // Facebook takes the same optional graphic (text-only posts are allowed).
   'facebook',
@@ -114,10 +118,10 @@ const CHANNEL_BRIEFS: Record<TextChannelKey, string> = {
   recap_blog: `recap_blog: a warm event recap / write-up for the website's Journal (roughly 400-700 words). "title" is an evocative headline (under ~65 characters); "body" is Markdown — a scene-setting opening paragraph of 1-2 sentences (used as the search meta description), the highlights (lean on the event's speakers, agenda, atmosphere and — where noted — attendees and photos), a memorable moment or two, and a closing line that looks ahead. Add 1-3 INTERNAL links as Markdown links [anchor text](/path) using ONLY the internal links listed below (plus the event page if one is given in the source), and end with a short call-to-action paragraph inviting readers to the next events (/events) or to apply (/membership-application). Celebratory but understated. Only use details present in the source; never invent quotes or numbers.`,
   linkedin: `linkedin: a single LinkedIn post (roughly 120-220 words) in the Club voice. "title" is a short internal label (e.g. the hook line); "body" is the post text — a strong first-line hook, 2-4 short paragraphs, tasteful line breaks, an inviting close. At most a few relevant hashtags on the final line. No "click the link in bio"-style filler.`,
   instagram_feed: `instagram_feed: a single Instagram feed caption. "title" is a short internal label; "body" is the caption — an arresting first line, 1-3 short lines of copy, and a final line with 5-10 relevant hashtags. Warm and visual. Text only (Instagram Stories cannot be auto-published, so do NOT write Story frames).`,
-  instagram_carousel: `instagram_carousel: an Instagram carousel. "title" is a short internal label; "body" holds one line per slide, each prefixed "Slide 1:", "Slide 2:", … (aim for 4-7 slides — a hook slide, value slides, a closing/CTA slide), followed by a blank line and a "Caption:" line for the post with 5-10 hashtags. Concise, punchy per slide.`,
+  instagram_carousel: `instagram_carousel: an Instagram carousel (several swipeable image slides + one caption). "title" is a short internal label. "body" is ONLY the caption that gets posted, exactly as it should appear: 2-5 short lines then a final line of 5-10 relevant hashtags — NO "Slide 1:" lines and NO "Caption:" label in the body. Put the on-image slide text in "slides": 3-7 items, each { "heading", "subtext" } — heading at most ~8 words, subtext at most ~16 words, no hashtags, no emoji strings, no quotation marks around them. Slide 1 is the hook / title slide that stops the scroll; the middle slides each carry one idea; the LAST slide is the call to action. Concise and punchy.`,
   facebook: `facebook: a single Facebook page post. "title" is a short internal label; "body" is the post — a warm, conversational opening line, 2-4 short paragraphs that tell the story (Facebook readers will read a little more than on Instagram), and an inviting close (e.g. an invitation to an upcoming event or to find out more about membership). At most 1-3 relevant hashtags, or none. No "link in bio" filler and no raw URLs unless one is given in the source. Works with or without an image.`,
   tiktok: `tiktok: a single TikTok photo post (a vertical image, or a short swipeable photo carousel). "title" is the ON-SCREEN HOOK LINE — at most ~8 words, a scroll-stopping line that is overlaid on the vertical graphic (so no hashtags, no emoji strings, no quotation marks around it). "body" is ONLY the caption that gets posted, exactly as it should appear: 1-3 short, punchy lines in a lighter, more conversational TikTok tone that still sounds like the brand voice above (never slangy, never clickbait, no "link in bio" filler, no raw URLs), then a final line of 3-6 relevant hashtags. Keep the WHOLE caption, hashtags included, under 300 characters. No "Hook:" / "Caption:" labels in the body.`,
-  instagram_reel: `instagram_reel: an Instagram reel. "title" is a short internal label; "body" starts with "Hook:" (a 1-line scroll-stopper), then "Caption:" (2-4 short lines describing the reel), then a final line of 5-10 relevant hashtags. Text only — no scene-by-scene video direction unless it helps the caption.`,
+  instagram_reel: `instagram_reel: the caption for an Instagram reel (the team attaches the video later). "title" is the ON-SCREEN HOOK — a 1-line scroll-stopper of at most ~8 words that the team can put on the video's opening frame (no hashtags, no emoji strings, no quotation marks around it). "body" is ONLY the caption that gets posted, exactly as it should appear: 2-4 short lines describing the reel, then a final line of 5-10 relevant hashtags. NO "Hook:" / "Caption:" / "Hashtags:" labels anywhere in the body, and do not repeat the hook as a labelled line. Text only — no scene-by-scene video direction.`,
   press_release: `press_release: a formal press release. "title" is the release HEADLINE. "body" is Markdown structured as: a dateline (CITY — Date, using only a real date if present in the source, else omit), 2-4 body paragraphs written in third person and formal register, an optional short quote ONLY if a real one exists in the source, and a closing "About The Club by Sarah Restrick" boilerplate paragraph (a private membership community curated by Sarah Restrick offering curated luxury events, bespoke member introductions and a warm communications practice). No hype, no fabricated statistics.`,
   sponsor_recap: `sponsor_recap: a warm recap addressed directly to the event's sponsor, thanking them and reflecting on the partnership. "title" is a short internal label. "body" is the message (roughly 200-350 words) — open by addressing the sponsor, recap the event and how their sponsorship package/benefits and brand alignment came through, note the value delivered, and close warmly with a look toward continuing the partnership. Use ONLY sponsor details present in the source; if none are provided, keep it graceful and general.`,
 }
@@ -138,6 +142,11 @@ const responseSchema = z.object({
       channel: z.enum(TEXT_CHANNELS),
       title: z.string(),
       body: z.string(),
+      // instagram_carousel only — empty for every other channel.
+      slides: z
+        .array(z.object({ heading: z.string(), subtext: z.string() }))
+        .optional()
+        .default([]),
     }),
   ),
 })
@@ -224,8 +233,22 @@ function jsonSchemaFor() {
               channel: { type: 'string', enum: [...TEXT_CHANNELS] },
               title: { type: 'string' },
               body: { type: 'string' },
+              // instagram_carousel slide text; [] for other channels (strict
+              // mode needs every property required).
+              slides: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    heading: { type: 'string' },
+                    subtext: { type: 'string' },
+                  },
+                  required: ['heading', 'subtext'],
+                },
+              },
             },
-            required: ['channel', 'title', 'body'],
+            required: ['channel', 'title', 'body', 'slides'],
           },
         },
       },
@@ -470,6 +493,9 @@ export async function POST(req: NextRequest) {
       'gpt-4o-2024-08-06'
 
     const written: unknown[] = []
+    // instagram_carousel asset id → its AI slide text (stored on slot_values
+    // in the template-graphic step below).
+    const carouselSlides = new Map<string, CarouselSlide[]>()
 
     // Voice for the single-voice text batch: on regenerate reuse the
     // asset's stored voice; otherwise the campaign's default voice.
@@ -495,7 +521,7 @@ export async function POST(req: NextRequest) {
 Write everything in this brand voice:
 ${voiceContext[textBatchVoice]}
 
-You will receive source material and a list of channels. For EACH requested channel, produce exactly ONE asset. Return an object with an "assets" array; each item has "channel" (one of the requested channel keys), "title", and "body". Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — where a detail is missing, write around it gracefully. Produce only the requested channels, one asset each.
+You will receive source material and a list of channels. For EACH requested channel, produce exactly ONE asset. Return an object with an "assets" array; each item has "channel" (one of the requested channel keys), "title", "body" and "slides". "slides" is ONLY for instagram_carousel (its on-image slide text, per its brief) — for every other channel return an empty "slides" array. Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — where a detail is missing, write around it gracefully. Produce only the requested channels, one asset each.
 
 Channel briefs:
 ${channelBriefs}${
@@ -564,15 +590,34 @@ Requested channels (produce exactly one asset for each): ${singleVoiceTextChanne
         )
       }
 
-      const byChannel = new Map<TextChannelKey, { title: string; body: string }>()
+      const byChannel = new Map<
+        TextChannelKey,
+        { title: string; body: string; slides: CarouselSlide[] }
+      >()
       for (const a of validation.data.assets) {
         if ((singleVoiceTextChannels as readonly string[]).includes(a.channel)) {
           // TikTok rejects captions over 2,200 characters — trim defensively.
-          const text =
+          let text =
             a.channel === 'tiktok' && a.body.length > TIKTOK_CAPTION_MAX
               ? a.body.slice(0, TIKTOK_CAPTION_MAX).trimEnd()
               : a.body
-          byChannel.set(a.channel, { title: a.title, body: text })
+          let slides: CarouselSlide[] = []
+          // Reel / TikTok: the body is posted verbatim — drop any "Hook:" /
+          // "Caption:" labels the model slipped in (the hook belongs in title).
+          const stripOpts = labelStripOptions(a.channel)
+          if (stripOpts) {
+            const stripped = stripPostLabels(text, stripOpts)
+            if (stripped.hadScaffolding && stripped.caption) text = stripped.caption
+          }
+          if (a.channel === 'instagram_carousel') {
+            // The body is posted verbatim as the caption — strip any
+            // "Slide n:" / "Caption:" scaffolding the model slipped in, and
+            // fall back to those slide lines if "slides" came back empty.
+            const parsed = parseCarouselBody(text)
+            if (parsed.hadScaffolding && parsed.caption) text = parsed.caption
+            slides = slidesFromText(a.slides.length ? a.slides : parsed.slides)
+          }
+          byChannel.set(a.channel, { title: a.title, body: text, slides })
         }
       }
 
@@ -607,6 +652,7 @@ Requested channels (produce exactly one asset for each): ${singleVoiceTextChanne
             .single()
           if (uErr) return Response.json({ error: uErr.message }, { status: 500 })
           written.push(upd)
+          if (content.slides.length) carouselSlides.set(upd.id as string, content.slides)
         } else {
           const { data: ins, error: iErr } = await admin
             .from('marketing_assets')
@@ -625,6 +671,7 @@ Requested channels (produce exactly one asset for each): ${singleVoiceTextChanne
             .single()
           if (iErr) return Response.json({ error: iErr.message }, { status: 500 })
           written.push(ins)
+          if (content.slides.length) carouselSlides.set(ins.id as string, content.slides)
         }
       }
     }
@@ -952,15 +999,43 @@ Requested LinkedIn variants (produce exactly one asset for each): ${variantsToPr
                   heading: deriveGraphicHeading(a),
                   subtext: deriveGraphicSubtext(a),
                 }
-                const slotValues = buildSlotValues(template, graphicText, null)
+                let slotValues: SlotValues = buildSlotValues(template, graphicText, null)
+                const update: Record<string, unknown> = {
+                  template_id: template.id,
+                  graphic_url: null,
+                  slot_values: slotValues,
+                }
+
+                // Instagram carousel: one set of slide text per slide, all on
+                // the same template/shape. Slide 1 also fills the template's
+                // heading/subtext. Old slide renders (publish_target.media_urls)
+                // are cleared — they belong to the previous draft.
+                if (a.channel === 'instagram_carousel') {
+                  const slides = carouselSlides.get(a.id as string) ?? []
+                  slotValues = {
+                    ...(slides.length
+                      ? buildSlotValues(
+                          template,
+                          { heading: slides[0].heading, subtext: slides[0].subtext },
+                          null,
+                        )
+                      : slotValues),
+                    slides: slides.length
+                      ? slides
+                      : slidesFromText([{ heading: graphicText.heading, subtext: graphicText.subtext }]),
+                    carousel_shape: carouselShapeFor(template.shape),
+                  }
+                  update.slot_values = slotValues
+                  const target = await clearedCarouselTarget(admin, a.id as string)
+                  if (target !== undefined) {
+                    update.publish_target = target
+                    a.publish_target = target
+                  }
+                }
 
                 await admin
                   .from('marketing_assets')
-                  .update({
-                    template_id: template.id,
-                    graphic_url: null,
-                    slot_values: slotValues,
-                  })
+                  .update(update)
                   .eq('id', a.id as string)
 
                 // Reflect on the returned row so the client shows the assigned
@@ -981,6 +1056,27 @@ Requested LinkedIn variants (produce exactly one asset for each): ${variantsToPr
         }
       }
     }
+    {
+      // Carousel slides not stored above (caption-only mode, or no template
+      // exists): still keep the slide text so the admin can build the slides
+      // in the queue later.
+      for (const a of written as Record<string, unknown>[]) {
+        if (a?.channel !== 'instagram_carousel' || typeof a.id !== 'string') continue
+        if ((a.slot_values as SlotValues | undefined)?.slides) continue
+        const slides = carouselSlides.get(a.id)
+        if (!slides?.length) continue
+        const slotValues: SlotValues = { slides, carousel_shape: carouselShapeFor(null) }
+        const update: Record<string, unknown> = { slot_values: slotValues, graphic_url: null }
+        const target = await clearedCarouselTarget(admin, a.id)
+        if (target !== undefined) {
+          update.publish_target = target
+          a.publish_target = target
+        }
+        await admin.from('marketing_assets').update(update).eq('id', a.id)
+        a.slot_values = slotValues
+        a.graphic_url = null
+      }
+    }
 
     // Campaign is 'ready' once it has drafts to review.
     await admin.from('marketing_campaigns').update({ status: 'ready' }).eq('id', campaignId)
@@ -991,6 +1087,25 @@ Requested LinkedIn variants (produce exactly one asset for each): ${variantsToPr
     const message = e instanceof Error ? e.message : 'Unknown error'
     return Response.json({ error: `Unhandled server error: ${message}` }, { status: 500 })
   }
+}
+
+// A regenerated carousel's old slide renders (publish_target.media_urls) no
+// longer match its new slides — drop them, keep everything else (e.g. the
+// "Send again" history). undefined = nothing to change.
+async function clearedCarouselTarget(
+  admin: ReturnType<typeof getAdmin>,
+  assetId: string,
+): Promise<Record<string, unknown> | null | undefined> {
+  const { data } = await admin
+    .from('marketing_assets')
+    .select('publish_target')
+    .eq('id', assetId)
+    .maybeSingle()
+  const t = (data?.publish_target as Record<string, unknown> | null) ?? null
+  if (!t || !('media_urls' in t)) return undefined
+  const rest = { ...t }
+  delete rest.media_urls
+  return Object.keys(rest).length ? rest : null
 }
 
 // Which existing row to overwrite for a (channel, variant): the explicit

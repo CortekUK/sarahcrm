@@ -32,7 +32,7 @@ export async function GET(
 
   const { data: assets, error: aErr } = await admin
     .from('marketing_assets')
-    .select('id, campaign_id, channel, variant, voice, title, body, status, publish_target, published_at, email_template_id, template_id, graphic_url, slot_values, created_at, updated_at')
+    .select('id, campaign_id, channel, variant, voice, title, body, status, publish_target, published_at, scheduled_at, email_template_id, template_id, graphic_url, slot_values, created_at, updated_at')
     .eq('campaign_id', id)
     .order('created_at', { ascending: true })
   if (aErr) return Response.json({ error: aErr.message }, { status: 500 })

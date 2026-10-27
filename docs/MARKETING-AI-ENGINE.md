@@ -363,8 +363,10 @@ Per-channel tuned briefs live in `CHANNEL_BRIEFS` in the generate route:
 - **seo_blog** — 500-800w Markdown SEO article. **recap_blog** — 400-700w event write-up
   that leans on speakers/agenda/atmosphere and (when present) attendees + photos.
 - **linkedin** — single 120-220w post. **instagram_feed** — one caption + 5-10 hashtags.
-  **instagram_carousel** — `Slide N:` lines + a `Caption:` line. **instagram_reel** —
-  `Hook:` + `Caption:` + hashtags. (All Instagram output is text only — the prompt
+  **instagram_carousel** — *(superseded 2026-10-22, see "Instagram carousels + EXIF orientation" at the
+  end: body = caption only, slide text in a separate `slides` array)* **instagram_reel** —
+  *(superseded 2026-10-22, see "Instagram Reels — video editor" at the end: title = on-screen hook, body =
+  caption only, no `Hook:`/`Caption:` labels)*. (All Instagram output is text only — the prompt
   explicitly forbids Stories, which can't be auto-published.)
 - **press_release** — formal PR (headline, optional dateline, third-person body, optional
   real quote only, "About The Club" boilerplate). **sponsor_recap** — a warm recap
@@ -453,7 +455,7 @@ change was applied.
 3. Land on the approval queue: one card per channel, grouped/ordered, each with a channel
    icon + label + `draft` badge and its tuned copy. Verify:
    - **Blogs** read as Markdown articles; **recap_blog** references the event.
-   - **Instagram carousel** shows `Slide 1:`…; **reel** shows `Hook:` / `Caption:`.
+   - **Instagram carousel** shows `Slide 1:`…; **reel** shows the hook as the title and a label-free caption (since 2026-10-22).
    - **press_release** has a headline + "About The Club" boilerplate.
    - **sponsor_recap** (event source with a sponsorship) addresses the sponsor and mentions
      the package/benefits.
@@ -1275,15 +1277,15 @@ The API needs Metricool's Advanced/Custom plan.
 1. Channel → network: `linkedin` → LinkedIn post; `instagram_feed` → Instagram post; `instagram_carousel` →
    Instagram post with several media (`graphic_url` + optional `publish_target.media_urls`, max 10; a single
    image if that's all there is); `instagram_reel` → Instagram REEL, which **requires** a video URL in
-   `publish_target.video_url` (there is no video upload yet, so reels are refused with a clear message — we
-   never post an image as a reel); `facebook` → Facebook page post; `tiktok` → TikTok **PHOTO** post
+   `publish_target.video_url` (set from the card's **Reel video** editor since 2026-10-22; without one it is
+   refused — we never post an image as a reel); `facebook` → Facebook page post; `tiktok` → TikTok **PHOTO** post
    (`graphic_url` + optional `publish_target.media_urls`, 1–35 images, several = photo carousel), or a TikTok
    **VIDEO** post when `publish_target.video_url` is set (the video only).
 2. Media: each public URL (the rendered graphic is a public Supabase bucket URL) goes through Metricool's
    normalize call; its returned URL goes in the post's `media`. If normalize fails, nothing is posted.
    Instagram with no graphic → refused ("render a graphic first"). TikTok with no image and no video →
    refused the same way. LinkedIn / Facebook without a graphic post text-only.
-3. `publicationDate` = the asset's `scheduled_at` if in the future, else **now + 10 minutes**, as wall-clock
+3. `publicationDate` = the asset's `scheduled_at` if in the future, else **now** (publish immediately), as wall-clock
    `YYYY-MM-DDTHH:mm:ss` in `METRICOOL_TIMEZONE` (Intl; handles GMT/BST).
 4. `draft = METRICOOL_MODE !== 'live'`, `autoPublish = !draft`.
 5. Stored on the asset: `publish_target = { platform:'metricool', network, postType, mode, metricoolPostId,
@@ -1342,7 +1344,7 @@ Network tab open, compare, then fix `buildMetricoolPostBody` / the parsers):
 7. Only then set `METRICOOL_MODE=live` (redeploy/restart so env is re-read) — the card then shows
    "Connected · LIVE" and approvals publish for real.
 
-**Still out of scope:** interactive IG Stories (platform rule — prepare + tap-publish), video upload for reels,
+**Still out of scope:** interactive IG Stories (platform rule — prepare + tap-publish),
 batch approval / a scheduler that publishes at `scheduled_at` (today the publish happens at Approve, with
 `scheduled_at` passed to Metricool as the publication time). (Facebook and TikTok are now channels — see the
 last sections.)
@@ -1464,3 +1466,260 @@ in the TikTok app.
 one image…"). 4. Add an image → the graphic renders 1080×1920. 5. Approve with Metricool NOT configured →
 mock "published"; configured (draft mode) → "Metricool draft"; check the planner draft and compare its body
 with a hand-made TikTok photo post (inspector) before ever switching to live.
+
+## AS BUILT — Instagram carousels (multi-slide) + EXIF photo orientation (2026-10-22)
+
+### 1. Phone photos rendered sideways — root cause + fix
+Phone JPEGs (e.g. 3000×4000 from a phone camera) store their pixels sideways plus an EXIF `Orientation`
+tag (usually 6). Browsers honour the tag, so the photo looks upright in the MediaPicker, but satori/resvg
+(next/og `ImageResponse`) **ignore EXIF**, so the rendered graphic came out rotated 90°.
+- **New `src/lib/marketing/graphics/image-prep.ts`** (Node only — uses `sharp`, now an explicit dependency
+  `sharp@0.34.5` in package.json). `prepareRenderInputs({ template, values, shape, origin })` fetches every
+  photo the template will draw (background photo, template default background photo, photo slots), runs it
+  through sharp `.rotate()` (auto-orient from EXIF) + `resize({ fit: 'outside', withoutEnlargement })` to just
+  cover the canvas + `.jpeg({ quality: 85 })`, and hands satori a `data:` URI. Any failure → the original URL
+  is kept (old behaviour), so a bad photo never breaks a render.
+- Used by `renderTemplateToStorage` (store.ts — the render route + generation) and the preview route. Both
+  routes are `runtime = 'nodejs'`.
+- **SSRF guard** (`fetchImageSafely`): http(s) only, no credentials in URLs, host must resolve only to public
+  addresses (loopback / private / link-local incl. 169.254.169.254 / CGNAT / ULA / multicast / reserved are
+  refused), every redirect hop re-checked (max 3), 10 s timeout, 25 MB cap (header + streamed count),
+  `image/*` content types only. Site-relative (`/gallery/x.png`) and same-origin URLs are read from `public/`
+  on disk with a path-traversal check (never HTTP to ourselves).
+- **"Use image as-is"**: new `POST /api/admin/marketing/graphics/orient { url, shape? }` →
+  `{ url, changed, orientation }` (`orientImageToStorage` in store.ts). Without `shape`: if the EXIF
+  orientation isn't 1, an upright full-resolution copy (JPEG q90) is written to the **`gallery` bucket,
+  `marketing/` folder** (where the MediaPicker uploads) and that URL is posted; an upright image comes back
+  unchanged. The single-graphic editor's "Use this image" calls it first and falls back to the original URL on
+  failure. With `shape` (carousel slides): always a fresh upright copy centre-cropped to the shape's exact dims.
+
+### 2. Instagram carousels — multiple slides
+Before: the AI wrote `Slide 1: … Slide 5:` + `Caption:` all into `body`, which would have been POSTED as the
+caption, and the card had a single-image editor.
+- **Generation** (`generate/route.ts`): the strict JSON schema item now has a required `slides` array
+  (`{ heading, subtext }`); the system prompt says it is `[]` for every channel except instagram_carousel. The
+  carousel brief asks for: `body` = caption only (no `Slide n:` lines, no `Caption:` label) and 3–7 slides
+  (heading ≤ ~8 words, subtext ≤ ~16 words; slide 1 = hook/title, last = call to action). Safety net: if the
+  model still writes scaffolding, `parseCarouselBody` strips it from the caption and uses those lines as the
+  slides when `slides` is empty. The template-assign step stores the slides on
+  `slot_values.slides` (+ `carousel_shape`) and slide 1's text fills the template's heading/subtext; a
+  regenerate also clears stale `publish_target.media_urls`. Caption-only mode / no template still stores the
+  slide text.
+- **Data shape** (`graphics/types.ts`, no migration — `slot_values` is jsonb):
+  ```
+  slot_values = {
+    slides: [{ heading, subtext, photo_url: string|null, as_is: boolean, rendered_url?: string|null }, …],
+    carousel_shape: 'portrait' | 'square',
+  }
+  asset.graphic_url               = slides[0] render   (slide 1)
+  asset.publish_target.media_urls = renders of slides 2..n, in slide order
+  ```
+  Helpers (pure, client-safe) in `graphics/carousel.ts`: `parseCarouselBody`, `coerceSlides`,
+  `slidesFromText`, `carouselMedia` (= `[graphic_url, ...media_urls]`, the publisher's order).
+  `CAROUSEL_MIN_SLIDES = 2`, `CAROUSEL_MAX_SLIDES = 10`, `carouselShapeFor(templateShape)` (square stays
+  square; portrait / landscape / none → portrait 4:5).
+- **Editor** (`CampaignDetailPage.tsx` → `CarouselSection`, used only for `instagram_carousel`; every other
+  channel keeps `GraphicSection`): one template for the whole carousel, then slide cards (thumbnail,
+  heading/subtext, MediaPicker on `gallery`/`marketing`, per-slide "use image as-is", move up/down, remove),
+  "Add slide" (max 10) and "Render all N slides" (concurrency 2, per-slide spinner/error, then one save).
+  Picking a slide image auto-renders that slide. Editing text marks the slide "Edited — re-render". Re-order /
+  remove save immediately so the post order always matches the screen. Unrendered slides are left out of
+  the post (warned). The collapsed card shows the rendered slides as a horizontal thumbnail strip. Legacy
+  carousel assets without `slides`: slides are parsed from `Slide n:` body lines (else one slide from the
+  heading/subtext), existing renders are kept, and the first save strips the scaffolding from the caption.
+- **Save** — `PATCH /api/admin/marketing/assets/[id]` accepts `media_urls` (http(s), max 9) and merges it into
+  `publish_target.media_urls` (refused with 409 once the asset is already with Metricool — use "Send again").
+- **Publish gate** — "Approve & publish" is disabled with a reason while fewer than 2 slides are rendered;
+  the server's approve branch refuses the same (400) and strips any legacy `Slide n:` / `Caption:` text from
+  the caption before publishing. `MetricoolPublisher` sends `graphic_url` + `media_urls` as ONE Instagram post
+  with `media` in slide order (`instagramData.type 'POST'`); it refuses an Instagram carousel with 1 or > 10
+  items. Every slide has its own URL (renders are unique paths; as-is slides are always a fresh cropped copy),
+  so the publisher's duplicate-URL filter never collapses two slides. All slides share one template shape and
+  as-is slides are cropped to it → Instagram's same-aspect-ratio rule holds.
+
+### How to test (human)
+1. Pick a phone photo (portrait, EXIF-rotated) for any template → the preview and the rendered PNG are upright.
+2. Generate a campaign with Instagram carousel → the caption has no `Slide n:` lines; "Build slides" shows
+   3–7 slides. Pick images (each auto-renders), or "Render all". The card shows the strip; Approve enables at
+   2+ slides. In Metricool draft mode the planner draft should hold all slides in order.
+3. Old carousel draft (body with `Slide 1:` lines) → "Build slides" lists those slides; after rendering, the
+   caption no longer contains them.
+
+
+## AS BUILT — Carousel videos (mixed photo + video carousels) (2026-10-22)
+
+Instagram carousels can now mix image slides and **video slides**. A video slide is posted **as-is** — no
+template, no heading/subtext, no brand overlay, no crop.
+
+### Rules we enforce (researched 2026-10-22)
+| Rule | Value | Source |
+|---|---|---|
+| Items per carousel | 2–10 (Meta's API now says up to 20, but Metricool's planner caps at 10 — we keep 10) | [Meta content publishing](https://developers.facebook.com/docs/instagram-platform/content-publishing), [Metricool: schedule on Instagram](https://help.metricool.com/en/article/schedule-and-post-on-instagram-1xovmji/) |
+| Formats | MP4 / MOV (`.mp4 .mov .m4v`, `video/mp4`, `video/quicktime`, `video/x-m4v`); MP4 recommended (Metricool converts MOV; HEVC and iPhone HDR can't be auto-published) | [Metricool publishing requirements](https://help.metricool.com/en/article/publishing-requirements-for-images-and-videos-from-metricool-pyf6om/) |
+| Duration | 3 s min, **60 s max** (Metricool can't auto-publish a carousel with a video over 60 s) | Metricool "schedule on Instagram"; 3 s min per Instagram API video spec ([Adobe scheduler specs](https://helpx.adobe.com/express/using/social-media-character-limits-in-scheduler.html)) |
+| Size | **100 MB** per video — Instagram's API carousel-video cap (Metricool's generic video page says 500 MB; we take the lower; our upload cap stays 500 MB) | Adobe scheduler specs, [Plann](https://help.plannthat.com/en/articles/10029624-auto-post-restrictions-for-instagram) |
+| Aspect ratio | Video between 4:5 and 16:9 (9:16 vertical → post as a Reel) | Metricool "schedule on Instagram" |
+| Cropping | Instagram crops every carousel item to the **first** item's ratio → we **warn** (not block) on mixed shapes | Meta content publishing |
+Constants: `CAROUSEL_VIDEO_*` in `graphics/types.ts`.
+
+### Data shape (no migration — `slot_values` is jsonb)
+```
+slides[i] = { heading, subtext, photo_url, as_is, rendered_url?,
+              media_type?: 'image' | 'video',          // missing = image (old slides)
+              duration_s?, width?, height?, size_bytes? } // video metadata, read in the browser
+```
+Video slide: `photo_url` = the video URL; `rendered_url` = the same URL **once it passes the checks** (no render
+step). Publishing is unchanged: ready slides in order → slide 1 → `graphic_url` (may be a video), 2..n →
+`publish_target.media_urls`.
+
+### Code
+- `graphics/carousel.ts` (pure): `isVideoSlide`, `urlExtension`, `hasCarouselVideoExtension`,
+  `isCarouselVideoMime`, `carouselVideoProblems(facts)` (type / size / duration / ratio → messages; unknown facts
+  aren't held against the video), `slideAspectRatio`, `ratioLabel`, `carouselIssues(slides, shape)` →
+  `{ slideErrors[], warnings[] }` (warning = mixed aspect ratios). `coerceSlides` keeps the new fields.
+- `graphics/carousel-server.ts`: `storedSlideProblems(slides)` (save) and `carouselMediaProblems(media, slides)`
+  (approve: a HEAD per video for Content-Type + Content-Length, 6 s timeout, plus the stored duration/dims).
+- `lib/media/video-meta.ts` (browser): `readVideoMeta(url)` — detached `<video preload=metadata>` for duration +
+  dimensions, HEAD for size + type (CORS-dependent; null when blocked).
+- `MediaPicker` gained `accept` and `uploadHint` props (video slides: `video/mp4,video/quicktime,…`, max 100 MB).
+- Editor (`CarouselSection`): per-slide **Image | Video** switch (switching clears the slide's media and saves).
+  Video slides: MediaPicker locked to video (upload incl. .mp4/.mov via TUS, Drive library filtered to videos,
+  external URL — debounced 600 ms), heading/subtext/as-is/template hidden, note "Videos are posted as-is — no text
+  or brand overlay", `<video muted playsInline controls preload=metadata>` with a `#t=0.1` poster frame,
+  metadata line (0:12 · 1080×1350 (4:5) · 8.4 MB), badges *Checking video… / Video ready / Needs a fix / No video
+  yet*, per-slide error text, "Re-check video". The collapsed strip shows video thumbnails with a play badge.
+  "Render all" renders image slides only (label "Render all N image slides"; disabled when every slide is a
+  video). The aspect-ratio warning shows in the editor and on the collapsed card.
+- Asset route: **save** refuses (400) a ready video slide that breaks the rules; **approve** refuses fewer than 2
+  or more than 10 slides and any video that isn't MP4/MOV (extension or Content-Type), is > 100 MB, or has a stored
+  duration/ratio out of range — nothing is sent to Metricool.
+- Publisher: mixed carousels need nothing special. Metricool's swagger has **one** media-import endpoint,
+  `GET /actions/normalize/image/url` ("validates that the URL is publicly accessible and transforms it into a URL
+  from a metricool repository"); despite the name it takes videos (the reel path already used it). Videos get a
+  40 s normalize timeout (images 20 s) and errors name the slide. `media` stays a plain array of URL strings
+  (`ScheduledPost.media: string[]`) — Metricool detects photo vs video from the file. `instagramData.type` stays
+  `'POST'`.
+
+### Verified (2026-10-22, draft only)
+A synthetic 4 s 1080×1350 H.264 MP4 (393 KB, uploaded to `gallery/marketing/`) + an existing
+`social-graphics/renders/*.png` were sent through the real `MetricoolPublisher` with `METRICOOL_MODE=draft`.
+Metricool accepted it; normalize returned the Supabase public URLs unchanged; `GET /v2/scheduler/posts/{id}` showed
+`draft: true`, `autoPublish: false`, `instagramData.type: 'POST'` and both media in order. The draft was then
+deleted (`DELETE` → 200, GET → 404) and the test video removed from storage. Not yet verified: an actual
+**live** publish of a video carousel to Instagram (Metricool processes the video at publish time).
+
+### How to test (human)
+1. Carousel card → Edit slides → on slide 2 switch to **Video** → upload a short MP4 (or pick one from Drive) →
+   "Checking video…" then "Video ready" with its length/size/shape. Approve enables with 2+ ready slides.
+2. Pick a 70 s video / a 9:16 phone video / a .webm → "Needs a fix" with the reason; it is left out of the post.
+3. Slide 1 portrait image + a 16:9 video → the "Instagram crops every item…" warning appears.
+
+## AS BUILT — Post scheduling + safe unschedule / reschedule (2026-10-22)
+Admins can now set **when** a social post goes out. `marketing_assets.scheduled_at` (timestamptz) already
+existed and `MetricoolPublisher` already used a future value as `publicationDate`; nothing could set it. No migration.
+
+### Rules (`src/lib/marketing/publish/schedule.ts` — shared server/client, pure)
+- Only the Metricool social channels: `linkedin, instagram_feed, instagram_carousel, instagram_reel, facebook, tiktok`.
+  Blogs / newsletter / PR / sponsor recap are unchanged.
+- Set via `PATCH /api/admin/marketing/assets/[id]` `{ action:'save', scheduled_at: ISO | null }`; refused 409 once the
+  post has been sent to Metricool (or has a `publish_target.metricoolPostId`). Must be ≥ 5 min and ≤ 6 months ahead.
+  Metricool's help centre says manual calendar posts have **no** advance limit (recurring posts: 180 days; "schedule
+  with AI": 3 months), so 6 months is our own ceiling.
+- Times are picked as **UK wall clock** (`METRICOOL_TIMEZONE`, default Europe/London) regardless of the admin's
+  browser zone (`wallClockToInstant` / `instantToWallClock` via Intl; BST/GMT handled).
+- On approve, `pickPublicationInstant` (unchanged) uses a future `scheduled_at`, else now. A Metricool LIVE approve
+  sets `published_at` to the publication instant (may be in the future); status model unchanged (live → `published`,
+  draft → `approved`).
+
+### Metricool client additions (`metricool-client.ts`)
+- `getPost(id)` → `GET /v2/scheduler/posts/{id}`; 404 / empty → `{ found:false }`; else `{ draft, providerStatuses[],
+  publicationDate }` (swagger `ProviderStatus.status`: PUBLISHED | PUBLISHING | PENDING | AWAITING_CONFIRMATION | ERROR | DRAFT).
+- `deletePost(id)` → `DELETE /v2/scheduler/posts/{id}` (same auth params/header); 404 → `alreadyGone`; retries 429,
+  and 5xx **at most once**. Token never logged.
+- `withdrawMetricoolPost(postId, publishAt)` (`metricool.ts`): GET → `metricoolPostState` → DELETE if pending (if the
+  DELETE errors, re-GET; a 404 then counts as deleted) → `deleted | gone | published`, or `{ ok:false }`.
+
+### Asset actions
+- **`unschedule`** (new): Metricool-sent posts only. Pending → deleted from Metricool, asset back to `in_review`,
+  `scheduled_at` kept, old target appended to `publish_target.previous[]` with `unscheduled_at` + `metricool_withdrawal`.
+  Already published → 409. Check/delete failure → 502 and nothing changes. No stored post id → 409 (delete in planner).
+- **`resend`** ("Send again"): now withdraws the previous post first — pending → deleted; published → left on the
+  account (response `notice` says so); failure → 502 refusal (never a second scheduled post while the first exists).
+  Legacy rows without a stored post id still reset, with a notice to check the planner.
+
+### UI (`CampaignDetailPage.tsx`)
+- Card loads `/api/admin/marketing/metricool/status` (env only) for mode + timezone. Social cards (Metricool connected)
+  get **Schedule** / **Change time** → `SchedulePanel` modal: quick picks, house `DateTimeField` with hint
+  "UK time (Europe/London)", Save, Clear schedule. Chip "Scheduled · Tue 28 Oct, 18:00 UK".
+- Approve label: live → "Approve & schedule" / "Approve & publish now"; draft mode → "Approve & send draft" plus a line
+  saying it lands as a Metricool draft dated for that time.
+- Passed time → orange chip + warning; approving asks for confirmation, then publishes now.
+- Sent: "Scheduled on Metricool for … (UK)" (future) / "Sent / published … via Metricool"; badge "Scheduled on Metricool".
+  Sent-but-pending (future, or any draft) → **Unschedule** (confirm) and **Reschedule** (unschedule, then panel).
+
+### Verified (2026-10-22, draft only)
+With `METRICOOL_MODE=draft` for the test process only: one LinkedIn draft created through `MetricoolPublisher` with
+`scheduled_at` = now + 2 days (existing `social-graphics/renders/*.png`). Read back: `draft: true`, provider status
+`PENDING`, `publicationDate` = the exact Europe/London wall clock. `deletePost` → ok; follow-up GET → not found; a
+second DELETE → 404 (`alreadyGone`). No DB writes. Not verified: unschedule/resend against a LIVE scheduled post.
+
+## AS BUILT — Instagram Reels: video editor, cover, caption cleanup (2026-10-22)
+
+Before: the reel card showed the IMAGE template-graphic editor and there was no way to attach a video, so a reel
+could never be approved; the AI body also carried `Hook:` / `Caption:` labels that would have been posted.
+
+### Limits (researched 2026-10-22)
+| Rule | Value | Enforced as | Source |
+|---|---|---|---|
+| Container | MP4 / MOV (`.mp4 .mov .m4v`, or HEAD `video/mp4` / `video/quicktime` / `video/x-m4v`) | **BLOCK** | [Meta IG User Media](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media), [Metricool requirements](https://help.metricool.com/en/article/publishing-requirements-for-images-and-videos-from-metricool-pyf6om/) |
+| Public link | `http(s)://…` | **BLOCK** | — |
+| Duration | 3 s – 15 min | warning | Meta; [Metricool: schedule on Instagram](https://help.metricool.com/en/article/schedule-and-post-on-instagram-1xovmji/) |
+| Size | 300 MB (Meta); Metricool says 500 MB — we warn above 300 MB; uploads cap at 500 MB | warning | Meta, Metricool |
+| Shape | 9:16 recommended (1080×1920); anything else is cropped / letter-boxed | warning (> 3 % off 9:16) | Meta, Metricool |
+| Width | ≤ 1920 px | warning | Meta ("maximum columns 1920") |
+| Codec | H.264 + AAC, 23–60 fps, ≤ 25 Mbps. Meta lists HEVC as accepted, but Metricool: **HEVC and iPhone HDR can't be auto-published** | advice text; warning when the browser can't read the file | Metricool requirements |
+| Cover | JPEG, ≤ 8 MB, 9:16 (Meta crops the centre 9:16); Metricool recommends 1080×1800 for uploads | we always produce a 1080×1920 JPEG | Meta, Metricool |
+
+Metricool cover support: its swagger (`https://app.metricool.com/api/swagger.json`, `ScheduledPost`) has top-level
+**`videoThumbnailUrl`** (and `videoCoverMilliseconds`); `ScheduledPostInstagramData` has `showReelOnFeed`. We send
+`videoThumbnailUrl` = the normalized cover URL and `instagramData.showReelOnFeed: true`. (Frame-offset covers via
+`videoCoverMilliseconds` are not used.)
+
+### Code
+- `src/lib/marketing/reel.ts` (pure, shared): constants; `reelVideoProblems` (BLOCKING only: no link / not http(s) /
+  not MP4-MOV); `reelVideoWarnings` (length, size, 9:16, width, unreadable-in-browser → HEVC/HDR advice);
+  `reelVideoUrl` / `reelCoverUrl` / `coerceReelVideoMeta` / `reelMetaLine` ("0:42 · 1080×1920 (9:16) · 38 MB");
+  `stripPostLabels(body, {dropHook})` removes `Hook:` (+ on-screen text / text overlay), `Caption:` and `Hashtags:`
+  labels — with `dropHook` the hook LINE is dropped (it's on-screen text, not caption) unless it's the only text;
+  `labelStripOptions(channel)` → reels + TikTok.
+- `src/lib/marketing/reel-server.ts`: `reelVideoServerProblems(url)` — the blocking rules, rescuing an
+  extension-less link by a HEAD Content-Type (`headFacts` now exported from `carousel-server.ts`).
+- Asset route (`PATCH /api/admin/marketing/assets/[id]`): new `video_url` / `video_meta` / `cover_url` (instagram_reel
+  only, else 400), merged into `publish_target` like `media_urls`; 409 once sent to Metricool; blocking video problems
+  → 400; a changed video drops stale `video_meta`. Approve on a reel: no `publish_target.video_url` → **400** "Add the
+  reel's video first"; blocking problems → 400; reel + TikTok captions get `stripPostLabels` (saved back to `body`).
+  "Send again" / "Unschedule" keep `video_url`, `video_meta`, `cover_url`. Scheduling unchanged (works for reels).
+- Publisher: reel media = `[video_url]` only — an old reel's `graphic_url` is ignored. Optional `cover_url` is
+  normalized (failure stops the publish with a clear message) → `videoThumbnailUrl`. `target` keeps `video_meta` /
+  `cover_url`.
+- Generate: reel brief → `title` = on-screen hook (≤ ~8 words), `body` = caption only (2–4 lines + 5–10 hashtags, no
+  labels). Reel + TikTok bodies are label-stripped defensively. `instagram_reel` removed from `SOCIAL_GRAPHIC_CHANNELS`
+  (no template is assigned to new reels; the campaign dialog's graphic picker no longer counts reels as "social").
+- UI (`CampaignDetailPage.tsx` `ReelSection`): collapsed card = 9:16 thumbnail (cover if set, else first frame) with a
+  play badge, status badge (**Checking… / Ready / Needs a fix / No video yet**), metadata line and warnings. Editor:
+  `<video muted playsInline controls>` preview, the limits note, `MediaPicker` locked to video (`accept` MP4/MOV;
+  upload ≤ 500 MB via TUS, Drive videos, or link; typed links debounced 600 ms), blocking problems in orange,
+  warnings in muted text ("warnings only — the reel can still be approved"), **Re-check video**, and **Cover image
+  (optional)** (any image → orient route `shape:'story'` → 1080×1920 JPEG → `cover_url`). Old reel drafts with an
+  image graphic show a note that it isn't posted, plus **Use the old graphic as the cover**. The first save also strips
+  `Hook:` / `Caption:` labels from the caption. Approve is disabled until a video is saved (reason shown under the
+  post). A saved video without stored metadata is read once on load for display.
+
+### Verified (2026-10-22, draft only)
+`METRICOOL_MODE=draft` for the test process only. A synthetic 5 s 1080×1920 H.264 MP4 (Swift/AVFoundation, 72 KB) +
+a 1080×1920 JPEG cover uploaded to `gallery/marketing/_reel-test-<ts>.*`, then `MetricoolPublisher.publish` for an
+`instagram_reel` with `graphic_url` set to a dummy image (must be ignored). Read back
+`GET /v2/scheduler/posts/{id}`: `draft: true`, `autoPublish: false`, `instagramData: {type:'REEL',
+showReelOnFeed:true, autoPublish:false}`, `media` = the MP4 only, `videoThumbnailUrl` = the cover, provider status
+`PENDING`. Then `deletePost` → ok, GET → not found; both storage files removed. No DB writes. Not verified: a LIVE reel
+(Instagram's own processing of the cover / codec checks).

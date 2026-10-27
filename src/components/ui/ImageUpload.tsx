@@ -264,6 +264,7 @@ export function ImageUpload({
 
       <DriveGalleryPicker
         open={driveOpen}
+        accept={accept.startsWith('video') ? 'video' : 'image'}
         onClose={() => setDriveOpen(false)}
         onSelect={(url) => {
           onChange(url)

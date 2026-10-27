@@ -10,9 +10,23 @@
 //                                                            safe "test connection"
 //   normalizeMedia(url) GET  /actions/normalize/image/url    Metricool copies a
 //                                                            PUBLIC media URL and
-//                                                            returns its own URL
+//                                                            returns its own URL.
+//                                                            Despite "image" in
+//                                                            the path it is the
+//                                                            ONLY media-import
+//                                                            endpoint in the
+//                                                            swagger and takes
+//                                                            videos too (verified
+//                                                            with an MP4) — a
+//                                                            video just needs a
+//                                                            longer timeout.
 //   createPost(body)    POST /v2/scheduler/posts             creates a planner post
 //                                                            (draft or scheduled)
+//   getPost(id)         GET  /v2/scheduler/posts/{id}        read one planner post
+//                                                            (404 → found:false)
+//   deletePost(id)      DELETE /v2/scheduler/posts/{id}      removes a planner post
+//                                                            (unschedule / re-send);
+//                                                            404 → alreadyGone
 // Every function NEVER throws — it resolves with a tagged outcome.
 //
 // Behaviour:
@@ -28,6 +42,8 @@
 //       POST → on 429 ONLY. A 5xx/timeout on createPost may mean Metricool DID
 //              create the post, so repeating it could double-post. We surface
 //              the error instead and let the admin check the planner.
+//       DELETE → on 429, and on 5xx at most ONCE (a repeated delete is harmless
+//              but we don't hammer Metricool); callers re-GET to confirm.
 //   - METRICOOL_MODE: exactly 'live' → live; ANYTHING else (unset, typo) →
 //     'draft'. Drafts land in Metricool's planner and never auto-publish.
 //
@@ -137,9 +153,14 @@ function toFailure(err: unknown): Failure {
   return { ok: false, httpStatus: null, message: err instanceof Error ? err.message : String(err) }
 }
 
-function isRetryable(method: 'get' | 'post', status: number | undefined): boolean {
+type HttpMethod = 'get' | 'post' | 'delete'
+
+function isRetryable(method: HttpMethod, status: number | undefined, attempt: number): boolean {
   if (status === 429) return true
-  return method === 'get' && status !== undefined && status >= 500
+  if (status === undefined || status < 500) return false
+  if (method === 'get') return true
+  // DELETE: a single retry on 5xx, never more.
+  return method === 'delete' && attempt === 0
 }
 
 // One authenticated request with retry (see header). `deadline` (epoch ms) is
@@ -147,9 +168,16 @@ function isRetryable(method: 'get' | 'post', status: number | undefined): boolea
 // a retry is skipped if its backoff would overrun it.
 async function request<T>(
   cfg: MetricoolConfig,
-  method: 'get' | 'post',
+  method: HttpMethod,
   path: string,
-  opts: { params?: Record<string, string>; body?: unknown; deadline?: number } = {},
+  opts: {
+    params?: Record<string, string>
+    body?: unknown
+    deadline?: number
+    accept?: string
+    /** Per-attempt timeout (default 20s), still capped to the deadline. */
+    timeoutMs?: number
+  } = {},
 ): Promise<MetricoolOutcome<T>> {
   for (let attempt = 0; ; attempt++) {
     const remaining = opts.deadline ? opts.deadline - Date.now() : REQUEST_TIMEOUT_MS
@@ -160,13 +188,13 @@ async function request<T>(
         url: path,
         params: { ...(opts.params ?? {}), userId: cfg.userId, blogId: cfg.blogId },
         data: method === 'post' ? opts.body : undefined,
-        headers: { 'X-Mc-Auth': cfg.token },
-        timeout: Math.min(REQUEST_TIMEOUT_MS, remaining),
+        headers: { 'X-Mc-Auth': cfg.token, ...(opts.accept ? { Accept: opts.accept } : {}) },
+        timeout: Math.min(opts.timeoutMs ?? REQUEST_TIMEOUT_MS, remaining),
       })
       return { ok: true, data: res.data }
     } catch (err) {
       const status = axios.isAxiosError(err) ? err.response?.status : undefined
-      if (isRetryable(method, status) && attempt < RETRY_DELAYS_MS.length) {
+      if (isRetryable(method, status, attempt) && attempt < RETRY_DELAYS_MS.length) {
         const delay = RETRY_DELAYS_MS[attempt]
         if (!opts.deadline || Date.now() + delay < opts.deadline) {
           await sleep(delay)
@@ -238,16 +266,25 @@ function parseNormalizedUrl(data: unknown): string | null {
 }
 
 // Hand Metricool a PUBLIC media URL; returns Metricool's own copy of it (the
-// URL that goes in a post's `media` array).
+// URL that goes in a post's `media` array). Images and videos alike — pass
+// { video: true } for a video so Metricool gets longer to copy it (it
+// downloads the whole file before answering).
+const VIDEO_NORMALIZE_TIMEOUT_MS = 40_000
+
 export async function normalizeMedia(
   url: string,
   deadline?: number,
+  opts: { video?: boolean } = {},
 ): Promise<MetricoolOutcome<string>> {
   const cfg = getMetricoolConfig()
   if (!cfg) return NOT_CONFIGURED
+  // This endpoint answers text/plain and 500s ("No acceptable representation")
+  // when asked for JSON, so accept anything here.
   const res = await request<unknown>(cfg, 'get', '/actions/normalize/image/url', {
     params: { url },
     deadline,
+    accept: '*/*',
+    timeoutMs: opts.video ? VIDEO_NORMALIZE_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
   })
   if (!res.ok) return res
   const normalized = parseNormalizedUrl(res.data)
@@ -255,7 +292,7 @@ export async function normalizeMedia(
     return {
       ok: false,
       httpStatus: null,
-      message: 'Metricool did not return a usable media URL when importing the graphic.',
+      message: `Metricool did not return a usable media URL when importing the ${opts.video ? 'video' : 'graphic'}.`,
     }
   }
   return { ok: true, data: normalized }
@@ -294,4 +331,83 @@ export async function createPost(
   const res = await request<unknown>(cfg, 'post', '/v2/scheduler/posts', { body, deadline })
   if (!res.ok) return res
   return { ok: true, data: { postId: parsePostId(res.data), raw: res.data ?? null } }
+}
+
+// ── getPost / deletePost ────────────────────────────────────────────────────
+// Swagger: GET/DELETE /v2/scheduler/posts/{id} (id = int32). GET answers
+// JsonOkResponseScheduledPost ({ data: ScheduledPost }); each
+// providers[].status is one of PUBLISHED | PUBLISHING | PENDING |
+// AWAITING_CONFIRMATION | ERROR | DRAFT.
+
+export interface MetricoolPostSnapshot {
+  id: string
+  draft: boolean | null
+  // providers[].status values, upper-cased (may be empty).
+  providerStatuses: string[]
+  // publicationDate as Metricool stores it (wall clock + zone).
+  publicationDate: { dateTime: string; timezone: string } | null
+}
+
+function validPostId(postId: string): boolean {
+  return /^\d{1,12}$/.test(postId.trim())
+}
+
+function parsePostSnapshot(data: unknown, postId: string): MetricoolPostSnapshot {
+  const root = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+  const post =
+    root.data && typeof root.data === 'object' ? (root.data as Record<string, unknown>) : root
+  const providers = Array.isArray(post.providers) ? post.providers : []
+  const providerStatuses = providers
+    .map((p) => (p && typeof p === 'object' ? (p as Record<string, unknown>).status : null))
+    .filter((s): s is string => typeof s === 'string' && !!s)
+    .map((s) => s.toUpperCase())
+  const pd = post.publicationDate as { dateTime?: unknown; timezone?: unknown } | undefined
+  return {
+    id: post.id !== undefined ? String(post.id) : postId,
+    draft: typeof post.draft === 'boolean' ? post.draft : null,
+    providerStatuses,
+    publicationDate:
+      pd && typeof pd.dateTime === 'string'
+        ? { dateTime: pd.dateTime, timezone: typeof pd.timezone === 'string' ? pd.timezone : '' }
+        : null,
+  }
+}
+
+// Read one planner post. A 404 is NOT a failure — it resolves
+// { found: false } (the post was deleted, e.g. in Metricool's planner).
+export async function getPost(
+  postId: string,
+  deadline?: number,
+): Promise<MetricoolOutcome<{ found: true; post: MetricoolPostSnapshot } | { found: false }>> {
+  const cfg = getMetricoolConfig()
+  if (!cfg) return NOT_CONFIGURED
+  if (!validPostId(postId)) return { ok: false, httpStatus: null, message: 'Invalid Metricool post id.' }
+  const res = await request<unknown>(cfg, 'get', `/v2/scheduler/posts/${postId.trim()}`, { deadline })
+  if (!res.ok) {
+    if (res.httpStatus === 404) return { ok: true, data: { found: false } }
+    return res
+  }
+  // Metricool may answer 200 with an empty body for an unknown id.
+  if (res.data === null || res.data === undefined || res.data === '') {
+    return { ok: true, data: { found: false } }
+  }
+  return { ok: true, data: { found: true, post: parsePostSnapshot(res.data, postId) } }
+}
+
+// Delete one planner post. 404 → { alreadyGone: true } (nothing to delete).
+// A 5xx is retried at most once; a failure after that may still mean the
+// delete happened — callers confirm with getPost before acting on it.
+export async function deletePost(
+  postId: string,
+  deadline?: number,
+): Promise<MetricoolOutcome<{ deleted: true; alreadyGone: boolean }>> {
+  const cfg = getMetricoolConfig()
+  if (!cfg) return NOT_CONFIGURED
+  if (!validPostId(postId)) return { ok: false, httpStatus: null, message: 'Invalid Metricool post id.' }
+  const res = await request<unknown>(cfg, 'delete', `/v2/scheduler/posts/${postId.trim()}`, { deadline })
+  if (!res.ok) {
+    if (res.httpStatus === 404) return { ok: true, data: { deleted: true, alreadyGone: true } }
+    return res
+  }
+  return { ok: true, data: { deleted: true, alreadyGone: false } }
 }

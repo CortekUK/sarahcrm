@@ -25,7 +25,7 @@ export const CORE_BRIEF_FILE = '00-core-brief.md'
 // answering a usage question with an endpoint path.
 export const FETCHABLE_REFERENCES: Record<string, string> = {
   '07-workflows-and-faq.md':
-    'Step-by-step playbooks for every task in the platform (introductions, applications, events, marketing, sponsorship, accountability, finance, contracts, website, automations, portals, member chat, member feed) plus a 67-question FAQ. START HERE for any "how do I..." question.',
+    'Step-by-step playbooks for every task in the platform (introductions, applications, events, marketing, sponsorship, accountability, finance, contracts, website, automations, portals, member chat, member feed) plus a 71-question FAQ. START HERE for any "how do I..." question.',
   '05-screens-and-components.md':
     'What every individual screen shows and every button, dialog, form field, filter and bulk action on it, with the exact on-screen wording. Use when you need the precise label of a control, or what a specific screen does.',
   '01-routes-and-navigation.md':

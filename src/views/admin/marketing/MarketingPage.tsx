@@ -248,7 +248,8 @@ function NewCampaignModal({
   }, [open])
 
   const hasSocial = channels.some((c) =>
-    ['instagram_feed', 'instagram_carousel', 'instagram_reel', 'linkedin', 'facebook', 'tiktok'].includes(c),
+    // Reels take a video in the approval queue, not a template graphic.
+    ['instagram_feed', 'instagram_carousel', 'linkedin', 'facebook', 'tiktok'].includes(c),
   )
 
   function toggleChannel(key: Channel) {

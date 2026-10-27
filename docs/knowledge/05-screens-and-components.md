@@ -629,7 +629,7 @@ Modal "Manage — {sponsor}" (lg). "Proposal &amp; ROI report": **"Generate prop
 
 ### DriveGalleryPicker — `src/components/admin/DriveGalleryPicker.tsx`
 
-Modal "Google Drive media library" (lg) — read-only Drive browser. Breadcrumb nav → `GET /api/admin/google/drive/list?folderId=`. Select file → `POST /api/admin/google/drive/import {file_id}` (imports into Supabase `gallery` bucket) → returns URL to caller. Empty: "This folder is empty."
+Modal "Google Drive media library" (lg) — read-only Drive browser. Breadcrumb nav → `GET /api/admin/google/drive/list?folderId=`. Select file → `POST /api/admin/google/drive/import {file_id}` (imports into Supabase `gallery` bucket, NDJSON progress) → returns URL to caller. Tiles show file size; files > 500 MB show "Too large" and are refused without importing. While copying: progress bar + "Copying from Google Drive… 45% (120 of 260 MB)" with Cancel; closing the modal cancels the copy. Empty: "This folder is empty."
 
 ### Contracts — `src/components/contracts/*`
 
@@ -1121,7 +1121,7 @@ All import `cn` from `@/lib/utils`; theme via CSS variables (`bg-surface`, `text
 | `FileUpload.tsx` | Drag/drop non-image upload → Supabase Storage | `value, onChange, bucket, maxMB, accept` | Document panels |
 | `ImageUpload.tsx` | Drag/drop image upload + Drive import via `DriveGalleryPicker` | `value, onChange, bucket, aspect, maxMB` | CMS forms |
 | `MultiImageUpload.tsx` | Ordered multi-image uploader | `value: string[], onChange, maxCount` | Gallery/event photo sets |
-| `MediaPicker.tsx` | Universal image/video picker (Upload/URL/Drive tabs) | `value, onChange, mediaType, bucket, lockedToType` | Hero/CMS media |
+| `MediaPicker.tsx` | Universal image/video picker (Upload/URL/Drive tabs). Uploads capped at 500 MB (`maxMB`, default 500); files > 6 MB upload via browser TUS (`src/lib/storage/tus.ts`) with % progress + Cancel | `value, onChange, mediaType, bucket, lockedToType, maxMB` | Hero/CMS media |
 | `CashflowChart.tsx` | Themed Recharts grouped bar chart | `data: CashflowBucket[]` | Finance dashboard |
 | `ThemeToggle.tsx` | Day/night toggle | `variant: pill\|icon` | Admin sidebar, public header, portal |
 | `chat/index.tsx` | `MessageScroller`, `Message`, `Bubble` (gold/ivory) | `side: inbound\|outbound, footer` | WhatsApp inbox |
