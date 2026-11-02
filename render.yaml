@@ -5,7 +5,8 @@
 # Starter (always-on), never Free: a free service sleeps after 15 idle
 # minutes and takes ~1 min to wake. Twilio gives up on /voice/incoming after
 # 15 s, so the first caller after a quiet spell would hear "an application
-# error has occurred". Frankfurt is the closest region to UK callers.
+# error has occurred". Chat is in Frankfurt (closest to the London Supabase
+# database); the voice agent is in Virginia (see below).
 #
 # Each service has a rootDir, so a push only redeploys the service whose
 # folder changed.
@@ -19,7 +20,9 @@ services:
     name: theclub-voice
     runtime: node
     rootDir: services/voice
-    region: frankfurt
+    # US East, next to Twilio (US1 account) and OpenAI — each reply round-trip
+    # goes agent ↔ Twilio ↔ OpenAI, so being near them beats being near callers.
+    region: virginia
     plan: starter
     buildCommand: npm ci && npm run build
     startCommand: npm start
