@@ -1300,3 +1300,12 @@ Reads `{theme, toggle, isHydrating}` from the real `useTheme()`. `Moon`/`Sun` ic
 | Drag-to-reorder list | `admin/SortableList.tsx` | hand-rolled dnd wiring | Already handles optimistic reorder + revert; 7 pages depend on it. |
 | Portal (member-facing) UI | `portal/PortalChrome.tsx` exports | `ui/*` directly | Portal always night-palette (with `day:` overrides), bronze corner-bracket motifs — its dedicated equivalent of `ui/`. |
 | Public marketing site UI | `website/night/*` | `website/*.tsx` top-level / `home/`/`events/` | Legacy files are dead code superseded by `night/`. |
+
+### CallsPage — `src/views/admin/calls/CallsPage.tsx` (+ `CallDetailModal.tsx`, `calls-data.ts`)
+Route `/dashboard/calls` (sidebar **Engage → Calls**, phone icon). Every call answered by the AI phone receptionist.
+- **Header meta:** "N calls awaiting follow-up" (outcome other than No action/Failed and not yet handled).
+- **Filter chips:** All · Unhandled · Escalated · Call back · Enquiry · Message · No action · Failed.
+- **List** (newest first, 25 at a time, **Load more**): When · Caller (name, else matched member/contact name, else number; a **Member** or **Contact** badge when the caller ID matched someone) · Duration · Outcome badge (+ **Escalated**, ✓ when handled) · Summary. Phones (<768px) get stacked cards instead of the table.
+- **Detail modal** (click a row; URL becomes `?call=<id>`): outcome/handled badges, time, duration, number, **Mark handled / Mark unhandled**; **AI summary**; **Escalated** panel (reason); **Call back requested** panel (team, preferred time in the caller's words + parsed time, "Not booked — confirm a time with the caller"); **Captured details** (name, callback number, email, company, role, interested in, approx. turnover, message); links to the **Enquiry** (Enquiries page), **Member** profile, **Contact** book; the **Transcript** as chat bubbles (caller left, receptionist right, "interrupted" when the caller talked over it, small markers for what the receptionist recorded).
+- If the `voice_calls` migration isn't applied, the page says "Calls aren't set up yet".
+

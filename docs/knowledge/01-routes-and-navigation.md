@@ -90,6 +90,7 @@ Login routes: `/login` = member login (also default landing link from the public
 | Feed | `/dashboard/feed` | Newspaper | Member Feed (Club feed + group pills); only when chat is configured. Notifications bell sits in the sidebar header (desktop) and the mobile top bar |
 | Inbox | `/dashboard/inbox` | Inbox | |
 | Enquiries | `/dashboard/enquiries` | Inbox | |
+| Calls | `/dashboard/calls` | Phone | AI phone receptionist call log (summary, transcript, Mark handled); `?call=<id>` opens one call |
 | Reviews | `/dashboard/reviews` | Quote | |
 | Newsletter | `/dashboard/newsletter` | MailPlus | |
 | **Communications** (group) | `/dashboard/communications` | Mail | expandable group; active-match is exact for the parent `to` |
@@ -172,6 +173,7 @@ All pages below are client components (`'use client'`) unless noted "server". Al
 | `/dashboard/tags` | `.../dashboard/tags/page.tsx` | `TagsPage` | Manage member/entity tags (server component, no `'use client'`). |
 | `/dashboard/inbox` | `.../dashboard/inbox/page.tsx` | `InboxPage` | Unified messaging inbox. |
 | `/dashboard/enquiries` | `.../dashboard/enquiries/page.tsx` | `EnquiriesListPage` | Public contact-form/enquiry submissions. |
+| `/dashboard/calls` | `.../dashboard/calls/page.tsx` | `CallsPage` | Calls answered by the AI phone receptionist (`voice_calls`); `?call=<id>` deep link opens the detail. |
 | `/dashboard/reviews` | `.../dashboard/reviews/page.tsx` | `ReviewsAdminPage` | Moderate/manage testimonials submitted via "Share Your Experience". |
 | `/dashboard/newsletter` | `.../dashboard/newsletter/page.tsx` | `NewsletterPage` | Newsletter/mailing-list management. |
 | `/dashboard/communications` | `.../dashboard/communications/page.tsx` | `CommunicationsPage` | Communications overview/hub. |

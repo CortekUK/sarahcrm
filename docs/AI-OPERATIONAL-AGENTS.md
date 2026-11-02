@@ -13,7 +13,7 @@ Sarah's brief lists six "agents." We built the **three that work today** (pure i
 
 ## Deferred — need external setup (NOT built; would only be stubs)
 - **WhatsApp assistant** — blocked on WhatsApp Business verification.
-- **Phone receptionist** — needs telephony (Twilio/Vapi-type).
+- ~~**Phone receptionist**~~ — **built 2026-10-28** on Twilio ConversationRelay (see AS BUILT — Phone receptionist).
 - **Onboarding-call recorder** — needs meeting transcription (Fathom-type).
 
 ---
@@ -68,6 +68,17 @@ Client brief: "Suggest relevant events" + "Books a call with Sarah / sales team 
 - **Never lose a lead:** with a first name + valid email, the enquiry is forced on the conversation's last allowed message (or, if that turn's OpenAI call failed, on the next capped request — backup from stored fields + `call_state`), noted "Filed automatically: the conversation reached its message limit." Still one enquiry per conversation; later news (booking, preferred times, turnover) is appended to it.
 - **Not built:** rescheduling/cancelling a booked call is manual in Google Calendar.
 
+## AS BUILT — Phone receptionist (2026-10-28)
+Twilio number **+44 7915 919880** (Voice + SMS; AI/ML addendum accepted). **Not live yet**: needs the Twilio credentials in `services/voice/.env`, the migration applied and the number pointed at the service.
+- **Service** `services/voice` (Node 22 + TS, Express + `ws`, its own npm lockfile, imports nothing outside the folder; Railway root `services/voice`, watch `services/voice/**`, healthcheck `/health`). It boots without credentials, `/health` lists what's `missing`, and the webhooks answer 503 until they're set. README has the step-by-step for local runs (port 4200 + `ngrok http 4200`) and Railway.
+- **Transport: Twilio ConversationRelay.** `POST /voice/incoming` checks `X-Twilio-Signature` (twilio `validateRequest`, `TWILIO_AUTH_TOKEN`, URL rebuilt from `VOICE_PUBLIC_URL`) and returns `<Connect action=/voice/connect-action><ConversationRelay url=wss://…/relay welcomeGreeting=… language=en-GB ttsProvider=ElevenLabs voice=<VOICE_TTS_VOICE> transcriptionProvider=Deepgram interruptible=any …><Parameter callSid/from/></Connect>`. `WS /relay` checks the handshake signature too, and the CallSid must be one we just answered. `POST /voice/status` (status callback) finalizes calls that never reached the relay. `/voice/connect-action` hangs up (with an apology on `SessionStatus=failed`).
+- **Agent** (`src/session.ts`, `src/prompt.ts`, `src/tools.ts`): OpenAI streaming chat completions (`VOICE_OPENAI_MODEL`, default `gpt-4.1-mini`, `max_completion_tokens` 200). Tokens stream straight back as `text` messages, and `last:true` closes each talk cycle. `interrupt` aborts the stream and truncates history and transcript to `utteranceUntilInterrupt`. Tools: `save_caller_details`, `request_callback`, `create_enquiry`, `mark_escalation`, `end_call`. They update memory only, so the CRM is written once at hang-up. At call start it loads facts: published/live events for the next 180 days and active membership plans with **no prices**, plus a caller-ID match. Rules: British and concise, says it's an AI and that the call is transcribed, never quotes prices, discounts or availability, never takes card details, never claims to be human, escalates sensitive topics. Limits: 10 min (`VOICE_MAX_CALL_SECONDS`), 40 turns, 4 tool rounds per turn. If OpenAI fails it apologises and offers to take a message; a second failure ends the call politely.
+- **Persistence** `supabase/migrations/20261028_voice_calls.sql` (**not yet applied**): `voice_calls` (captured fields, callback request, escalation, summary, outcome check, transcript jsonb, enquiry/member/contact links, token counts, `finalized_at`, `handled_at/by`), admin SELECT+UPDATE RLS, plus `voice_phone_digits()` (expression-indexed on `contacts.phone`/`profiles.phone`) and `voice_match_caller()` (service_role only).
+- **End of call** (`src/finalize.ts`, exactly once per CallSid via an in-process lock and a DB `finalized_at` claim): the summary comes from OpenAI JSON, with a templated fallback. The outcome is deterministic (escalated > callback_requested > enquiry_created > message_taken > failed > no_action). The **enquiry is inserted directly** (`source: 'phone_agent'`) rather than through `/api/enquiries/intake`, because the intake requires an email and always emails the enquirer an acknowledgement plus emails admins, and the agent must never email anyone. It copies the intake's minimum: the lead score (`src/scoring.ts` is a copy of `src/lib/leads/scoring.ts`), owner routing, and a linked task. Call-backs fill `enquiries.call_requested_at/call_team/call_preferences` (if those columns are missing it retries without them). Escalations get a high-priority task, not an enquiry. An `admin_notifications` row (`voice_call` / `voice_call_escalated`, link `/dashboard/calls?call=<id>`) is written for every outcome except no_action/failed. **Google Calendar is never touched.**
+- **Admin UI** `/dashboard/calls` (Engage → Calls, Phone icon): `src/views/admin/calls/{CallsPage,CallDetailModal,calls-data}.tsx`. Browser client under admin RLS, `useInfiniteQuery` keyset paging 25 at a time on `(started_at, id)`, outcome and Unhandled filters, a detail modal with summary, details, call-back, CRM links, the transcript in `ui/chat` bubbles, and **Mark handled**. `phone_agent` source label added on Enquiries.
+- **Twilio number config** `services/voice/scripts/configure-number.ts`: dry run by default, `--apply` sets `voiceUrl=/voice/incoming` and `statusCallback=/voice/status` (POST).
+- **Not built:** calendar booking, warm transfer to a person, voicemail, outbound calls, SMS follow-ups, audio recording.
+
 ---
 
 # STATUS & HANDOVER (2026-07-25)
@@ -79,7 +90,7 @@ All three agents: tsc clean, `npm run build` passes, migrations live (RLS admin-
 Chief of Staff email + Member Success recompute run inside `runAllAutomations`, which the cron fires once/day at `app_settings.daily_send_hour` (Europe/London, default 7). To preview without waiting: hit the cron with `?dryRun=true`, or use the in-page "Generate" / "Recompute now" buttons.
 
 ## Outstanding / deferred (pick up here)
-- WhatsApp assistant, phone receptionist, onboarding-call recorder (need external accounts).
+- WhatsApp assistant, onboarding-call recorder (need external accounts). Phone receptionist: built 2026-10-28, go-live steps in `services/voice/README.md`.
 - Concierge: consider Cloudflare Turnstile for stronger bot protection (needs a key + dep); current protection is app-level only.
 - MSM email digest (currently flags surface in the view + feed the Chief of Staff "risks" section; no separate MSM email — one morning email = the Chief of Staff briefing).
 - Automation-email opens are a blind spot for engagement scoring (only `communications` campaign email has open/click tracking).
@@ -96,7 +107,7 @@ The three below were NOT built (each needs an external account/service; building
 **Reusable seams already in place:** the concierge's conversational + qualification + structured-output + abuse-protection pattern (`src/app/api/concierge/chat/route.ts`) transfers almost directly — swap the transport from HTTP widget to a WhatsApp webhook. Enquiry creation → reuse `/api/enquiries/intake`. There is already a WhatsApp INBOX (admin) UI + the `ui/chat` primitives (built for it) to surface threads. Escalation → `notifyAdmins`.
 **Build sketch when live:** (1) inbound webhook `/api/whatsapp/webhook` (verify Meta signature) → normalise message → same AI turn logic as concierge (scope-guarded, collects info) → reply via the WhatsApp send API; (2) intent routing: enquiry → intake; payment → Stripe payment-link + a `payments` row; escalation triggers on low confidence / keywords → `notifyAdmins` + stop auto-replying; (3) persist threads (reuse/extend the WhatsApp inbox tables). Keep an allowlist of auto-send message types; everything else drafts for human approval.
 
-## B. AI Phone Receptionist — BLOCKED on a telephony/voice service
+## B. AI Phone Receptionist — ✅ BUILT 2026-10-28 (see AS BUILT — Phone receptionist; original sketch kept below)
 **What it does:** answers inbound calls about membership/concierge, qualifies the caller, books an appointment.
 **Needs:** a voice-AI/telephony provider (Vapi, Twilio Voice + a realtime voice model, Retell, or similar) + a phone number.
 **Reusable seams:** same qualification/enquiry-creation logic (`/api/enquiries/intake`) and the concierge system-prompt approach; calendar booking can reuse the concierge's call-booking seam (`src/lib/google/calendar.ts` `getFreeSlots`/`createBooking` + `src/lib/concierge/call-booking.ts` routing, behind `CONCIERGE_BOOKING_ENABLED`).

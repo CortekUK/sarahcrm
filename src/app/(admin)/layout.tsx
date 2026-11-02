@@ -59,6 +59,7 @@ import {
   HeartPulse,
   ContactRound,
   Sunrise,
+  Phone,
   Menu,
   Newspaper,
 } from 'lucide-react'
@@ -174,6 +175,8 @@ const NAV_SECTIONS: NavSection[] = [
       ...(chatEnabled ? [{ to: '/dashboard/feed', label: 'Feed', icon: Newspaper }] : []),
       { to: '/dashboard/inbox', label: 'Inbox', icon: Inbox },
       { to: '/dashboard/enquiries', label: 'Enquiries', icon: Inbox },
+      // AI phone receptionist (services/voice) call log.
+      { to: '/dashboard/calls', label: 'Calls', icon: Phone },
       { to: '/dashboard/reviews', label: 'Reviews', icon: Quote },
       { to: '/dashboard/newsletter', label: 'Newsletter', icon: MailPlus },
       {

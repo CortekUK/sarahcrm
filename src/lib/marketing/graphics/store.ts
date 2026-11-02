@@ -1,4 +1,4 @@
-// Template Graphics — render a template+values to a PNG and store it in the
+// Template Graphics — render a template+values to a JPEG and store it in the
 // public 'social-graphics' bucket. Shared by the render route and the
 // generation pipeline so both produce identically-stored graphics.
 
@@ -33,12 +33,16 @@ export async function renderTemplateToStorage(args: {
     renderGraphic({ template: prepared.template, values: prepared.values, shape, origin }),
     { width: dims.w, height: dims.h },
   )
-  const buffer = Buffer.from(await image.arrayBuffer())
+  const png = Buffer.from(await image.arrayBuffer())
+  // Stored as JPEG, not satori's PNG: TikTok rejects image/png outright, and
+  // every other network takes JPEG (at a fraction of the PNG's size).
+  // 4:4:4 chroma keeps the overlay text crisp.
+  const buffer = await sharp(png).flatten({ background: '#000000' }).jpeg({ quality: 92, chromaSubsampling: '4:4:4' }).toBuffer()
 
   const admin = getAdmin()
-  const path = `renders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+  const path = `renders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
   const { error } = await admin.storage.from(BUCKET).upload(path, buffer, {
-    contentType: 'image/png',
+    contentType: 'image/jpeg',
     upsert: false,
     cacheControl: '31536000',
   })

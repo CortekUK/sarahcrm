@@ -406,6 +406,10 @@ function AssetCard({
   // Bumped after a regenerate so the graphic editors re-initialise from the
   // fresh slot_values (new carousel slides etc.).
   const [graphicKey, setGraphicKey] = useState(0)
+  // A graphic/carousel render (and its save) is in flight. Approving
+  // meanwhile would publish whatever graphic_url the row had BEFORE it —
+  // possibly none — so Approve waits.
+  const [graphicBusy, setGraphicBusy] = useState(false)
 
   useEffect(() => {
     setTitle(asset.title ?? '')
@@ -436,7 +440,10 @@ function AssetCard({
   const reelBlockReason = reelBlocked
     ? 'A reel needs its video before it can be approved — add it under “Reel video” above.'
     : null
-  const approveBlockReason = carouselBlockReason ?? reelBlockReason
+  const approveBlockReason =
+    carouselBlockReason ??
+    reelBlockReason ??
+    (graphicBusy && !published ? 'Wait for the graphic to finish rendering, then approve.' : null)
   const isNewsletter = asset.channel === 'newsletter'
   // Scheduling — Metricool social channels only, when Metricool is configured
   // (otherwise the mock publisher ignores the time).
@@ -656,6 +663,7 @@ function AssetCard({
             templates={templates}
             disabled={published}
             onChange={onChange}
+            onBusyChange={setGraphicBusy}
           />
         ) : isReel ? (
           <ReelSection key={graphicKey} asset={asset} disabled={published} onChange={onChange} />
@@ -667,6 +675,7 @@ function AssetCard({
               templates={templates}
               disabled={published}
               onChange={onChange}
+              onBusyChange={setGraphicBusy}
             />
           )
         )}
@@ -944,7 +953,7 @@ function AssetCard({
               icon={<Check size={14} />}
               loading={busy === 'approve'}
               onClick={() => patch('approve')}
-              disabled={published || carouselBlocked || reelBlocked}
+              disabled={published || carouselBlocked || reelBlocked || graphicBusy}
               title={approveBlockReason ?? undefined}
             >
               {metricool
@@ -1309,11 +1318,13 @@ function GraphicSection({
   templates,
   disabled,
   onChange,
+  onBusyChange,
 }: {
   asset: Asset
   templates: MarketingTemplate[]
   disabled: boolean
   onChange: (a: Asset) => void
+  onBusyChange?: (busy: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const [templateId, setTemplateId] = useState<string>(asset.template_id ?? '')
@@ -1336,6 +1347,9 @@ function GraphicSection({
   const [asIs, setAsIs] = useState<boolean>(initialValues.as_is === true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    onBusyChange?.(busy)
+  }, [busy, onBusyChange])
 
   const template = templates.find((t) => t.id === templateId) ?? null
   const aiSlots: TemplateSlot[] = (template?.slots ?? []).filter(
@@ -1818,11 +1832,13 @@ function CarouselSection({
   templates,
   disabled,
   onChange,
+  onBusyChange,
 }: {
   asset: Asset
   templates: MarketingTemplate[]
   disabled: boolean
   onChange: (a: Asset) => void
+  onBusyChange?: (busy: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const [templateId, setTemplateId] = useState<string>(asset.template_id ?? '')
@@ -1847,6 +1863,9 @@ function CarouselSection({
   const media = carouselMedia(asset.graphic_url, asset.publish_target)
   const renderedCount = slides.filter((s) => s.rendered_url).length
   const anyBusy = renderingAll !== null || saving || Object.values(status).some((s) => s.busy)
+  useEffect(() => {
+    onBusyChange?.(anyBusy)
+  }, [anyBusy, onBusyChange])
   const issues = carouselIssues(slides, shape)
   const hasVideo = slides.some(isVideoSlide)
   const needsTemplate = slides.some((s) => !isVideoSlide(s) && !s.as_is)

@@ -53,6 +53,19 @@ import {
   Bell,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+// voice_calls isn't in the generated types yet (same as the Calls page).
+const callsDb = supabase as unknown as SupabaseClient
+
+const TRANSCRIPT_LINE = /\n?\s*Full transcript:\s*\/dashboard\/calls\?call=([0-9a-f-]{36})\s*$/im
+
+/** Pull the phone agent's "Full transcript: …" line out of an enquiry message. */
+function splitTranscriptLink(message: string | null): { text: string; callId: string | null } {
+  const m = (message ?? '').match(TRANSCRIPT_LINE)
+  if (!m) return { text: message ?? '', callId: null }
+  return { text: (message ?? '').replace(TRANSCRIPT_LINE, '').trimEnd(), callId: m[1] }
+}
 
 type EnquiryRow = Database['public']['Tables']['enquiries']['Row']
 type EnquiryStatus = 'new' | 'replied' | 'closed'
@@ -73,6 +86,7 @@ const SOURCE_LABELS: Record<string, string> = {
   contact_form: 'Contact form',
   concierge_form: 'Concierge',
   concierge_chat: 'AI Concierge',
+  phone_agent: 'AI phone receptionist',
   website: 'Website',
 }
 
@@ -731,6 +745,26 @@ function EnquiryDetailModal({
   const [notes, setNotes] = useState(enquiry.admin_notes ?? '')
   const [enriching, setEnriching] = useState(false)
   const status = (enquiry.status as EnquiryStatus) ?? 'new'
+  // Phone-agent enquiries: link the call (transcript) as a button instead of
+  // the raw "Full transcript: /dashboard/calls?call=…" line in the message.
+  const { text: messageText, callId: messageCallId } = splitTranscriptLink(enquiry.message)
+  const [callId, setCallId] = useState<string | null>(messageCallId)
+  useEffect(() => {
+    if (messageCallId || enquiry.source !== 'phone_agent') return
+    let live = true
+    void callsDb
+      .from('voice_calls')
+      .select('id')
+      .eq('enquiry_id', enquiry.id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (live && data) setCallId((data as { id: string }).id)
+      })
+    return () => {
+      live = false
+    }
+  }, [enquiry.id, enquiry.source, messageCallId])
 
   async function handleEnrich() {
     setEnriching(true)
@@ -865,11 +899,21 @@ function EnquiryDetailModal({
 
         {/* Message */}
         <div>
-          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
-            Their message
-          </p>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">
+              Their message
+            </p>
+            {callId && (
+              <Link
+                href={`/dashboard/calls?call=${callId}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 px-3 py-1 text-xs font-medium text-gold hover:bg-gold/10 transition-colors shrink-0"
+              >
+                <PhoneCall size={13} /> View call transcript
+              </Link>
+            )}
+          </div>
           <div className="bg-surface-2 border border-border rounded-md p-4 text-sm text-text whitespace-pre-wrap leading-relaxed">
-            {enquiry.message}
+            {messageText}
           </div>
         </div>
 

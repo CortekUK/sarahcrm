@@ -384,9 +384,11 @@ Staff logins are entirely separate from admin CRM access (enforced by RLS, not j
 - **Call requests:** if a visitor wants to talk, it routes them to the **Membership team**, the **Events team** or **Sarah** (only when asked for by name) and, today, collects their preferred days/times. The enquiry shows **"Call requested: preferred …"** and a high-priority follow-up task "Call requested: <name> — preferred … (<team>)" is created, due the next business day; the enquiry is filed under the matching type, so its owner comes from Settings → Enquiry Routing. Someone then calls them back.
 - **Calendar booking is built but OFF.** When a developer switches it on (`CONCIERGE_BOOKING_ENABLED=true`, after the Google Workspace admin grants the calendar scopes), the concierge offers real free slots (weekdays 10:00–17:00 UK, 30 minutes), books the chosen one with a Google Meet link and an invite to the visitor, and the Enquiries page shows a **"Calls booked by the AI Concierge"** strip (Open / Mark read). Rescheduling or cancelling a booked call is done by hand in Google Calendar.
 
+### AI Phone Receptionist — built (see Playbook 25)
+- Answers The Club's phone number (+44 7915 919880) with an AI receptionist and logs every call in **Engage → Calls**.
+
 ### Deferred agents (documented, not built — need external accounts)
 - **WhatsApp AI Assistant** — blocked on WhatsApp Business Meta verification.
-- **AI Phone Receptionist** — blocked on a telephony/voice provider (e.g. Twilio/Vapi).
 - **Onboarding-Call Recorder** — blocked on a meeting-transcription service (e.g. Fathom/Otter).
 None of these exist as working features yet; if asked, say they are planned and blocked on an external account, not "coming soon."
 
@@ -602,6 +604,22 @@ Runs on the same chat service as Messages (`NEXT_PUBLIC_CHAT_URL`); hidden until
 6. **Reports:** members can ⋯ → **Report post** / **Report comment**. They land in **Messages → Reports** (labelled "Feed post" / "Feed comment", with the reported text) → **Open post** → moderate → **Reviewed** or **Dismiss**.
 7. **@mentions:** type **@** and a name in a post, comment or reply, then pick the person from the list (↑/↓ and Enter, or tap). They show as a gold **@Name** and the person gets a notification. Members can mention people they've been introduced to, the Club team, anyone already in that post's conversation and — in a group — the group's members; the team can mention anyone active. Blocked people never appear. Mentioning someone doesn't unlock messaging or show them anything extra.
 8. **Notifications:** the **bell** (portal header; admin sidebar top / mobile top bar) shows a red count. You're notified when someone comments on your post, replies to your comment, mentions you, or posts in a group you're in (not when you mute that group, and never for your own actions; Club-feed posts don't notify). Click one to jump to the post; **Mark all read** clears the badge. In-app only — no email or push. Chat's unread badge is separate.
+
+## PLAYBOOK 25 — Calls (AI phone receptionist)
+
+**What it is:** when someone rings The Club's number (**+44 7915 919880**), an AI receptionist answers in a British voice. It says it is The Club's AI assistant and that the call is transcribed for the team. It can explain The Club, membership and the upcoming public events (it never quotes prices, never takes card details and never pretends to be a person). It takes a message (name, callback number — it reads the caller ID back to confirm — email, company, role, what they're interested in, and for membership/business calls an approximate turnover), takes **call-back requests** with a preferred day/time, and **escalates** complaints, payments, cancellations, press and anything sensitive ("a member of the team will call you back"). It never books anything in a calendar — a call back is a request the team confirms by phone.
+
+**After every call** (automatically, nothing to click):
+- The call appears in **Engage → Calls** with an **AI summary**, the captured details, any call-back request and the full **transcript**.
+- If the caller left their name and wanted something, an **Enquiry** is created (source **AI phone receptionist**), scored and routed to its owner like a website enquiry, with a linked follow-up **task** — "Call back: <name> — preferred … (<team>)" for call-back requests (due on their preferred day, or the next business day), otherwise "Follow up phone enquiry: …". **Nobody is emailed** — not the caller, not the team.
+- **Escalated** calls don't become enquiries; they get a high-priority "Escalated call: <name> — <reason>" task instead.
+- If the number matches an existing member or contact, the call shows a **Member** / **Contact** badge and links to them.
+
+**Working the Calls list:**
+1. Open **Engage → Calls**. The header shows how many calls are awaiting follow-up; the **Unhandled** chip lists them.
+2. Click a call to read the summary and transcript, then follow up (ring them back, open the linked **Enquiry**, or the member/contact).
+3. Click **Mark handled** so the rest of the team knows it's done (**Mark unhandled** undoes it).
+4. Use the chips to see just **Escalated**, **Call back**, **Enquiry**, **Message**, **No action** (hung up / nothing left) or **Failed** (busy, no answer, line problem).
 
 ---
 
@@ -825,3 +843,16 @@ A reel is a video, so **Approve** stays disabled until the card's **Reel video**
 
 **71. How do I schedule a post?**
 On a LinkedIn, Instagram, Facebook or TikTok card click **Schedule**, pick the date and time (**UK time**, Europe/London — or use *Tomorrow 9:00 / Tomorrow 18:00 / Next Monday 9:00*) and **Save**. The card shows "Scheduled · <day date, time> UK". Then click **Approve & schedule** — Metricool posts it at that time (in Draft mode it lands as a Metricool draft dated for that time). Times must be 5 minutes to 6 months ahead. To change it after approving, click **Reschedule** (or **Unschedule** to take it back off Metricool); that deletes the pending Metricool post first so it never goes out twice. If the time passed before approval, approving publishes it immediately — you're asked to confirm first.
+
+**72. Where do I see who rang The Club's phone number?**
+**Engage → Calls**. Every call the AI receptionist answers is listed newest first with the caller, duration, outcome and a summary; click one for the details and full transcript. Callers who wanted something also appear in **Enquiries** (source "AI phone receptionist") with a follow-up task.
+
+**73. A caller asked for a call back — has it been booked in someone's diary?**
+No. The receptionist only takes a **request** with the caller's preferred time (it says the team will confirm). The call shows a **Call back requested** panel, the enquiry says "Call requested: preferred …", and a high-priority task "Call back: …" is due on that day (or the next business day). Ring them, then **Mark handled** on the call.
+
+**74. Why is there no enquiry for an escalated call?**
+Complaints, payments, cancellations, press and other sensitive calls aren't sales leads, so they get a high-priority **"Escalated call"** task and show as **Escalated** in Calls instead. Read the transcript, call them back personally and **Mark handled**.
+
+**75. Did the caller get an email or text from us after the call?**
+No — the phone receptionist never emails or texts anyone. Any reply is up to the team. (An enquiry from a phone call may have no email address if the caller didn't give one; use the phone number instead.)
+

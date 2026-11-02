@@ -1,0 +1,73 @@
+# Render Blueprint — the two long-running Node services (the Next.js app
+# itself stays on Vercel). Render → New → Blueprint → pick this repo; it
+# creates both services and prompts for every `sync: false` secret.
+#
+# Starter (always-on), never Free: a free service sleeps after 15 idle
+# minutes and takes ~1 min to wake. Twilio gives up on /voice/incoming after
+# 15 s, so the first caller after a quiet spell would hear "an application
+# error has occurred". Frankfurt is the closest region to UK callers.
+#
+# Each service has a rootDir, so a push only redeploys the service whose
+# folder changed.
+
+services:
+  # Phone agent — Twilio ConversationRelay (HTTP webhooks + /relay WebSocket).
+  # Its public URL comes from Render's RENDER_EXTERNAL_URL automatically; after
+  # the first deploy, point the Twilio number at it once:
+  #   VOICE_PUBLIC_URL=https://<service>.onrender.com npm run configure-number -- --apply
+  - type: web
+    name: theclub-voice
+    runtime: node
+    rootDir: services/voice
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        value: "+447915919880"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: VOICE_TTS_VOICE
+        value: Fahco4VZzobUeiPqni1S
+
+  # Member chat + feed — Socket.IO. NEXT_PUBLIC_CHAT_URL on Vercel must be
+  # this service's https URL.
+  - type: web
+    name: theclub-chat
+    runtime: node
+    rootDir: services/chat
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Comma-separated site origins allowed to connect (the Vercel app +
+      # theclubgroup.co once DNS moves).
+      - key: CHAT_ALLOWED_ORIGINS
+        sync: false
+      # CHAT_OWNER_PROFILE_ID is optional — without it the owner comes from
+      # the CRM settings table.
+      # Temporary: every admin has owner chat powers. "false" before launch = Sarah only.
+      - key: CHAT_ADMINS_FULL_ACCESS
+        value: "true"
