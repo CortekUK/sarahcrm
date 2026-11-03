@@ -275,3 +275,28 @@ grant execute on function public.contact_enrichment_plan(uuid[]) to service_role
 grant execute on function public.contact_enrichment_seed(uuid[]) to service_role;
 grant execute on function public.contact_enrichment_apply(text[], uuid[]) to service_role;
 grant execute on function public.contact_enrichment_next_domains(integer, uuid[]) to service_role;
+
+-- ── Per-contact outcome for a selection (the dialog's result list) ──
+create or replace function public.contact_enrichment_results(p_ids uuid[])
+returns table (
+  id uuid, email text, first_name text, last_name text, company_name text, sector text,
+  personal boolean, needs_data boolean, lookup_status text, lookup_source text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select c.id, c.email, c.first_name, c.last_name, c.company_name, c.sector,
+         public.contact_is_personal_domain(public.contact_email_domain(c.email)),
+         public.contact_needs_company_data(c),
+         e.status, e.source
+  from public.contacts c
+  left join public.contact_domain_enrichments e on e.domain = public.contact_email_domain(c.email)
+  where c.id = any(p_ids)
+  order by c.created_at desc
+  limit 200
+$$;
+
+revoke all on function public.contact_enrichment_results(uuid[]) from public, anon, authenticated;
+grant execute on function public.contact_enrichment_results(uuid[]) to service_role;

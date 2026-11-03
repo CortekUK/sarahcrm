@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { SECTOR_LABELS } from '@/lib/contacts/sectors'
 import { ImportContactsModal } from './ImportContactsModal'
 import { EnrichContactsModal, type EnrichScope } from './EnrichContactsModal'
+import { EnrichSelectionModal } from './EnrichSelectionModal'
 import { ContactDetailDrawer, type Contact } from './ContactDetailDrawer'
 import { Search, Upload, MailCheck, Loader2, Sparkles, X, Contact as ContactIcon } from 'lucide-react'
 
@@ -66,10 +67,11 @@ export function ContactsPage() {
   const [page, setPage] = useState(0)
 
   const [importOpen, setImportOpen] = useState(false)
+  // Bulk dialog (whole table) vs. the selection dialog (ticked rows). The
+  // selection is snapshotted into state when opened, so the dialog doesn't
+  // restart if the list re-renders underneath it.
   const [enrichOpen, setEnrichOpen] = useState(false)
-  // What the Enrich dialog acts on: null = every contact. Held in state (not
-  // derived per render) so the dialog doesn't refetch on every re-render.
-  const [enrichScope, setEnrichScope] = useState<{ scope: EnrichScope | null; count?: number }>({ scope: null })
+  const [selectionRun, setSelectionRun] = useState<{ scope: EnrichScope; count: number } | null>(null)
 
   // Row selection. `allMatching` = every contact matching the current filters
   // (Gmail-style "select all N"), not just the ticked rows on this page.
@@ -204,15 +206,12 @@ export function ContactsPage() {
     setAllMatching(false)
   }
 
-  function openEnrich(selection: boolean) {
-    if (!selection) setEnrichScope({ scope: null })
-    else if (allMatching)
-      setEnrichScope({
-        scope: { filter: { q: debounced, sector, subscribed: subscribedOnly } },
-        count: total,
-      })
-    else setEnrichScope({ scope: { ids: Array.from(picked) }, count: picked.size })
-    setEnrichOpen(true)
+  function enrichSelection() {
+    if (allMatching) {
+      setSelectionRun({ scope: { filter: { q: debounced, sector, subscribed: subscribedOnly } }, count: total })
+    } else {
+      setSelectionRun({ scope: { ids: Array.from(picked) }, count: picked.size })
+    }
   }
 
   const pageCount = Math.ceil(total / PAGE_SIZE)
@@ -225,8 +224,8 @@ export function ContactsPage() {
         description="The club's full contact database — event guests, past enquiries and leads. Segment by sector to build a marketing audience or a sponsorship prospect pool. These are contacts, not members: they have no portal login."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" icon={<Sparkles size={15} />} onClick={() => openEnrich(false)}>
-              Enrich with Clay
+            <Button variant="secondary" icon={<Sparkles size={15} />} onClick={() => setEnrichOpen(true)}>
+              Enrich all with Clay
             </Button>
             <Button icon={<Upload size={15} />} onClick={() => setImportOpen(true)}>
               Import CSV
@@ -343,7 +342,7 @@ export function ContactsPage() {
             {allMatching && <span className="text-text-muted"> · every contact matching the current filters</span>}
           </p>
           <div className="flex items-center gap-2">
-            <Button size="sm" icon={<Sparkles size={14} />} onClick={() => openEnrich(true)}>
+            <Button size="sm" icon={<Sparkles size={14} />} onClick={enrichSelection}>
               Enrich selected with Clay
             </Button>
             <Button size="sm" variant="ghost" icon={<X size={14} />} onClick={clearSelection}>
@@ -484,13 +483,17 @@ export function ContactsPage() {
         onImported={refreshAll}
       />
 
-      <EnrichContactsModal
-        open={enrichOpen}
-        onClose={() => setEnrichOpen(false)}
-        onEnriched={refreshAll}
-        scope={enrichScope.scope}
-        scopeCount={enrichScope.count}
-      />
+      <EnrichContactsModal open={enrichOpen} onClose={() => setEnrichOpen(false)} onEnriched={refreshAll} />
+
+      {selectionRun && (
+        <EnrichSelectionModal
+          open
+          scope={selectionRun.scope}
+          count={selectionRun.count}
+          onClose={() => setSelectionRun(null)}
+          onEnriched={refreshAll}
+        />
+      )}
 
       <ContactDetailDrawer
         contact={selected}

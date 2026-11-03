@@ -18,14 +18,12 @@ import { AlertCircle, Check, Loader2, Sparkles, Square, Users } from 'lucide-rea
 //      outlives the serverless limit, shows progress + the Clay quota, and
 //      stops on Stop or when the quota runs out.
 //
-// `scope` limits everything (counts, the free fill, the Clay batches) to the
-// contacts ticked on the Contacts screen — ids, or the current filter for
-// "select all N matching". No scope = the whole table.
-//
 // Each company is searched at most once (the server caches every result), so
 // stopping and coming back later never pays twice. Only empty fields are
 // filled; nothing stored is overwritten.
 
+// What a selection run acts on (see EnrichSelectionModal): ticked ids, or the
+// current filter for "select all N matching".
 export interface EnrichScope {
   ids?: string[]
   filter?: { q?: string; sector?: string; subscribed?: boolean }
@@ -35,10 +33,6 @@ interface Props {
   open: boolean
   onClose: () => void
   onEnriched: () => void
-  /** Limit to a selection; omitted = every contact. */
-  scope?: EnrichScope | null
-  /** How many contacts the selection holds (for the title). */
-  scopeCount?: number
 }
 
 interface Plan {
@@ -92,7 +86,7 @@ const TARGETS = [
 
 const n = (v: number) => v.toLocaleString('en-GB')
 
-export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, scopeCount }: Props) {
+export function EnrichContactsModal({ open, onClose, onEnriched }: Props) {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [clayConfigured, setClayConfigured] = useState(true)
   const [loadingPlan, setLoadingPlan] = useState(false)
@@ -112,12 +106,7 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
     setLoadingPlan(true)
     setError(null)
     try {
-      const { data } = scope
-        ? await apiClient.post<{ plan: Plan; clay_configured: boolean }>('/api/admin/contacts/enrich', {
-            action: 'plan',
-            scope,
-          })
-        : await apiClient.get<{ plan: Plan; clay_configured: boolean }>('/api/admin/contacts/enrich')
+      const { data } = await apiClient.get<{ plan: Plan; clay_configured: boolean }>('/api/admin/contacts/enrich')
       setPlan(data.plan)
       setClayConfigured(data.clay_configured)
     } catch (e) {
@@ -125,7 +114,7 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
     } finally {
       setLoadingPlan(false)
     }
-  }, [scope])
+  }, [])
 
   useEffect(() => {
     if (open) loadPlan()
@@ -149,7 +138,7 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
     try {
       const { data } = await apiClient.post<{ seeded_domains: number; updated_contacts: number; plan: Plan }>(
         '/api/admin/contacts/enrich',
-        { action: 'seed', scope },
+        { action: 'seed' },
       )
       setPlan(data.plan)
       changedRef.current = true
@@ -178,7 +167,7 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
     try {
       while (!stopRef.current && tally.searched < goal) {
         const size = Math.min(BATCH_SIZE, goal - tally.searched)
-        const { data } = await apiClient.post<BatchResponse>('/api/admin/contacts/enrich', { action: 'batch', size, scope })
+        const { data } = await apiClient.post<BatchResponse>('/api/admin/contacts/enrich', { action: 'batch', size })
         setPlan(data.plan)
         if (data.quota) setQuota(data.quota)
         if (data.items.length) changedRef.current = true
@@ -209,16 +198,7 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
   const pct = progress.goal ? Math.round((progress.searched / progress.goal) * 100) : 0
 
   return (
-    <Modal
-      open={open}
-      onClose={handleClose}
-      title={
-        scope
-          ? `Enrich ${scopeCount != null ? n(scopeCount) : 'selected'} selected contact${scopeCount === 1 ? '' : 's'}`
-          : 'Enrich contacts'
-      }
-      size="lg"
-    >
+    <Modal open={open} onClose={handleClose} title="Enrich all contacts" size="lg">
       <div className="space-y-5">
         <div className="rounded-[var(--radius-md)] border border-border bg-surface-2 px-4 py-3">
           <p className="text-xs text-text-muted leading-relaxed">
@@ -226,13 +206,6 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
             one search fills <strong className="text-text">every contact at that company</strong>: company name,
             industry, sector, website and size. It only fills <strong className="text-text">empty</strong> fields
             and never overwrites anything already stored. Each company is searched once.
-            {scope && (
-              <>
-                {' '}
-                Only the <strong className="text-text">selected contacts&rsquo; companies</strong> are searched;
-                colleagues at the same company are filled too, since it&rsquo;s the same company.
-              </>
-            )}
           </p>
         </div>
 
@@ -300,7 +273,7 @@ export function EnrichContactsModal({ open, onClose, onEnriched, scope = null, s
                   Clay isn&rsquo;t configured on this deployment (CLAY_API_KEY), so searches are unavailable.
                 </p>
               ) : plan.pending_domains === 0 ? (
-                <p className="text-xs text-accent">Every business contact&rsquo;s company has been searched.</p>
+                <p className="text-xs text-accent">Every business contact&rsquo;s company has already been searched.</p>
               ) : (
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <SelectMenu

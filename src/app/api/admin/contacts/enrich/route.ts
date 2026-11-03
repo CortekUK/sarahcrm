@@ -12,6 +12,9 @@
 //   POST { action: 'seed', scope? }
 //                               → copy company data from colleagues already
 //                                 enriched at the same domain (free, no Clay).
+//   POST { action: 'results', scope: { ids } }
+//                               → per-contact outcome for the ticked rows
+//                                 (enriched / personal email / not on Clay…)
 //   POST { action: 'batch', size?, scope? }
 //                               → search the next `size` (≤ MAX_BATCH)
 //                                 domains, most contacts first, and apply.
@@ -151,6 +154,13 @@ export async function POST(request: Request) {
     } catch (e) {
       return Response.json({ error: e instanceof Error ? e.message : 'Could not load the plan' }, { status: 500 })
     }
+  }
+
+  if (body.action === 'results') {
+    if (!ids) return Response.json({ error: 'Results need a list of selected contacts.' }, { status: 400 })
+    const { data, error } = await db.rpc('contact_enrichment_results', { p_ids: ids.slice(0, 200) })
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+    return Response.json({ results: data ?? [] })
   }
 
   // ── Free: seed from colleagues already enriched, then apply everything ──
