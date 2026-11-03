@@ -93,6 +93,29 @@ export async function orientImageToStorage(args: {
   return { url: data.publicUrl, changed: true, orientation }
 }
 
+// A JPEG copy of an image (same pixels, EXIF-upright), stored next to the
+// renders. TikTok photo posts reject image/png outright, and graphics rendered
+// before renders switched to JPEG — or PNGs picked from the gallery — are
+// still PNG, so the publisher converts them at send time instead of making the
+// admin re-render.
+export async function jpegCopyToStorage(url: string, origin?: string): Promise<string> {
+  const src = await fetchImageSafely(url, origin)
+  const out = await sharp(src, { failOn: 'none', limitInputPixels: 120_000_000 })
+    .rotate()
+    .flatten({ background: '#000000' })
+    .jpeg({ quality: 92, chromaSubsampling: '4:4:4' })
+    .toBuffer()
+  const admin = getAdmin()
+  const path = `renders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-jpeg.jpg`
+  const { error } = await admin.storage.from(BUCKET).upload(path, out, {
+    contentType: 'image/jpeg',
+    upsert: false,
+    cacheControl: '31536000',
+  })
+  if (error) throw new Error(`Upload failed: ${error.message}`)
+  return admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
+}
+
 // Build slot_values for a template from AI-written text + a chosen photo:
 //   - AI heading slots  ← heading
 //   - AI subtext slots  ← subtext

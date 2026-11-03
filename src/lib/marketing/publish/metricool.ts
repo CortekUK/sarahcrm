@@ -49,6 +49,7 @@
 
 import type { MarketingChannel, Publisher, PublishableAsset, PublishResult } from './types'
 import { hasCarouselVideoExtension } from '@/lib/marketing/graphics/carousel'
+import { jpegCopyToStorage } from '@/lib/marketing/graphics/store'
 import { metricoolPostState } from './schedule'
 import {
   createPost,
@@ -293,8 +294,22 @@ export class MetricoolPublisher implements Publisher {
 
     // Normalize every media URL; any failure stops the publish.
     const media: string[] = []
-    for (const [i, url] of source.urls.entries()) {
-      const isVideo = kind === 'reel' || kind === 'video' || hasCarouselVideoExtension(url)
+    for (const [i, original] of source.urls.entries()) {
+      const isVideo = kind === 'reel' || kind === 'video' || hasCarouselVideoExtension(original)
+      let url = original
+      // TikTok photos must be JPEG or WebP ("'image/png' type is not allowed").
+      // Old PNG renders / gallery PNGs get a JPEG copy here, so "Send again"
+      // works without a re-render.
+      if (network === 'tiktok' && !isVideo && !/\.(jpe?g|webp)$/i.test(original.split(/[?#]/)[0])) {
+        try {
+          url = await jpegCopyToStorage(original)
+        } catch (e) {
+          return {
+            ok: false,
+            error: `The image couldn’t be converted to JPEG for TikTok, so nothing was posted. ${e instanceof Error ? e.message : ''}`.trim(),
+          }
+        }
+      }
       const res = await normalizeMedia(url, deadline, { video: isVideo })
       if (!res.ok) {
         const what = isVideo ? 'video' : 'graphic'
