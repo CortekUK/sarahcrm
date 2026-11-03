@@ -277,10 +277,13 @@ grant execute on function public.contact_enrichment_apply(text[], uuid[]) to ser
 grant execute on function public.contact_enrichment_next_domains(integer, uuid[]) to service_role;
 
 -- ── Per-contact outcome for a selection (the dialog's result list) ──
+-- lookup_error = 'no_such_domain' when the email's domain doesn't exist at all
+-- (mistyped address — mail to it bounces).
+drop function if exists public.contact_enrichment_results(uuid[]);
 create or replace function public.contact_enrichment_results(p_ids uuid[])
 returns table (
   id uuid, email text, first_name text, last_name text, company_name text, sector text,
-  personal boolean, needs_data boolean, lookup_status text, lookup_source text
+  personal boolean, needs_data boolean, lookup_status text, lookup_source text, lookup_error text
 )
 language sql
 stable
@@ -290,7 +293,7 @@ as $$
   select c.id, c.email, c.first_name, c.last_name, c.company_name, c.sector,
          public.contact_is_personal_domain(public.contact_email_domain(c.email)),
          public.contact_needs_company_data(c),
-         e.status, e.source
+         e.status, e.source, e.error
   from public.contacts c
   left join public.contact_domain_enrichments e on e.domain = public.contact_email_domain(c.email)
   where c.id = any(p_ids)

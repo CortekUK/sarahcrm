@@ -47,6 +47,7 @@ interface ResultRow {
   needs_data: boolean
   lookup_status: 'found' | 'not_found' | 'failed' | null
   lookup_source: 'clay' | 'contacts' | null
+  lookup_error: string | null
 }
 
 interface BatchResponse {
@@ -304,6 +305,9 @@ function ResultLine({ r }: { r: ResultRow }) {
   if (r.personal) {
     icon = <Mail size={14} className="text-text-dim" />
     text = 'Personal email — no company to look up'
+  } else if (r.lookup_status === 'not_found' && r.lookup_error === 'no_such_domain') {
+    icon = <AlertCircle size={14} className="text-accent-warm" />
+    text = 'Email domain doesn’t exist — likely a typo (emails bounce)'
   } else if (r.lookup_status === 'not_found') {
     icon = <CircleSlash size={14} className="text-text-dim" />
     text = 'Company not found on Clay'

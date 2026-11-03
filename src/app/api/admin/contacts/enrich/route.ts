@@ -30,6 +30,7 @@
 // when an admin presses the button. Admin only; DB work goes through the
 // service-role client after the role check.
 
+import { promises as dns } from 'node:dns'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { getEnrichmentProvider } from '@/lib/enrichment'
@@ -105,6 +106,22 @@ async function resolveScope(db: Db, scope: Scope | undefined): Promise<string[] 
 // Clay by the email domain; if Clay doesn't know it, follow the domain's
 // website redirect (free) and try the domain it lands on — firms often email
 // from one domain and run their site on another (globe.fund → fundglobe.co.uk).
+// A domain with no mail server and no website doesn't exist — the email is
+// almost certainly mistyped (harrietughes.co.uk for harriethughes.co.uk), and
+// mail to it bounces. Only a definite "no such domain" counts; a DNS hiccup
+// (timeout, SERVFAIL) is treated as "exists" so nothing is mislabelled.
+async function domainExists(domain: string): Promise<boolean> {
+  const missing = (e: unknown) => {
+    const code = (e as { code?: string })?.code
+    return code === 'ENOTFOUND' || code === 'ENODATA'
+  }
+  const [mx, a] = await Promise.all([
+    dns.resolveMx(domain).then((r) => r.length > 0).catch((e) => !missing(e)),
+    dns.resolve4(domain).then((r) => r.length > 0).catch((e) => !missing(e)),
+  ])
+  return mx || a
+}
+
 async function lookupCompany(domain: string): Promise<{ res: CompanyLookup; via: string | null }> {
   const res = await lookupCompanyByDomain(domain)
   if (res.status !== 'not_found') return { res, via: null }
@@ -250,12 +267,13 @@ export async function POST(request: Request) {
       items.push({ domain, contacts, status: 'found', company: res.name, sector: row.sector })
     } else {
       if (res.status === 'not_found') quota = res.quota ?? quota
+      const noSuchDomain = res.status === 'not_found' && !(await domainExists(domain))
       const up = await db.from('contact_domain_enrichments').upsert(
         {
           domain,
           status: res.status,
           source: 'clay',
-          error: res.status === 'failed' ? res.message : null,
+          error: res.status === 'failed' ? res.message : noSuchDomain ? 'no_such_domain' : null,
           searched_at: new Date().toISOString(),
         },
         { onConflict: 'domain' },
