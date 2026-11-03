@@ -200,6 +200,7 @@ $$;
 
 -- ── Apply cached company data to contacts (fill empty fields only) ──
 -- p_domains = null → every cached domain; p_ids = null → every contact.
+drop function if exists public.contact_enrichment_apply(text[], uuid[], boolean);
 create or replace function public.contact_enrichment_apply(p_domains text[] default null, p_ids uuid[] default null)
 returns integer
 language sql

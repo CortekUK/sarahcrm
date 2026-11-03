@@ -78,12 +78,12 @@ export const SECTORS: SectorDef[] = [
   {
     key: 'automotive',
     label: 'Automotive',
-    keywords: ['automotive', 'motor vehicle', 'vehicle', 'dealership', 'aviation', 'airline'],
+    keywords: ['automotive', 'motor vehicle', 'vehicle', 'dealership'],
   },
   {
     key: 'travel',
     label: 'Travel & Aviation',
-    keywords: ['travel', 'tourism', 'maritime', 'transport', 'logistics', 'airport'],
+    keywords: ['travel', 'tourism', 'maritime', 'transport', 'logistics', 'airport', 'aviation', 'airline'],
   },
   {
     key: 'nonprofit',

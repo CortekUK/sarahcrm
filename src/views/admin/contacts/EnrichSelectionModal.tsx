@@ -74,6 +74,9 @@ export function EnrichSelectionModal({ open, onClose, onEnriched, scope, count }
   const [results, setResults] = useState<ResultRow[] | null>(null)
   const stopRef = useRef(false)
   const changedRef = useRef(false)
+  // The ticked contacts as they were BEFORE this run, so each result line can
+  // say "Updated" vs "Already complete" (the list shows the after-state).
+  const [before, setBefore] = useState<Map<string, ResultRow> | null>(null)
 
   const run = useCallback(
     async (p: Plan) => {
@@ -82,6 +85,13 @@ export function EnrichSelectionModal({ open, onClose, onEnriched, scope, count }
       stopRef.current = false
       let touched = 0
       try {
+        if (scope.ids) {
+          const { data } = await apiClient.post<{ results: ResultRow[] }>('/api/admin/contacts/enrich', {
+            action: 'results',
+            scope,
+          })
+          setBefore(new Map(data.results.map((r) => [r.id, r])))
+        }
         // 1. Free fill (always — costs nothing).
         if (p.free_contacts > 0) {
           setStep('Filling from companies we already know…')
@@ -141,6 +151,7 @@ export function EnrichSelectionModal({ open, onClose, onEnriched, scope, count }
     setPhase('loading')
     setPlan(null)
     setResults(null)
+    setBefore(null)
     setNotice(null)
     setError(null)
     setUpdated(0)
@@ -233,6 +244,8 @@ export function EnrichSelectionModal({ open, onClose, onEnriched, scope, count }
               <>
                 <strong>{n(updated)}</strong> contact{updated === 1 ? '' : 's'} updated.
               </>
+            ) : plan && plan.incomplete_contacts === 0 && plan.personal_contacts === 0 ? (
+              'These contacts already have their company details — nothing to do.'
             ) : (
               'No contacts were changed.'
             )}
@@ -241,8 +254,8 @@ export function EnrichSelectionModal({ open, onClose, onEnriched, scope, count }
 
         {results && results.length > 0 && (
           <ul className="divide-y divide-border rounded-[var(--radius-md)] border border-border text-sm max-h-80 overflow-y-auto">
-            {results.map((r) => (
-              <ResultLine key={r.id} r={r} />
+            {sortResults(results, before).map((r) => (
+              <ResultLine key={r.id} r={r} prev={before?.get(r.id) ?? null} />
             ))}
           </ul>
         )}
@@ -298,7 +311,18 @@ export function EnrichSelectionModal({ open, onClose, onEnriched, scope, count }
   )
 }
 
-function ResultLine({ r }: { r: ResultRow }) {
+function changed(r: ResultRow, prev: ResultRow | null): boolean {
+  return !!prev && (prev.company_name !== r.company_name || prev.sector !== r.sector || prev.needs_data !== r.needs_data)
+}
+
+function sortResults(rows: ResultRow[], before: Map<string, ResultRow> | null): ResultRow[] {
+  if (!before) return rows
+  return [...rows].sort((a, b) => Number(changed(b, before.get(b.id) ?? null)) - Number(changed(a, before.get(a.id) ?? null)))
+}
+
+function ResultLine({ r, prev }: { r: ResultRow; prev: ResultRow | null }) {
+  const isNew = changed(r, prev)
+  const wasComplete = !!prev && !prev.needs_data
   const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email
   let icon = <Check size={14} className="text-accent" />
   let text: string
@@ -315,9 +339,14 @@ function ResultLine({ r }: { r: ResultRow }) {
     icon = <AlertCircle size={14} className="text-accent-warm" />
     text = 'Clay lookup failed — try again later'
   } else if (r.company_name || r.sector !== 'unsegmented') {
-    text = [r.company_name, r.sector !== 'unsegmented' ? (SECTOR_LABELS[r.sector] ?? r.sector) : null]
+    const detail = [r.company_name, r.sector !== 'unsegmented' ? (SECTOR_LABELS[r.sector] ?? r.sector) : null]
       .filter(Boolean)
       .join(' · ')
+    if (isNew) text = `Updated · ${detail}`
+    else if (wasComplete) {
+      icon = <Check size={14} className="text-text-dim" />
+      text = `Already complete · ${detail}`
+    } else text = detail
   } else {
     icon = <Search size={14} className="text-text-dim" />
     text = 'Not looked up yet'

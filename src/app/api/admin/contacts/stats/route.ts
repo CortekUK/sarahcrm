@@ -70,10 +70,9 @@ export async function GET(req: NextRequest) {
 
   const [totalRes, subRes, ...sectorRes] = await Promise.all([
     countFor(),
-    admin
-      .from('contacts')
-      .select('id', { count: 'exact', head: true })
-      .eq('email_subscribed', true),
+    // Same search as the total, so "N opted out" (total − subscribed) can't
+    // go negative when the list is filtered.
+    countFor().eq('email_subscribed', true),
     ...SECTOR_KEYS.map((k) => countFor(k)),
   ])
 
