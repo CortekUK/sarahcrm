@@ -58,6 +58,7 @@ import {
   getMetricoolMode,
   getMetricoolTimezone,
   normalizeMedia,
+  getTikTokPrivacyOptions,
   type MetricoolMode,
 } from './metricool-client'
 
@@ -68,6 +69,12 @@ const PUBLISH_BUDGET_MS = 50_000
 // Metricool time to process the media and the team a window to check it.
 // Instagram carousels allow up to 10 items.
 const MAX_CAROUSEL_ITEMS = 10
+// Who can see a TikTok post. Public by default; overridable with
+// METRICOOL_TIKTOK_PRIVACY (PUBLIC_TO_EVERYONE / MUTUAL_FOLLOW_FRIENDS /
+// FOLLOWER_OF_CREATOR / SELF_ONLY). At publish time it's checked against the
+// account's allowed options and falls back to the first allowed one.
+const TIKTOK_DEFAULT_PRIVACY = 'PUBLIC_TO_EVERYONE'
+
 // TikTok photo posts allow up to 35 images.
 const MAX_TIKTOK_PHOTOS = 35
 
@@ -144,12 +151,13 @@ export function pickPublicationInstant(scheduledAt: string | null | undefined, n
 //     with several media) and 'REEL' for a reel;
 //   - linkedinData.type 'POST' is accepted for a LinkedIn post (LinkedIn's
 //     block isn't documented at all — it may be optional or named differently).
-//   - tiktokData is NOT documented at all. We send { type: 'PHOTO' } for a
-//     photo post (one image or a carousel of up to 35 — the media array
-//     decides) and { type: 'VIDEO' } for a video post. The block may be
-//     optional, named differently, or need extra keys (e.g. privacy /
-//     disableComments / autoAddMusic, or a separate photo-post flag) — copy
-//     the real body from Metricool's planner (browser inspector) to confirm.
+//   - tiktokData follows Metricool's OpenAPI ScheduledPostTikTokData:
+//     privacyOption is REQUIRED by TikTok ("does not specified privacy
+//     options" otherwise) and must be one of the account's
+//     privacyLevelOptions (creator-info); comments / duet / stitch stay on;
+//     title = the post title (TikTok photo posts show it, max 90 chars);
+//     autoAddMusic for photo posts (TikTok adds a sound; the API can't pick
+//     one). Photo vs video is decided by the media itself.
 //   - For a TikTok PHOTO post, top-level autoPublish may not be honoured by
 //     TikTok: it can arrive as an in-app draft needing a final one-tap
 //     publish. Music / stickers / effects can't be added through the API.
@@ -163,6 +171,8 @@ export interface MetricoolPostInput {
   mode: MetricoolMode
   /** Reel cover image (normalized URL) → Metricool `videoThumbnailUrl`. */
   videoThumbnailUrl?: string | null
+  /** TikTok only: privacy level (one of the account's privacyLevelOptions) + photo title. */
+  tiktok?: { privacyOption: string; title?: string | null }
 }
 
 export function buildMetricoolPostBody(input: MetricoolPostInput): Record<string, unknown> {
@@ -191,8 +201,16 @@ export function buildMetricoolPostBody(input: MetricoolPostInput): Record<string
   } else if (input.network === 'facebook') {
     body.facebookData = { type: 'POST' }
   } else if (input.network === 'tiktok') {
-    // ASSUMPTION — undocumented block (see the list above).
-    body.tiktokData = { type: input.kind === 'video' ? 'VIDEO' : 'PHOTO' }
+    body.tiktokData = {
+      privacyOption: input.tiktok?.privacyOption ?? TIKTOK_DEFAULT_PRIVACY,
+      disableComment: false,
+      disableDuet: false,
+      disableStitch: false,
+      commercialContentOwnBrand: false,
+      commercialContentThirdParty: false,
+      ...(input.kind === 'video' ? {} : { autoAddMusic: true }),
+      ...(input.tiktok?.title ? { title: input.tiktok.title.slice(0, 90) } : {}),
+    }
   }
   return body
 }
@@ -337,6 +355,20 @@ export class MetricoolPublisher implements Publisher {
       videoThumbnailUrl = res.data
     }
 
+    // TikTok: a privacy level the connected account actually allows.
+    let tiktok: MetricoolPostInput['tiktok']
+    if (network === 'tiktok') {
+      const wanted = (process.env.METRICOOL_TIKTOK_PRIVACY || TIKTOK_DEFAULT_PRIVACY).trim().toUpperCase()
+      const opts = await getTikTokPrivacyOptions(deadline)
+      const allowed = opts.ok ? opts.data : []
+      tiktok = {
+        // Unknown options (lookup failed) → send the wanted value and let
+        // Metricool / TikTok report it, rather than silently changing it.
+        privacyOption: allowed.length === 0 || allowed.includes(wanted) ? wanted : allowed[0],
+        title: stringOrNull(asset.title),
+      }
+    }
+
     const now = new Date()
     const publishAt = pickPublicationInstant(asset.scheduled_at, now)
     const publicationDate = { dateTime: toWallClock(publishAt, timezone), timezone }
@@ -349,6 +381,7 @@ export class MetricoolPublisher implements Publisher {
       creation: { dateTime: toWallClock(now, timezone), timezone },
       mode,
       videoThumbnailUrl,
+      tiktok,
     })
 
     const created = await createPost(body, deadline)

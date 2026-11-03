@@ -394,6 +394,25 @@ export async function getPost(
   return { ok: true, data: { found: true, post: parsePostSnapshot(res.data, postId) } }
 }
 
+// TikTok creator info for the brand's connected account — read-only. TikTok
+// requires every post to carry a privacy level the account allows
+// (privacyLevelOptions, e.g. PUBLIC_TO_EVERYONE / MUTUAL_FOLLOW_FRIENDS /
+// SELF_ONLY); Metricool documents this as GET
+// /v2/scheduler/catalogs/tiktok/creator-info (OpenAPI TikTokCreatorInfo).
+export async function getTikTokPrivacyOptions(deadline?: number): Promise<MetricoolOutcome<string[]>> {
+  const cfg = getMetricoolConfig()
+  if (!cfg) return NOT_CONFIGURED
+  const res = await request<unknown>(cfg, 'get', '/v2/scheduler/catalogs/tiktok/creator-info', { deadline })
+  if (!res.ok) return res
+  const data = (res.data && typeof res.data === 'object' && 'data' in (res.data as object)
+    ? (res.data as { data: unknown }).data
+    : res.data) as { privacyLevelOptions?: unknown } | null
+  const options = Array.isArray(data?.privacyLevelOptions)
+    ? data.privacyLevelOptions.filter((o): o is string => typeof o === 'string')
+    : []
+  return { ok: true, data: options }
+}
+
 // Delete one planner post. 404 → { alreadyGone: true } (nothing to delete).
 // A 5xx is retried at most once; a failure after that may still mean the
 // delete happened — callers confirm with getPost before acting on it.

@@ -1309,7 +1309,7 @@ Network tab open, compare, then fix `buildMetricoolPostBody` / the parsers):
 - `media` = array of normalized URL **strings** (vs objects).
 - `instagramData.type` = `'POST'` for feed AND carousel, `'REEL'` for reels; `instagramData.autoPublish` mirrors autoPublish.
 - `linkedinData: { type: 'POST' }` — LinkedIn's block is undocumented (may be optional or named differently).
-- `tiktokData: { type: 'PHOTO' }` for a TikTok photo post (single image or carousel — the `media` array decides)
+- `tiktokData: { privacyOption, disableComment/Duet/Stitch: false, autoAddMusic (photo), title }` for TikTok (Metricool OpenAPI `ScheduledPostTikTokData`; `privacyOption` is required and must be one of the account's `privacyLevelOptions` from `GET /v2/scheduler/catalogs/tiktok/creator-info`). Photo vs video is decided by the `media` itself; PNGs are converted to JPEG first (TikTok rejects image/png)
   and `{ type: 'VIDEO' }` for a video post — **entirely undocumented**: the block may be optional, named
   differently, or need extra keys (privacy level, disable comments/duet/stitch, auto-add music, a separate
   photo/carousel flag, a video cover/thumbnail). Also confirm whether `autoPublish` is honoured for TikTok
@@ -1448,7 +1448,7 @@ None new — `'tiktok'` was added to the channel CHECK in the still-unapplied
 - Publishing: `METRICOOL_CHANNELS.tiktok = { network:'tiktok', kind:'carousel' }`; at publish time it switches
   to kind `video` when `publish_target.video_url` is set. Photo post = `graphic_url` + `media_urls` (max 35);
   video post = the video only. No image and no video → `ok:false` "TikTok posts need at least one image (or a
-  video) … Nothing was sent to Metricool." `buildMetricoolPostBody` adds `tiktokData: { type: 'PHOTO' | 'VIDEO' }`
+  video) … Nothing was sent to Metricool." `buildMetricoolPostBody` adds `tiktokData` with the required `privacyOption`
   (**assumption** — see the inspector list). Not configured → MockPublisher. Draft/live rules unchanged.
 - UI: `Music2` icon (lucide has no TikTok mark) in the approval queue + library; TikTok cards show
   "TikTok photo posts may need a final one-tap publish in the TikTok app (music/effects can't be added
