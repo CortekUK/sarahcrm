@@ -17,7 +17,7 @@ import type { EnrichScope } from './EnrichContactsModal'
 // dialog: each company searched once, empty fields only.
 
 const CONFIRM_ABOVE = 25
-const BATCH_SIZE = 4
+const BATCH_SIZE = 3
 
 interface Props {
   open: boolean

@@ -75,7 +75,7 @@ interface BatchResponse {
   plan: Plan
 }
 
-const BATCH_SIZE = 4
+const BATCH_SIZE = 3
 const TARGETS = [
   { value: '25', label: 'Next 25 companies' },
   { value: '100', label: 'Next 100 companies' },

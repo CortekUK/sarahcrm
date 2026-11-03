@@ -33,10 +33,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { getEnrichmentProvider } from '@/lib/enrichment'
-import { lookupCompanyByDomain } from '@/lib/enrichment/clay'
+import { lookupCompanyByDomain, type CompanyLookup } from '@/lib/enrichment/clay'
 import type { ClayQuota } from '@/lib/enrichment/clay-client'
 import { toSector, UNSEGMENTED } from '@/lib/contacts/sectors'
 import { applyContactFilters, type ContactListFilter } from '@/lib/contacts/list-filter'
+import { classifySector } from '@/lib/contacts/classify-sector'
+import { redirectedDomain } from '@/lib/contacts/website-redirect'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,8 +48,8 @@ export const maxDuration = 60
 // batch starts no new search after BATCH_BUDGET_MS, so a request always ends
 // well inside maxDuration. Sequential on purpose: Clay answers parallel
 // searches with 429 "too many concurrent requests".
-const MAX_BATCH = 4
-const BATCH_BUDGET_MS = 30_000
+const MAX_BATCH = 3
+const BATCH_BUDGET_MS = 25_000
 // A selection can't exceed the table (~11k today); this only stops abuse.
 const MAX_SCOPE_IDS = 50_000
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -98,6 +100,18 @@ async function resolveScope(db: Db, scope: Scope | undefined): Promise<string[] 
     if (!data || data.length < PAGE) break
   }
   return ids
+}
+
+// Clay by the email domain; if Clay doesn't know it, follow the domain's
+// website redirect (free) and try the domain it lands on — firms often email
+// from one domain and run their site on another (globe.fund → fundglobe.co.uk).
+async function lookupCompany(domain: string): Promise<{ res: CompanyLookup; via: string | null }> {
+  const res = await lookupCompanyByDomain(domain)
+  if (res.status !== 'not_found') return { res, via: null }
+  const target = await redirectedDomain(domain)
+  if (!target) return { res, via: null }
+  const second = await lookupCompanyByDomain(target)
+  return second.status === 'found' ? { res: second, via: target } : { res, via: null }
 }
 
 async function loadPlan(db: Db, ids: string[] | null = null) {
@@ -198,7 +212,7 @@ export async function POST(request: Request) {
 
   for (const { domain, contacts } of domains) {
     if (Date.now() - startedAt > BATCH_BUDGET_MS) break
-    const res = await lookupCompanyByDomain(domain)
+    const { res, via } = await lookupCompany(domain)
 
     if (res.status === 'failed' && res.kind === 'quota_exhausted') {
       // Nothing was searched — leave the domain pending for the next period.
@@ -209,21 +223,26 @@ export async function POST(request: Request) {
 
     if (res.status === 'found') {
       quota = res.quota ?? quota
-      const sector = toSector(res.company.industry)
+      // Clay's industry is the best signal; when it's blank, a small model
+      // reads the company name + description (stays null if nothing fits).
+      let sector: string | null = toSector(res.company.industry)
+      if (sector === UNSEGMENTED) {
+        sector = await classifySector({ name: res.name, description: res.company.description, domain: via ?? domain })
+      }
       const row = {
         domain,
         status: 'found',
         source: 'clay',
         company_name: res.name,
         industry_raw: res.company.industry,
-        sector: sector === UNSEGMENTED ? null : sector,
+        sector: sector && sector !== UNSEGMENTED ? sector : null,
         website: res.company.website,
         linkedin_url: res.company.linkedinUrl,
         company_size: res.company.employeeRange ?? null,
         employee_count: res.company.employeeCount,
         description: res.company.description,
         error: null,
-        raw: res.raw as object,
+        raw: { company: res.raw, via_domain: via } as object,
         searched_at: new Date().toISOString(),
       }
       const up = await db.from('contact_domain_enrichments').upsert(row, { onConflict: 'domain' })
