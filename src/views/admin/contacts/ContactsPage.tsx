@@ -21,8 +21,9 @@ import { apiClient } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { SECTOR_LABELS } from '@/lib/contacts/sectors'
 import { ImportContactsModal } from './ImportContactsModal'
+import { EnrichContactsModal } from './EnrichContactsModal'
 import { ContactDetailDrawer, type Contact } from './ContactDetailDrawer'
-import { Search, Upload, MailCheck, Loader2, Contact as ContactIcon } from 'lucide-react'
+import { Search, Upload, MailCheck, Loader2, Sparkles, Contact as ContactIcon } from 'lucide-react'
 
 // The club's general contact database — ~11k event guests, past enquiries and
 // leads from the me&u export plus Sarah's own address book, enriched by Clay.
@@ -65,6 +66,7 @@ export function ContactsPage() {
   const [page, setPage] = useState(0)
 
   const [importOpen, setImportOpen] = useState(false)
+  const [enrichOpen, setEnrichOpen] = useState(false)
   const [selected, setSelected] = useState<Contact | null>(null)
 
   // Debounce the search box — typing into 11k rows shouldn't fire a query per
@@ -162,9 +164,14 @@ export function ContactsPage() {
         title="Contacts"
         description="The club's full contact database — event guests, past enquiries and leads. Segment by sector to build a marketing audience or a sponsorship prospect pool. These are contacts, not members: they have no portal login."
         actions={
-          <Button icon={<Upload size={15} />} onClick={() => setImportOpen(true)}>
-            Import CSV
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" icon={<Sparkles size={15} />} onClick={() => setEnrichOpen(true)}>
+              Enrich with Clay
+            </Button>
+            <Button icon={<Upload size={15} />} onClick={() => setImportOpen(true)}>
+              Import CSV
+            </Button>
+          </div>
         }
       />
 
@@ -371,6 +378,8 @@ export function ContactsPage() {
         onClose={() => setImportOpen(false)}
         onImported={refreshAll}
       />
+
+      <EnrichContactsModal open={enrichOpen} onClose={() => setEnrichOpen(false)} onEnriched={refreshAll} />
 
       <ContactDetailDrawer
         contact={selected}

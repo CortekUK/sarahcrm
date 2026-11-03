@@ -41,7 +41,7 @@ import type {
   SearchResult,
   SponsorCandidate,
 } from './types'
-import { runSearch, type ClaySearchOutcome } from './clay-client'
+import { runSearch, type ClayQuota, type ClaySearchOutcome } from './clay-client'
 import {
   companyByDomainQuery,
   companySearchQuery,
@@ -153,6 +153,42 @@ function splitName(p: ClayPersonRow): { firstName: string | null; lastName: stri
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') || null }
 }
 
+// A Clay company row → the provider-agnostic company shape (null for an empty row).
+function companyFromRow(row: ClayCompanyRow | null, domain: string): EnrichmentCompany | null {
+  if (!row || !(row.domain || row.name)) return null
+  const rowDomain = normalizeDomain(row.domain) ?? domain
+  return {
+    domain: rowDomain,
+    website: websiteFor(rowDomain),
+    linkedinUrl: row.linkedin_url ?? null,
+    industry: row.industry ?? null,
+    employeeCount: sizeLowerBound(row.size),
+    employeeRange: row.size ?? null,
+    revenue: null, // Clay only exposes a revenue bucket, not a figure
+    revenuePrinted: row.annual_revenue ?? null,
+    description: row.description ?? null,
+  }
+}
+
+export type CompanyLookup =
+  | { status: 'found'; company: EnrichmentCompany; name: string | null; raw: unknown; quota: ClayQuota | null }
+  | { status: 'not_found'; quota: ClayQuota | null }
+  | { status: 'failed'; kind: 'quota_exhausted' | 'error'; message: string }
+
+// ONE company search by domain — exactly one unit of Clay quota, no person
+// search. Used by bulk contact enrichment, which needs the company only and
+// the period quota to show the admin. Never throws.
+export async function lookupCompanyByDomain(input: string): Promise<CompanyLookup> {
+  const domain = normalizeDomain(input)
+  if (!domain) return { status: 'not_found', quota: null }
+  const co = await runSearch<ClayCompanyRow>(companyByDomainQuery(domain), 1)
+  if (!co.ok) return { status: 'failed', kind: co.kind, message: co.message }
+  const row = co.rows[0] ?? null
+  const company = companyFromRow(row, domain)
+  if (!company) return { status: 'not_found', quota: co.quota }
+  return { status: 'found', company, name: row?.name?.trim() || null, raw: row, quota: co.quota }
+}
+
 // A failed person search, for `raw` (status + message only — no request config).
 function failureNote(o: ClaySearchOutcome<unknown>): unknown {
   return o.ok ? null : { error: o.message, status: o.httpStatus, kind: o.kind }
@@ -212,20 +248,7 @@ export class ClayProvider implements EnrichmentProvider {
     const co = await runSearch<ClayCompanyRow>(companyByDomainQuery(domain), 1)
     if (!co.ok) throw new Error(co.message)
     const companyRow = co.rows[0] ?? null
-    if (companyRow && (companyRow.domain || companyRow.name)) {
-      const rowDomain = normalizeDomain(companyRow.domain) ?? domain
-      company = {
-        domain: rowDomain,
-        website: websiteFor(rowDomain),
-        linkedinUrl: companyRow.linkedin_url ?? null,
-        industry: companyRow.industry ?? null,
-        employeeCount: sizeLowerBound(companyRow.size),
-        employeeRange: companyRow.size ?? null,
-        revenue: null, // Clay only exposes a revenue bucket, not a figure
-        revenuePrinted: companyRow.annual_revenue ?? null,
-        description: companyRow.description ?? null,
-      }
-    }
+    company = companyFromRow(companyRow, domain)
 
     // ── Named person at the company (only with a full name) ─────────
     // Only when the company was found (the status would be 'not_found'
