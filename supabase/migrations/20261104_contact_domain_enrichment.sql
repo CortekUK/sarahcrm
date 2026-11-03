@@ -86,8 +86,32 @@ $$;
 create index if not exists idx_contacts_email_domain
   on public.contacts (public.contact_email_domain(email));
 
+-- Every function below takes an optional p_ids: the contacts the admin
+-- selected on the Contacts screen. null = the whole table. "Known companies"
+-- (for the free copy) are always looked up across ALL contacts — a selected
+-- person's colleague doesn't need to be selected too.
+drop function if exists public.contact_enrichment_plan();
+drop function if exists public.contact_enrichment_seed();
+drop function if exists public.contact_enrichment_apply(text[]);
+drop function if exists public.contact_enrichment_next_domains(integer);
+
+-- Business domains that already have an enriched contact (company + industry).
+create or replace function public.contact_known_company_domains()
+returns table (domain text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select distinct public.contact_email_domain(email)
+  from public.contacts
+  where nullif(trim(coalesce(company_name, '')), '') is not null
+    and nullif(trim(coalesce(industry_raw, '')), '') is not null
+    and not public.contact_is_personal_domain(public.contact_email_domain(email))
+$$;
+
 -- ── Plan: the numbers the Enrich dialog shows ────────────────
-create or replace function public.contact_enrichment_plan()
+create or replace function public.contact_enrichment_plan(p_ids uuid[] default null)
 returns jsonb
 language sql
 stable
@@ -96,18 +120,18 @@ set search_path = public
 as $$
   with c as (
     select public.contact_email_domain(email) as d,
-           public.contact_needs_company_data(contacts) as incomplete,
-           (nullif(trim(coalesce(company_name, '')), '') is not null
-            and nullif(trim(coalesce(industry_raw, '')), '') is not null) as has_company
+           public.contact_needs_company_data(contacts) as incomplete
     from public.contacts
+    where p_ids is null or id = any(p_ids)
   ),
   b as (select * from c where not public.contact_is_personal_domain(d)),
   inc as (select d, count(*) as n from b where incomplete group by d),
-  known as (select distinct d from b where has_company),
+  known as (select domain as d from public.contact_known_company_domains()),
   done as (
     select domain from public.contact_domain_enrichments where status in ('found', 'not_found')
   )
   select jsonb_build_object(
+    'scoped',              p_ids is not null,
     'total_contacts',      (select count(*) from c),
     'personal_contacts',   (select count(*) from c where public.contact_is_personal_domain(d)),
     'business_contacts',   (select count(*) from b),
@@ -130,14 +154,20 @@ $$;
 -- ── Seed: copy company data from colleagues already enriched (free) ──
 -- One cache row per business domain that has an enriched contact, taken from
 -- that domain's most complete contact. Never touches a domain already cached.
-create or replace function public.contact_enrichment_seed()
+-- With p_ids, only the selected contacts' domains are seeded.
+create or replace function public.contact_enrichment_seed(p_ids uuid[] default null)
 returns integer
 language sql
 volatile
 security definer
 set search_path = public
 as $$
-  with src as (
+  with scope as (
+    select distinct public.contact_email_domain(email) as d
+    from public.contacts
+    where p_ids is null or id = any(p_ids)
+  ),
+  src as (
     select distinct on (public.contact_email_domain(email))
            public.contact_email_domain(email) as d,
            nullif(trim(company_name), '') as company_name,
@@ -150,6 +180,7 @@ as $$
     where nullif(trim(coalesce(company_name, '')), '') is not null
       and nullif(trim(coalesce(industry_raw, '')), '') is not null
       and not public.contact_is_personal_domain(public.contact_email_domain(email))
+      and public.contact_email_domain(email) in (select d from scope)
     order by public.contact_email_domain(email),
              ((website is not null)::int + (company_size is not null)::int
               + (employee_count is not null)::int + (sector <> 'unsegmented')::int) desc,
@@ -168,8 +199,8 @@ as $$
 $$;
 
 -- ── Apply cached company data to contacts (fill empty fields only) ──
--- p_domains = null applies every cached domain.
-create or replace function public.contact_enrichment_apply(p_domains text[] default null)
+-- p_domains = null → every cached domain; p_ids = null → every contact.
+create or replace function public.contact_enrichment_apply(p_domains text[] default null, p_ids uuid[] default null)
 returns integer
 language sql
 volatile
@@ -188,6 +219,7 @@ as $$
     where e.status = 'found'
       and e.domain = public.contact_email_domain(c.email)
       and (p_domains is null or e.domain = any(p_domains))
+      and (p_ids is null or c.id = any(p_ids))
       and (
            (nullif(trim(coalesce(c.company_name, '')), '') is null and e.company_name is not null)
         or (nullif(trim(coalesce(c.industry_raw, '')), '') is null and e.industry_raw is not null)
@@ -204,8 +236,8 @@ $$;
 -- ── Next domains for Clay: most contacts first (best value per search) ──
 -- Skips domains already searched (found / not_found), domains we can seed for
 -- free, and domains whose last search FAILED within the hour (so a broken
--- domain can't loop inside one run).
-create or replace function public.contact_enrichment_next_domains(p_limit integer)
+-- domain can't loop inside one run). With p_ids, only the selected contacts.
+create or replace function public.contact_enrichment_next_domains(p_limit integer, p_ids uuid[] default null)
 returns table (domain text, contacts bigint)
 language sql
 stable
@@ -213,19 +245,16 @@ security definer
 set search_path = public
 as $$
   with b as (
-    select public.contact_email_domain(email) as d,
-           public.contact_needs_company_data(contacts) as incomplete,
-           (nullif(trim(coalesce(company_name, '')), '') is not null
-            and nullif(trim(coalesce(industry_raw, '')), '') is not null) as has_company
+    select public.contact_email_domain(email) as d
     from public.contacts
-  ),
-  known as (select distinct d from b where has_company)
+    where (p_ids is null or id = any(p_ids))
+      and public.contact_needs_company_data(contacts)
+  )
   select b.d as domain, count(*) as contacts
   from b
-  where b.incomplete
-    and b.d is not null
+  where b.d is not null
     and not public.contact_is_personal_domain(b.d)
-    and b.d not in (select d from known)
+    and b.d not in (select k.domain from public.contact_known_company_domains() k)
     and not exists (
       select 1 from public.contact_domain_enrichments e
       where e.domain = b.d
@@ -236,11 +265,13 @@ as $$
   limit greatest(1, least(coalesce(p_limit, 1), 50))
 $$;
 
-revoke all on function public.contact_enrichment_plan() from public, anon, authenticated;
-revoke all on function public.contact_enrichment_seed() from public, anon, authenticated;
-revoke all on function public.contact_enrichment_apply(text[]) from public, anon, authenticated;
-revoke all on function public.contact_enrichment_next_domains(integer) from public, anon, authenticated;
-grant execute on function public.contact_enrichment_plan() to service_role;
-grant execute on function public.contact_enrichment_seed() to service_role;
-grant execute on function public.contact_enrichment_apply(text[]) to service_role;
-grant execute on function public.contact_enrichment_next_domains(integer) to service_role;
+revoke all on function public.contact_known_company_domains() from public, anon, authenticated;
+revoke all on function public.contact_enrichment_plan(uuid[]) from public, anon, authenticated;
+revoke all on function public.contact_enrichment_seed(uuid[]) from public, anon, authenticated;
+revoke all on function public.contact_enrichment_apply(text[], uuid[]) from public, anon, authenticated;
+revoke all on function public.contact_enrichment_next_domains(integer, uuid[]) from public, anon, authenticated;
+grant execute on function public.contact_known_company_domains() to service_role;
+grant execute on function public.contact_enrichment_plan(uuid[]) to service_role;
+grant execute on function public.contact_enrichment_seed(uuid[]) to service_role;
+grant execute on function public.contact_enrichment_apply(text[], uuid[]) to service_role;
+grant execute on function public.contact_enrichment_next_domains(integer, uuid[]) to service_role;

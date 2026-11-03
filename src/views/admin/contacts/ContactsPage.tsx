@@ -21,9 +21,9 @@ import { apiClient } from '@/lib/http'
 import { cn } from '@/lib/utils'
 import { SECTOR_LABELS } from '@/lib/contacts/sectors'
 import { ImportContactsModal } from './ImportContactsModal'
-import { EnrichContactsModal } from './EnrichContactsModal'
+import { EnrichContactsModal, type EnrichScope } from './EnrichContactsModal'
 import { ContactDetailDrawer, type Contact } from './ContactDetailDrawer'
-import { Search, Upload, MailCheck, Loader2, Sparkles, Contact as ContactIcon } from 'lucide-react'
+import { Search, Upload, MailCheck, Loader2, Sparkles, X, Contact as ContactIcon } from 'lucide-react'
 
 // The club's general contact database — ~11k event guests, past enquiries and
 // leads from the me&u export plus Sarah's own address book, enriched by Clay.
@@ -67,6 +67,14 @@ export function ContactsPage() {
 
   const [importOpen, setImportOpen] = useState(false)
   const [enrichOpen, setEnrichOpen] = useState(false)
+  // What the Enrich dialog acts on: null = every contact. Held in state (not
+  // derived per render) so the dialog doesn't refetch on every re-render.
+  const [enrichScope, setEnrichScope] = useState<{ scope: EnrichScope | null; count?: number }>({ scope: null })
+
+  // Row selection. `allMatching` = every contact matching the current filters
+  // (Gmail-style "select all N"), not just the ticked rows on this page.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const [allMatching, setAllMatching] = useState(false)
   const [selected, setSelected] = useState<Contact | null>(null)
 
   // Debounce the search box — typing into 11k rows shouldn't fire a query per
@@ -155,6 +163,58 @@ export function ContactsPage() {
     loadStats()
   }
 
+  // A new search / sector / consent filter is a new list — drop the selection.
+  useEffect(() => {
+    setPicked(new Set())
+    setAllMatching(false)
+  }, [queryString])
+
+  const pageIds = contacts.map((c) => c.id)
+  const pageAllPicked = pageIds.length > 0 && pageIds.every((id) => picked.has(id))
+  const pageSomePicked = pageIds.some((id) => picked.has(id))
+  const selectedCount = allMatching ? total : picked.size
+
+  function togglePage() {
+    setAllMatching(false)
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (pageAllPicked) pageIds.forEach((id) => next.delete(id))
+      else pageIds.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
+  function toggleOne(id: string) {
+    if (allMatching) {
+      // Leaving "all matching" mode: keep this page's rows minus the one untick.
+      setAllMatching(false)
+      setPicked(new Set(pageIds.filter((x) => x !== id)))
+      return
+    }
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function clearSelection() {
+    setPicked(new Set())
+    setAllMatching(false)
+  }
+
+  function openEnrich(selection: boolean) {
+    if (!selection) setEnrichScope({ scope: null })
+    else if (allMatching)
+      setEnrichScope({
+        scope: { filter: { q: debounced, sector, subscribed: subscribedOnly } },
+        count: total,
+      })
+    else setEnrichScope({ scope: { ids: Array.from(picked) }, count: picked.size })
+    setEnrichOpen(true)
+  }
+
   const pageCount = Math.ceil(total / PAGE_SIZE)
   const shownSectors = stats.sectors.filter((s) => s.count > 0 || s.key === sector)
 
@@ -165,7 +225,7 @@ export function ContactsPage() {
         description="The club's full contact database — event guests, past enquiries and leads. Segment by sector to build a marketing audience or a sponsorship prospect pool. These are contacts, not members: they have no portal login."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" icon={<Sparkles size={15} />} onClick={() => setEnrichOpen(true)}>
+            <Button variant="secondary" icon={<Sparkles size={15} />} onClick={() => openEnrich(false)}>
               Enrich with Clay
             </Button>
             <Button icon={<Upload size={15} />} onClick={() => setImportOpen(true)}>
@@ -263,6 +323,36 @@ export function ContactsPage() {
         {statsLoading && <Loader2 size={15} className="animate-spin text-text-dim self-center" />}
       </div>
 
+      {/* Selection bar */}
+      {selectedCount > 0 && (
+        <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 rounded-[var(--radius-md)] border border-gold/30 bg-gold-muted/40 px-4 py-2.5">
+          <p className="text-sm text-text flex-1">
+            <strong>{selectedCount.toLocaleString('en-GB')}</strong> selected
+            {!allMatching && pageAllPicked && total > contacts.length && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => setAllMatching(true)}
+                  className="text-gold-dark underline underline-offset-2 hover:text-gold"
+                >
+                  Select all {total.toLocaleString('en-GB')} matching contacts
+                </button>
+              </>
+            )}
+            {allMatching && <span className="text-text-muted"> · every contact matching the current filters</span>}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" icon={<Sparkles size={14} />} onClick={() => openEnrich(true)}>
+              Enrich selected with Clay
+            </Button>
+            <Button size="sm" variant="ghost" icon={<X size={14} />} onClick={clearSelection}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* The list */}
       <Card>
         <CardContent className="p-0">
@@ -292,6 +382,14 @@ export function ContactsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-10 pr-0">
+                    <RowCheckbox
+                      checked={allMatching || pageAllPicked}
+                      indeterminate={!allMatching && !pageAllPicked && pageSomePicked}
+                      onChange={togglePage}
+                      label="Select every contact on this page"
+                    />
+                  </TableHead>
                   <TableHead className="min-w-[220px]">Contact</TableHead>
                   <TableHead className="w-[200px]">Company</TableHead>
                   <TableHead className="w-[170px]">Sector</TableHead>
@@ -306,6 +404,13 @@ export function ContactsPage() {
                     className="cursor-pointer"
                     onClick={() => setSelected(c)}
                   >
+                    <TableCell className="w-10 pr-0" onClick={(e) => e.stopPropagation()}>
+                      <RowCheckbox
+                        checked={allMatching || picked.has(c.id)}
+                        onChange={() => toggleOne(c.id)}
+                        label={`Select ${fullName(c) === '—' ? c.email : fullName(c)}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <p className="font-medium text-text">{fullName(c)}</p>
                       <p className="text-xs text-text-dim truncate">{c.email}</p>
@@ -379,7 +484,13 @@ export function ContactsPage() {
         onImported={refreshAll}
       />
 
-      <EnrichContactsModal open={enrichOpen} onClose={() => setEnrichOpen(false)} onEnriched={refreshAll} />
+      <EnrichContactsModal
+        open={enrichOpen}
+        onClose={() => setEnrichOpen(false)}
+        onEnriched={refreshAll}
+        scope={enrichScope.scope}
+        scopeCount={enrichScope.count}
+      />
 
       <ContactDetailDrawer
         contact={selected}
@@ -421,5 +532,33 @@ function SectorPill({
         {count.toLocaleString('en-GB')}
       </span>
     </button>
+  )
+}
+
+function RowCheckbox({
+  checked,
+  indeterminate = false,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  onChange: () => void
+  label: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={label}
+      className="h-4 w-4 cursor-pointer rounded border-border accent-gold align-middle"
+    />
   )
 }

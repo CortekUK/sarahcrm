@@ -6,15 +6,22 @@
 // at most once (cached in contact_domain_enrichments), personal mailboxes are
 // never searched, and applying a result only fills EMPTY fields.
 //
-//   GET                         → { plan, clay_configured }
-//   POST { action: 'seed' }     → copy company data from colleagues already
+//   GET                         → { plan, clay_configured } for the whole table
+//   POST { action: 'plan', scope? }
+//                               → the same, for a selection
+//   POST { action: 'seed', scope? }
+//                               → copy company data from colleagues already
 //                                 enriched at the same domain (free, no Clay).
-//   POST { action: 'batch', size? }
+//   POST { action: 'batch', size?, scope? }
 //                               → search the next `size` (≤ MAX_BATCH)
 //                                 domains, most contacts first, and apply.
 //                                 The browser loops batches so each request
 //                                 stays inside maxDuration; it stops when the
 //                                 Clay quota runs out (stopped: 'quota').
+//
+// `scope` (optional) limits any action to the contacts selected on the
+// Contacts screen: { ids: [...] } for ticked rows, or { filter: {q, sector,
+// subscribed} } for "select all N matching". No scope = every contact.
 //
 // Every batch spends Clay quota, so nothing here runs automatically — only
 // when an admin presses the button. Admin only; DB work goes through the
@@ -26,6 +33,7 @@ import { getEnrichmentProvider } from '@/lib/enrichment'
 import { lookupCompanyByDomain } from '@/lib/enrichment/clay'
 import type { ClayQuota } from '@/lib/enrichment/clay-client'
 import { toSector, UNSEGMENTED } from '@/lib/contacts/sectors'
+import { applyContactFilters, type ContactListFilter } from '@/lib/contacts/list-filter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,6 +45,9 @@ export const maxDuration = 60
 // searches with 429 "too many concurrent requests".
 const MAX_BATCH = 4
 const BATCH_BUDGET_MS = 30_000
+// A selection can't exceed the table (~11k today); this only stops abuse.
+const MAX_SCOPE_IDS = 50_000
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -57,8 +68,37 @@ function getServiceClient() {
 
 type Db = ReturnType<typeof getServiceClient>
 
-async function loadPlan(db: Db) {
-  const { data, error } = await db.rpc('contact_enrichment_plan')
+interface Scope {
+  ids?: unknown
+  filter?: ContactListFilter
+}
+
+// Scope → contact ids for the SQL functions (null = the whole table).
+async function resolveScope(db: Db, scope: Scope | undefined): Promise<string[] | null> {
+  if (!scope) return null
+  if (Array.isArray(scope.ids)) {
+    const ids = scope.ids.filter((v): v is string => typeof v === 'string' && UUID_RE.test(v))
+    return Array.from(new Set(ids)).slice(0, MAX_SCOPE_IDS)
+  }
+  const f = scope.filter
+  if (!f) return null
+  const unfiltered = (!f.sector || f.sector === 'all') && !f.subscribed && !(f.q ?? '').trim()
+  if (unfiltered) return null
+  const ids: string[] = []
+  const PAGE = 1000
+  for (let from = 0; ids.length < MAX_SCOPE_IDS; from += PAGE) {
+    const { data, error } = await applyContactFilters(db.from('contacts').select('id'), f)
+      .order('id')
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    for (const r of data ?? []) ids.push(r.id as string)
+    if (!data || data.length < PAGE) break
+  }
+  return ids
+}
+
+async function loadPlan(db: Db, ids: string[] | null = null) {
+  const { data, error } = await db.rpc('contact_enrichment_plan', { p_ids: ids })
   if (error) throw new Error(error.message)
   return data as Record<string, number>
 }
@@ -90,24 +130,39 @@ export async function POST(request: Request) {
   const auth = await requireAdmin()
   if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
 
-  let body: { action?: string; size?: number }
+  let body: { action?: string; size?: number; scope?: Scope }
   try {
     body = await request.json()
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
   const db = getServiceClient()
+  let ids: string[] | null
+  try {
+    ids = await resolveScope(db, body.scope)
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : 'Could not read the selection' }, { status: 500 })
+  }
+  if (ids && ids.length === 0) return Response.json({ error: 'No contacts selected.' }, { status: 400 })
+
+  if (body.action === 'plan') {
+    try {
+      return Response.json({ plan: await loadPlan(db, ids), clay_configured: clayConfigured() })
+    } catch (e) {
+      return Response.json({ error: e instanceof Error ? e.message : 'Could not load the plan' }, { status: 500 })
+    }
+  }
 
   // ── Free: seed from colleagues already enriched, then apply everything ──
   if (body.action === 'seed') {
-    const seeded = await db.rpc('contact_enrichment_seed')
+    const seeded = await db.rpc('contact_enrichment_seed', { p_ids: ids })
     if (seeded.error) return Response.json({ error: seeded.error.message }, { status: 500 })
-    const applied = await db.rpc('contact_enrichment_apply', { p_domains: null })
+    const applied = await db.rpc('contact_enrichment_apply', { p_domains: null, p_ids: ids })
     if (applied.error) return Response.json({ error: applied.error.message }, { status: 500 })
     return Response.json({
       seeded_domains: seeded.data as number,
       updated_contacts: applied.data as number,
-      plan: await loadPlan(db),
+      plan: await loadPlan(db, ids),
     })
   }
 
@@ -121,7 +176,7 @@ export async function POST(request: Request) {
     )
   }
   const size = Math.max(1, Math.min(MAX_BATCH, Math.floor(Number(body.size) || MAX_BATCH)))
-  const next = await db.rpc('contact_enrichment_next_domains', { p_limit: size })
+  const next = await db.rpc('contact_enrichment_next_domains', { p_limit: size, p_ids: ids })
   if (next.error) return Response.json({ error: next.error.message }, { status: 500 })
   const domains = (next.data ?? []) as { domain: string; contacts: number }[]
 
@@ -184,7 +239,10 @@ export async function POST(request: Request) {
   const found = items.filter((i) => i.status === 'found').map((i) => i.domain)
   let updated = 0
   if (found.length) {
-    const applied = await db.rpc('contact_enrichment_apply', { p_domains: found })
+    // A Clay result is per company, so colleagues outside the selection at the
+    // same domain are filled too — same company, same (correct) data, no
+    // extra search.
+    const applied = await db.rpc('contact_enrichment_apply', { p_domains: found, p_ids: null })
     if (applied.error) return Response.json({ error: applied.error.message }, { status: 500 })
     updated = applied.data as number
   }
@@ -197,6 +255,6 @@ export async function POST(request: Request) {
     stop_message: stopMessage,
     // No more domains to search once a batch comes back empty without a stop.
     done: !stopped && domains.length === 0,
-    plan: await loadPlan(db),
+    plan: await loadPlan(db, ids),
   })
 }

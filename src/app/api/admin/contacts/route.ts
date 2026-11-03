@@ -14,7 +14,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
-import { SECTOR_KEYS } from '@/lib/contacts/sectors'
+import { applyContactFilters } from '@/lib/contacts/list-filter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,18 +49,11 @@ function getServiceClient() {
 
 // PostgREST `or=` takes a comma-separated filter list, so a search term
 // containing a comma or parenthesis would break out of the expression.
-function escapeSearch(q: string): string {
-  return q.replace(/[,()*\\]/g, ' ').trim()
-}
-
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin()
   if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
 
   const sp = req.nextUrl.searchParams
-  const q = escapeSearch(sp.get('q') ?? '')
-  const sector = sp.get('sector') ?? 'all'
-  const subscribedOnly = sp.get('subscribed') === '1'
   const limit = Math.min(Number(sp.get('limit')) || DEFAULT_LIMIT, MAX_LIMIT)
   const offset = Math.max(Number(sp.get('offset')) || 0, 0)
 
@@ -75,13 +68,11 @@ export async function GET(req: NextRequest) {
       { count: 'exact' },
     )
 
-  if (sector !== 'all' && SECTOR_KEYS.includes(sector)) query = query.eq('sector', sector)
-  if (subscribedOnly) query = query.eq('email_subscribed', true)
-  if (q) {
-    query = query.or(
-      `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%,company_name.ilike.%${q}%`,
-    )
-  }
+  query = applyContactFilters(query, {
+    q: sp.get('q'),
+    sector: sp.get('sector'),
+    subscribed: sp.get('subscribed') === '1',
+  })
 
   const { data, count, error } = await query
     .order('created_at', { ascending: false })
