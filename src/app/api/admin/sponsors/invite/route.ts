@@ -15,6 +15,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { replaceMergeTags, type MergeTagData } from '@/lib/utils-templates/merge-tags-core'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Build the personalised link + merge data ──────────────────
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const origin = siteUrl() // fixed site URL — never the request's Origin/Host
     const sponsorLink = `${origin}/events/${event.slug}?s=${sponsorship.booking_token}`
     const sponsorPrice = sponsorship.event_price_pence ?? event.sponsor_price_pence ?? 0
 

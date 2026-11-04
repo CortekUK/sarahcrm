@@ -10,6 +10,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { renderClubEmail } from '@/lib/email/club-email'
+import { escapeHtml } from '@/lib/introductions/intro-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -82,8 +83,9 @@ export async function POST(req: NextRequest) {
         eyebrow: 'Introductions',
         heading: 'About your introduction request',
         paragraphs: [
-          `Hello ${requester.first_name || 'there'},`,
-          (body.message?.trim() || DEFAULT_MESSAGE),
+          `Hello ${escapeHtml(requester.first_name || 'there')},`,
+          // Admin-typed plain text — escaped so typed markup shows as text.
+          escapeHtml((body.message?.trim() || DEFAULT_MESSAGE).slice(0, 5000)),
         ],
       })
       const r = await sendClubEmail({

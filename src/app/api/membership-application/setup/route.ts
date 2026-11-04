@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { isDirectDebitEnabled } from '@/lib/billing/direct-debit'
+import { cleanText, getSiteUrl, isValidEmail } from '@/lib/stripe/server-helpers'
 
 // POST /api/membership-application/setup
 //
@@ -23,7 +24,12 @@ import { isDirectDebitEnabled } from '@/lib/billing/direct-debit'
 //
 // Idempotent-ish: pass `application_id` on a repeat call (e.g. the
 // applicant changed cadence and re-submitted) to update the existing row
-// + customer instead of inserting a duplicate.
+// + customer instead of inserting a duplicate. This route is public, so an
+// application_id alone is never trusted: the row is only reused while it is
+// still an unfinished draft (status pending, no card saved yet) AND its
+// email matches the submitted one. Anything else gets a fresh row, so a
+// stranger can't overwrite (or reset the status of) someone else's
+// application.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,11 +47,32 @@ type CadenceKey = 'annual' | 'monthly'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Record<string, unknown>
+    const raw = (await req.json().catch(() => null)) as Record<string, unknown> | null
+    if (!raw || typeof raw !== 'object') {
+      return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
+    }
+    // Bound + clean every free-text field (NUL / control chars or huge
+    // values would otherwise surface as a 500).
+    const LONG_FIELDS = new Set(['bio', 'looking_for', 'what_they_can_offer'])
+    const body: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string') body[k] = cleanText(v, LONG_FIELDS.has(k) ? 5000 : 500) ?? ''
+      else if (Array.isArray(v))
+        body[k] = v
+          .map((x) => cleanText(x, 200))
+          .filter((x): x is string => !!x)
+          .slice(0, 50)
+      else body[k] = v
+    }
+    if (typeof body.email === 'string') body.email = body.email.toLowerCase()
 
     const tier = body.preferred_tier as string
     const cadence = body.payment_preference as CadenceKey
-    const existingApplicationId = (body.application_id as string) || null
+    const existingApplicationId =
+      typeof body.application_id === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.application_id)
+        ? body.application_id
+        : null
 
     if (!tier) {
       return NextResponse.json({ error: 'Invalid membership tier.' }, { status: 400 })
@@ -55,6 +82,9 @@ export async function POST(req: NextRequest) {
     }
     if (!body.email || !body.first_name || !body.last_name) {
       return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 })
+    }
+    if (!isValidEmail(body.email as string)) {
+      return NextResponse.json({ error: 'Please enter a valid email address.' }, { status: 400 })
     }
 
     const admin = createClient(
@@ -77,7 +107,7 @@ export async function POST(req: NextRequest) {
     if (plan && plan.is_active) {
       priceAnnual = plan.annual_price_pence
       priceMonthly = plan.monthly_price_pence
-      tierLabel = `${plan.name} Membership`
+      tierLabel = `${plan.name.replace(/\s*membership$/i, '')} Membership`
     } else {
       const fallback = FALLBACK_PRICING[tier as keyof typeof FALLBACK_PRICING]
       if (!fallback) {
@@ -86,6 +116,46 @@ export async function POST(req: NextRequest) {
       priceAnnual = fallback.annual
       priceMonthly = fallback.monthly
       tierLabel = fallback.label
+    }
+
+    // ── Duplicate guards ─────────────────────────────────────────────
+    // An existing member must sign in rather than apply again, and an
+    // application that is already complete (card saved) and under review
+    // can't be duplicated.
+    {
+      const email = body.email as string
+      const { data: prof } = await admin
+        .from('profiles')
+        .select('id')
+        .ilike('email', email)
+        .limit(1)
+      if (prof?.[0]) {
+        const { data: mem } = await admin
+          .from('members')
+          .select('id, membership_status')
+          .eq('profile_id', prof[0].id)
+          .is('deleted_at', null)
+          .limit(1)
+        if (mem?.[0] && mem[0].membership_status !== 'cancelled' && mem[0].membership_status !== 'expired') {
+          return NextResponse.json(
+            { error: 'This email already belongs to a member. Please sign in instead.' },
+            { status: 409 },
+          )
+        }
+      }
+      const { data: openApps } = await admin
+        .from('membership_applications')
+        .select('id')
+        .ilike('email', email)
+        .in('status', ['pending', 'shortlisted', 'processing'])
+        .not('stripe_payment_method_id', 'is', null)
+        .limit(1)
+      if (openApps?.[0]) {
+        return NextResponse.json(
+          { error: 'An application with this email is already under review. We will be in touch soon.' },
+          { status: 409 },
+        )
+      }
     }
 
     const net = cadence === 'annual' ? priceAnnual : priceMonthly
@@ -152,10 +222,15 @@ export async function POST(req: NextRequest) {
       // Repeat call — reuse the existing row + customer if present.
       const { data: existing } = await admin
         .from('membership_applications')
-        .select('id, stripe_customer_id')
+        .select('id, email, status, stripe_customer_id, stripe_payment_method_id')
         .eq('id', existingApplicationId)
         .maybeSingle()
-      if (existing) {
+      const reusable =
+        existing &&
+        existing.status === 'pending' &&
+        !existing.stripe_payment_method_id &&
+        (existing.email ?? '').toLowerCase() === (body.email as string)
+      if (existing && reusable) {
         applicationId = existing.id
         customerId = existing.stripe_customer_id ?? null
         await admin
@@ -215,7 +290,8 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         )
       }
-      const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+      // Fixed site URL — never the request's Origin / Host headers.
+      const origin = getSiteUrl()
       const ddMetadata = {
         kind: 'application_bacs_mandate',
         application_id: applicationId,
@@ -306,7 +382,9 @@ export async function POST(req: NextRequest) {
     })
   } catch (err) {
     console.error('[setup] route error', err)
-    const message = err instanceof Error ? err.message : 'Unexpected error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Could not start payment setup. Please try again.' },
+      { status: 500 },
+    )
   }
 }

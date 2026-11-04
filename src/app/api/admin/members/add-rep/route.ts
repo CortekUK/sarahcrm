@@ -27,6 +27,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail } from '@/lib/email/invite'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
     if (existingProfile) {
       userId = existingProfile.id
     } else {
-      const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+      const origin = siteUrl() // fixed site URL — never the request's Origin/Host
       const send = body.send_invite !== false
       if (send) {
         const inv = await sendInviteEmail(admin, {

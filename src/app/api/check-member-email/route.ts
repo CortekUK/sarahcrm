@@ -24,6 +24,27 @@ interface RequestBody {
   email?: string
 }
 
+// Best-effort per-IP throttle (per server instance) to slow down bulk
+// enumeration of the member list. The public form calls this once per
+// applicant, so the limit is generous. Over the limit we answer 429 with the
+// same "unknown" shape, which the form treats as "let them proceed".
+const WINDOW_MS = 10 * 60 * 1000
+const MAX_PER_WINDOW = 20
+const hits = new Map<string, { count: number; resetAt: number }>()
+function rateLimited(ip: string): boolean {
+  const now = Date.now()
+  if (hits.size > 5000) {
+    for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k)
+  }
+  const h = hits.get(ip)
+  if (!h || h.resetAt < now) {
+    hits.set(ip, { count: 1, resetAt: now + WINDOW_MS })
+    return false
+  }
+  h.count += 1
+  return h.count > MAX_PER_WINDOW
+}
+
 function getAdminDb() {
   return createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,6 +54,14 @@ function getAdminDb() {
 }
 
 export async function POST(req: NextRequest) {
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  if (rateLimited(ip)) {
+    return Response.json({ exists: false, isMember: false }, { status: 429 })
+  }
+
   let body: RequestBody
   try {
     body = (await req.json()) as RequestBody
@@ -50,7 +79,8 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await admin
     .from('profiles')
     .select('id, role')
-    .ilike('email', email)
+    .ilike('email', email.replace(/[%_\\]/g, '\\$&'))
+    .limit(1)
     .maybeSingle()
 
   if (!profile) {
@@ -63,6 +93,7 @@ export async function POST(req: NextRequest) {
     .select('id')
     .eq('profile_id', profile.id)
     .is('deleted_at', null)
+    .limit(1)
     .maybeSingle()
 
   return Response.json({

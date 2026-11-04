@@ -15,6 +15,13 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024 // OpenAI Whisper hard limit
+// Multipart framing overhead allowed on top of the file itself.
+const FORM_OVERHEAD_BYTES = 64 * 1024
+// File types Whisper accepts.
+const AUDIO_EXTENSIONS = ['flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm']
+const TOO_LARGE = 'File too large (max 25 MB).'
+// What Whisper tends to "hear" in a silent recording.
+const SILENCE_ARTIFACTS = ['', 'you', 'thank you', 'thanks for watching', 'bye']
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,11 +35,20 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'OPENAI_API_KEY not configured.' }, { status: 500 })
     }
 
+    // Refuse an oversized upload before parsing it, with the real reason.
+    const declared = Number(req.headers.get('content-length') ?? 0)
+    if (declared > MAX_AUDIO_BYTES + FORM_OVERHEAD_BYTES) {
+      return Response.json({ error: TOO_LARGE }, { status: 413 })
+    }
+
     let form: FormData
     try {
       form = await req.formData()
     } catch {
-      return Response.json({ error: 'Expected multipart/form-data.' }, { status: 400 })
+      return Response.json(
+        { error: 'Could not read the upload — send the recording as multipart/form-data (max 25 MB).' },
+        { status: 400 },
+      )
     }
 
     const file = form.get('file')
@@ -43,8 +59,14 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Audio file is empty.' }, { status: 400 })
     }
     if (file.size > MAX_AUDIO_BYTES) {
+      return Response.json({ error: TOO_LARGE }, { status: 413 })
+    }
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+    const mime = (file.type || '').toLowerCase()
+    const mimeOk = !mime || mime.startsWith('audio/') || mime === 'video/mp4' || mime === 'video/webm'
+    if (!AUDIO_EXTENSIONS.includes(ext) || !mimeOk) {
       return Response.json(
-        { error: 'Audio file is over 25 MB (OpenAI Whisper limit).' },
+        { error: `Not an audio file. Upload one of: ${AUDIO_EXTENSIONS.join(', ')}.` },
         { status: 400 },
       )
     }
@@ -62,7 +84,15 @@ export async function POST(req: NextRequest) {
         startedAt,
         userId: auth.profile.id,
       })
-      return Response.json({ transcript: result.text ?? '' })
+      const text = (result.text ?? '').trim()
+      const normalised = text.toLowerCase().replace(/[^a-z ]/g, '').trim()
+      if (SILENCE_ARTIFACTS.includes(normalised)) {
+        return Response.json(
+          { error: 'No speech was detected in this recording.' },
+          { status: 422 },
+        )
+      }
+      return Response.json({ transcript: text })
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Transcription failed'
       console.error('[marketing/transcribe] OpenAI failed:', e)

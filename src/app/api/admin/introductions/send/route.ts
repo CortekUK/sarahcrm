@@ -13,7 +13,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { renderIntroEmail } from '@/lib/introductions/intro-email'
+import { fillIntroMergeTags, renderIntroEmail } from '@/lib/introductions/intro-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -121,10 +121,11 @@ export async function POST(req: NextRequest) {
       results[p.key] = { action, sent: false, error: 'No email on file.' }
       continue
     }
-    const html = renderIntroEmail(nameOf(p.other), { subject: s.subject!.trim(), body: s.body!.trim() })
+    const subject = fillIntroMergeTags(s.subject!.trim(), p.self, nameOf(p.other))
+    const html = renderIntroEmail(nameOf(p.other), { subject, body: s.body!.trim() }, p.self)
     const r = await sendClubEmail({
       to: p.self.email,
-      subject: s.subject!.trim(),
+      subject,
       html,
       category: 'introduction',
       memberId: p.memberId,
@@ -149,12 +150,26 @@ export async function POST(req: NextRequest) {
 
   if (aSched || bSched) update.status = 'scheduled'
   else if (aSent || bSent) update.status = 'sent'
-  if ((aSent || bSent) && !intro.email_a_sent_at && !intro.email_b_sent_at) {
-    update.sent_at = new Date().toISOString()
-  }
 
   if (Object.keys(update).length > 0) {
     await admin.from('introductions').update(update).eq('id', intro.id)
+  }
+
+  // First-send claim: sent_at is stamped by a CONDITIONAL update (only while
+  // it is still NULL). Two send requests at once (one per side, or a double
+  // click) can both reach here, but only one gets the row back — and only
+  // that one counts the quota. The scheduled-send cron stamps sent_at too,
+  // so an intro first sent by the cron is never counted again here.
+  let firstSend = false
+  if (aSent || bSent) {
+    const { data: claimed } = await admin
+      .from('introductions')
+      .update({ sent_at: new Date().toISOString() })
+      .eq('id', intro.id)
+      .is('sent_at', null)
+      .select('id')
+      .maybeSingle()
+    firstSend = Boolean(claimed)
   }
 
   // Soft quota: the first time an introduction is actually sent, count it
@@ -162,23 +177,48 @@ export async function POST(req: NextRequest) {
   // never blocks a send (Sarah can always introduce). The counter is reset
   // monthly by the automations cron.
   let quotaWarning: string | null = null
-  if (update.sent_at) {
+  if (firstSend) {
     for (const memberId of [intro.member_a_id, intro.member_b_id]) {
-      const { data: m } = await admin
-        .from('members')
-        .select('intros_used_this_month, monthly_intro_quota, profiles(first_name)')
-        .eq('id', memberId)
-        .maybeSingle()
-      const used = ((m?.intros_used_this_month as number) ?? 0) + 1
-      await admin.from('members').update({ intros_used_this_month: used }).eq('id', memberId)
-      const quota = (m?.monthly_intro_quota as number) ?? 0
-      if (quota > 0 && used > quota) {
-        const nm =
-          (m?.profiles as { first_name?: string } | null)?.first_name || 'A member'
-        quotaWarning = `${nm} is now over their monthly introduction allowance (${used}/${quota}).`
+      const r = await incrementIntroUsage(admin, memberId)
+      if (r && r.quota > 0 && r.used > r.quota) {
+        quotaWarning = `${r.firstName || 'A member'} is now over their monthly introduction allowance (${r.used}/${r.quota}).`
       }
     }
   }
 
   return Response.json({ ok: true, results, status: update.status ?? null, quotaWarning })
+}
+
+// +1 on members.intros_used_this_month without a lost update: compare-and-
+// swap on the value we read (retry if another writer got in first). Swap
+// for a single SQL increment RPC if one is added.
+async function incrementIntroUsage(
+  admin: ReturnType<typeof getAdminDb>,
+  memberId: string,
+): Promise<{ used: number; quota: number; firstName: string | null } | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data: m } = await admin
+      .from('members')
+      .select('intros_used_this_month, monthly_intro_quota, profiles(first_name)')
+      .eq('id', memberId)
+      .maybeSingle()
+    if (!m) return null
+    const current = (m.intros_used_this_month as number | null) ?? 0
+    const { data: swapped } = await admin
+      .from('members')
+      .update({ intros_used_this_month: current + 1 })
+      .eq('id', memberId)
+      .eq('intros_used_this_month', current)
+      .select('id')
+      .maybeSingle()
+    if (swapped) {
+      return {
+        used: current + 1,
+        quota: (m.monthly_intro_quota as number | null) ?? 0,
+        firstName: (m.profiles as { first_name?: string } | null)?.first_name ?? null,
+      }
+    }
+  }
+  console.error('[introductions/send] could not bump intro usage for', memberId)
+  return null
 }

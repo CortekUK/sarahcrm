@@ -110,6 +110,24 @@ function keepHints(sent: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
+const ACTIONS: NonNullable<PatchBody['action']>[] = [
+  'save',
+  'approve',
+  'reject',
+  'in_review',
+  'resend',
+  'unpublish',
+  'unschedule',
+]
+
+function isHttpsUrl(v: string): boolean {
+  try {
+    return new URL(v.trim()).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function stringOr(v: unknown): string | null {
   return typeof v === 'string' && v ? v : null
 }
@@ -129,6 +147,16 @@ export async function PATCH(
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
   const action = body.action ?? 'save'
+  if (!ACTIONS.includes(action)) {
+    return Response.json({ error: `Unknown action "${String(action).slice(0, 40)}".` }, { status: 400 })
+  }
+  // An emptied post can't be saved — the queue would offer a post with no copy.
+  if (typeof body.body === 'string' && !body.body.trim()) {
+    return Response.json({ error: 'The post text can’t be empty.' }, { status: 400 })
+  }
+  if (typeof body.graphic_url === 'string' && body.graphic_url && !isHttpsUrl(body.graphic_url)) {
+    return Response.json({ error: 'The graphic needs a public https link.' }, { status: 400 })
+  }
 
   const admin = getAdmin()
   const { data: asset, error: loadErr } = await admin
@@ -448,6 +476,14 @@ export async function PATCH(
         patch.body = parsed.caption
       }
     }
+    // Same rule the publishers apply, refused here as a 400 (bad input), not
+    // a 502 (upstream failure).
+    if (!publishBody?.trim()) {
+      return Response.json(
+        { error: 'This post has no text — add the copy before approving.' },
+        { status: 400 },
+      )
+    }
     const publishable: PublishableAsset = {
       id: asset.id,
       channel,
@@ -485,6 +521,9 @@ export async function PATCH(
     }
   }
   // action === 'save' → content-only, status untouched.
+  if (Object.keys(patch).length === 0) {
+    return Response.json({ error: 'Nothing to update.' }, { status: 400 })
+  }
 
   const { data: updated, error: updErr } = await admin
     .from('marketing_assets')

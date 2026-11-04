@@ -1,11 +1,13 @@
 // GET/POST /api/cron/automations
 //
 // The daily heartbeat for the automated email flows. Two ways to call it:
-//   1. Vercel Cron (scheduled) — sends `Authorization: Bearer <CRON_SECRET>`
-//      automatically when CRON_SECRET is set. Runs for real (sends email).
-//   2. An admin from the Automations page — authenticated by session.
-//      Pass `?dryRun=true` to PREVIEW (see who would be emailed, send
-//      nothing).
+//   1. Vercel Cron (scheduled) — sends a GET with `Authorization: Bearer
+//      <CRON_SECRET>` automatically when CRON_SECRET is set. Runs for real
+//      (sends email). GET is accepted ONLY with that bearer secret.
+//   2. An admin from the Automations page — authenticated by session, POST
+//      only (a GET link / image tag must never trigger sends via the admin's
+//      cookie). Pass `?dryRun=true` to PREVIEW (see who would be emailed,
+//      send nothing).
 //
 // Always idempotent: each flow skips anyone already handled, so running it
 // twice in a day is safe.
@@ -69,14 +71,15 @@ async function isAdmin(): Promise<boolean> {
   }
 }
 
-async function handle(req: NextRequest) {
+async function handle(req: NextRequest, method: 'GET' | 'POST') {
   const url = new URL(req.url)
   const dryRun = url.searchParams.get('dryRun') === 'true'
 
   const cronSecret = process.env.CRON_SECRET
   const authHeader = req.headers.get('authorization')
   const viaCron = Boolean(cronSecret) && authHeader === `Bearer ${cronSecret}`
-  const viaAdmin = viaCron ? false : await isAdmin()
+  // Session (cookie) auth is POST-only — GET is reserved for the cron.
+  const viaAdmin = viaCron || method !== 'POST' ? false : await isAdmin()
 
   if (!viaCron && !viaAdmin) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -106,8 +109,8 @@ async function handle(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  return handle(req)
+  return handle(req, 'GET')
 }
 export async function POST(req: NextRequest) {
-  return handle(req)
+  return handle(req, 'POST')
 }

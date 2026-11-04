@@ -12,6 +12,7 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { requireAdmin, getAdmin } from '@/lib/marketing/admin'
+import { validateSegmentRules } from '@/lib/marketing/segments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,13 +26,13 @@ const rulesSchema = z.object({
 })
 
 const createSchema = z.object({
-  name: z.string().min(1).max(160),
+  name: z.string().trim().min(1).max(160),
   rules: rulesSchema.default({}),
 })
 
 const patchSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().min(1).max(160).optional(),
+  name: z.string().trim().min(1).max(160).optional(),
   rules: rulesSchema.optional(),
 })
 
@@ -66,8 +67,13 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  const rulesError = validateSegmentRules(parsed.data.rules)
+  if (rulesError) return Response.json({ error: rulesError }, { status: 400 })
 
   const admin = getAdmin()
+  if (await nameTaken(admin, parsed.data.name)) {
+    return Response.json({ error: 'A segment with this name already exists.' }, { status: 409 })
+  }
   const { data, error } = await admin
     .from('marketing_segments')
     .insert({
@@ -106,14 +112,21 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(patch).length === 0) {
     return Response.json({ error: 'Nothing to update.' }, { status: 400 })
   }
+  if (parsed.data.rules !== undefined) {
+    const rulesError = validateSegmentRules(parsed.data.rules)
+    if (rulesError) return Response.json({ error: rulesError }, { status: 400 })
+  }
 
   const admin = getAdmin()
+  if (parsed.data.name !== undefined && (await nameTaken(admin, parsed.data.name, parsed.data.id))) {
+    return Response.json({ error: 'A segment with this name already exists.' }, { status: 409 })
+  }
   const { data, error } = await admin
     .from('marketing_segments')
     .update(patch)
     .eq('id', parsed.data.id)
     .select('id, name, rules, created_by, created_at, updated_at')
-    .single()
+    .maybeSingle()
   if (error) return Response.json({ error: error.message }, { status: 500 })
   if (!data) return Response.json({ error: 'Segment not found' }, { status: 404 })
 
@@ -126,10 +139,27 @@ export async function DELETE(req: NextRequest) {
 
   const id = new URL(req.url).searchParams.get('id')
   if (!id) return Response.json({ error: 'id query param required' }, { status: 400 })
+  if (!z.string().uuid().safeParse(id).success) {
+    return Response.json({ error: 'Segment not found' }, { status: 404 })
+  }
 
   const admin = getAdmin()
-  const { error } = await admin.from('marketing_segments').delete().eq('id', id)
+  const { data, error } = await admin.from('marketing_segments').delete().eq('id', id).select('id')
   if (error) return Response.json({ error: error.message }, { status: 500 })
+  if (!data || data.length === 0) return Response.json({ error: 'Segment not found' }, { status: 404 })
 
   return Response.json({ ok: true })
+}
+
+// Case-insensitive duplicate-name check (optionally ignoring one segment —
+// the one being renamed).
+async function nameTaken(admin: ReturnType<typeof getAdmin>, name: string, exceptId?: string) {
+  let q = admin
+    .from('marketing_segments')
+    .select('id')
+    .ilike('name', name.trim().replace(/[\\%_]/g, (c) => `\\${c}`))
+    .limit(1)
+  if (exceptId) q = q.neq('id', exceptId)
+  const { data } = await q
+  return (data ?? []).length > 0
 }

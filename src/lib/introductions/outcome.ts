@@ -93,13 +93,20 @@ export function outcomeStageFlags(v: {
  *
  * @param existingFollowedUpAt current followed_up_at, so we don't overwrite
  *        an already-recorded completion time.
+ * @param currentStatus the introduction's current status. When given, a
+ *        decided deal only COMPLETES the intro if both members have accepted
+ *        (status 'accepted', or already 'completed') — an intro still
+ *        awaiting replies is never jumped to completed. Callers should also
+ *        use canRecordDealOutcome() to block/warn before saving.
  */
 export function buildIntroOutcomeUpdate(
   v: IntroOutcomeValues,
   existingFollowedUpAt: string | null,
   now: string = new Date().toISOString(),
+  currentStatus?: string | null,
 ): IntroUpdate {
   const dealDecided = v.deal_status != null
+  const mayComplete = currentStatus == null || canRecordDealOutcome(currentStatus)
 
   const update: IntroUpdate = {
     outcome: v.outcome?.trim() || null,
@@ -120,12 +127,20 @@ export function buildIntroOutcomeUpdate(
     business_converted: v.deal_status === 'won',
   }
 
-  if (dealDecided) {
+  if (dealDecided && mayComplete) {
     update.status = 'completed'
     update.followed_up_at = existingFollowedUpAt ?? now
   }
 
   return update
+}
+
+/**
+ * A Won/Lost deal outcome only makes sense once both members accepted the
+ * introduction (or it is already completed).
+ */
+export function canRecordDealOutcome(status: string | null | undefined): boolean {
+  return status === 'accepted' || status === 'completed'
 }
 
 /** Parse a pounds string ("1,250.50") into integer pence, or null. */

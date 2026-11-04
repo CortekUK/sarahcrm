@@ -75,7 +75,7 @@ export function scoreMatches(
         if (needLower.includes(ind.name.toLowerCase())) {
           needToIndustryCount++
           needMatchDescriptions.push(
-            `${targetName} is looking for ${need.name}; ${member.name} is in ${ind.name}`,
+            `${targetName} is looking for ${needLabel(need.name)}; ${member.name} is in ${ind.name}`,
           )
         }
       }
@@ -86,7 +86,7 @@ export function scoreMatches(
         if (needLower.includes(ind.name.toLowerCase())) {
           needToIndustryCount++
           needMatchDescriptions.push(
-            `${member.name} is looking for ${need.name}; ${targetName} is in ${ind.name}`,
+            `${member.name} is looking for ${needLabel(need.name)}; ${targetName} is in ${ind.name}`,
           )
         }
       }
@@ -212,7 +212,7 @@ export function scorePairForSuggestion(a: MatchCandidate, b: MatchCandidate): Pa
       for (const ind of industries) {
         if (needLower.includes(ind.name.toLowerCase())) {
           score += 3
-          reasons.push(`${seeker} is looking for ${need.name}; ${provider} is in ${ind.name}`)
+          reasons.push(`${seeker} is looking for ${needLabel(need.name)}; ${provider} is in ${ind.name}`)
         }
       }
     }
@@ -278,4 +278,11 @@ export function scorePairForSuggestion(a: MatchCandidate, b: MatchCandidate): Pa
         : ''
 
   return { score, matchReason, sharedTags }
+}
+
+// Most "need" tags are named "Looking for X" — strip that prefix so match
+// reasons read "is looking for Investment", not "is looking for Looking for
+// Investment".
+function needLabel(name: string): string {
+  return name.replace(/^\s*looking\s+for\s+/i, '').trim() || name
 }

@@ -8,6 +8,14 @@
 // Body: { application_id: string, tier?: 'tier_1' | 'tier_2' | 'tier_3' }
 //
 // Admin only.
+//
+// Concurrency: the application is first CLAIMED with a conditional update
+// (status <previous> → 'processing'), so two tabs / double clicks can't both
+// charge the card or create two subscriptions. A claim older than
+// CLAIM_STALE_MS (crashed request) can be re-taken. On any failure the
+// previous status is restored. The subscription create also uses a Stripe
+// idempotency key, and an existing subscription for this application on the
+// customer is reused rather than duplicated.
 
 import { NextRequest } from 'next/server'
 import Stripe from 'stripe'
@@ -17,6 +25,7 @@ import { computeNextRenewal } from '@/lib/billing/renewal'
 import { sendInviteEmail } from '@/lib/email/invite'
 import { resolvePlanFromDb, planForTier, introQuotaForTier } from '@/lib/membership/plans'
 import { isDirectDebitStatus } from '@/lib/billing/direct-debit'
+import { getSiteUrl } from '@/lib/stripe/server-helpers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,6 +38,9 @@ interface RequestBody {
   // to email them manually.
   send_invite?: boolean
 }
+
+const CLAIM_STALE_MS = 5 * 60 * 1000
+const VAT_RATE = 0.2
 
 function getAdminDb() {
   return createSupabaseAdminClient(
@@ -72,14 +84,14 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'application_id required' }, { status: 400 })
     }
 
-    // The invitation email Supabase sends needs to land on OUR portal so
-    // the new member sees the branded set-password page instead of the
-    // default Supabase one. We construct the URL from the request's own
-    // origin so it works in dev, preview, and production without env
-    // tweaks. Supabase will append the access token to the hash on top
-    // of this URL when it emails the link.
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
-    const setPasswordRedirect = `${origin}/set-password`
+    if (body.tier != null && !['tier_1', 'tier_2', 'tier_3'].includes(body.tier)) {
+      return Response.json({ error: 'Invalid tier.' }, { status: 400 })
+    }
+
+    // The invitation email needs to land on OUR portal so the new member
+    // sees the branded set-password page. Built from the fixed site URL
+    // setting — never the request's Origin / Host headers.
+    const setPasswordRedirect = `${getSiteUrl()}/set-password`
 
     const admin = getAdminDb()
 
@@ -88,7 +100,7 @@ export async function POST(req: NextRequest) {
       .from('membership_applications')
       .select('*')
       .eq('id', body.application_id)
-      .single()
+      .maybeSingle()
     if (appErr || !app) {
       return Response.json({ error: 'Application not found' }, { status: 404 })
     }
@@ -96,6 +108,75 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Application has no email — cannot create account.' }, { status: 400 })
     }
 
+    // ── Atomic claim ────────────────────────────────────────────────
+    const prevStatus: string = app.status ?? 'pending'
+    const staleBefore = new Date(Date.now() - CLAIM_STALE_MS).toISOString()
+    const claimQuery = admin
+      .from('membership_applications')
+      .update({ status: 'processing', reviewed_at: new Date().toISOString() })
+      .eq('id', app.id)
+    const { data: claim, error: claimErr } = await (prevStatus === 'processing'
+      ? claimQuery.eq('status', 'processing').lt('reviewed_at', staleBefore)
+      : app.status == null
+        ? claimQuery.is('status', null)
+        : claimQuery.eq('status', prevStatus)
+    )
+      .select('id')
+      .maybeSingle()
+    // If the live DB ever restricts status values (check constraint →
+    // 23514), degrade to the old unlocked behaviour rather than block every
+    // decision; the Stripe idempotency keys still guard the charge.
+    if (claimErr && claimErr.code !== '23514') {
+      return Response.json({ error: `Could not lock application: ${claimErr.message}` }, { status: 500 })
+    }
+    if (claimErr) console.warn('[applications] status claim unavailable:', claimErr.message)
+    if (!claim && !claimErr) {
+      return Response.json(
+        { error: 'This application is already being processed. Refresh to see its current status.' },
+        { status: 409 },
+      )
+    }
+    // A stale 'processing' row restores to pending on failure.
+    const restoreStatus = prevStatus === 'processing' ? 'pending' : prevStatus
+    const restore = () =>
+      admin
+        .from('membership_applications')
+        .update({ status: restoreStatus })
+        .eq('id', app.id)
+        .eq('status', 'processing')
+
+    try {
+      const res = await approveClaimed({ admin, app, body, auth, setPasswordRedirect })
+      if (!res.ok) await restore()
+      return res
+    } catch (e) {
+      await restore()
+      throw e
+    }
+  } catch (e) {
+    console.error('[approve] unhandled error:', e)
+    const message = e instanceof Error ? e.message : 'Unknown error'
+    return Response.json({ error: `Unhandled server error: ${message}` }, { status: 500 })
+  }
+}
+
+// Everything after the claim. Returns a non-2xx Response on any failure so
+// the caller can release the claim.
+async function approveClaimed({
+  admin,
+  app,
+  body,
+  auth,
+  setPasswordRedirect,
+}: {
+  admin: ReturnType<typeof getAdminDb>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app: any
+  body: RequestBody
+  auth: { admin: { id: string } }
+  setPasswordRedirect: string
+}): Promise<Response> {
+  {
     // Resolve the plan once — tier and membership_type always come from the
     // same canonical plan so they can't drift. An explicit body.tier (admin
     // override on the approve dialog) wins over the application's free-text
@@ -127,7 +208,34 @@ export async function POST(req: NextRequest) {
     // settled by the webhook (invoice.paid / invoice.payment_failed).
     let bacsInitialInvoiceId: string | null = null
     const savedPaymentMethodId: string | null = appAny.stripe_payment_method_id ?? null
-    const quotedAmountPence: number | null = appAny.quoted_amount_pence ?? null
+    let quotedAmountPence: number | null = appAny.quoted_amount_pence ?? null
+    // Admin override to a DIFFERENT plan on the approve dialog: charge that
+    // plan's live price (incl. VAT) for the applicant's cadence, not the
+    // price quoted for the plan they applied for.
+    if (body.tier) {
+      const appliedPlan = await resolvePlanFromDb(admin, app.preferred_tier)
+      if (appliedPlan.tier !== tier) {
+        const { data: overridePlan } = await admin
+          .from('membership_plans')
+          .select('annual_price_pence, monthly_price_pence')
+          .eq('tier_classification', tier)
+          .eq('is_active', true)
+          .order('display_order', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        const net =
+          appAny.payment_preference === 'monthly'
+            ? overridePlan?.monthly_price_pence
+            : overridePlan?.annual_price_pence
+        if (!net || net <= 0) {
+          return Response.json(
+            { error: `No active price is set for the ${plan.name} plan — cannot approve on that plan.` },
+            { status: 400 },
+          )
+        }
+        quotedAmountPence = net + Math.round(net * VAT_RATE)
+      }
+    }
     // Direct Debit (Stripe Bacs) applications saved a bank-account mandate
     // instead of a card. Bacs is not instant: the first debit is SUBMITTED
     // at approval and clears 3–5 working days later (failures arrive later
@@ -176,19 +284,53 @@ export async function POST(req: NextRequest) {
         .select('name')
         .eq('slug', plan.slug)
         .maybeSingle()
-      if (planRow?.name) tierLabel = `${planRow.name} Membership`
+      if (planRow?.name) tierLabel = `${planRow.name.replace(/\s*membership$/i, '')} Membership`
 
       try {
-        const price = await stripe.prices.create({
-          currency: 'gbp',
-          unit_amount: quotedAmountPence,
-          recurring: { interval },
-          product_data: { name: tierLabel },
-        })
-        const sub = isBacs
+        // Reuse a subscription an earlier (crashed) approval already
+        // created for this application instead of creating a second one.
+        let existingSub: Stripe.Subscription | null = null
+        try {
+          const subs = await stripe.subscriptions.list({
+            customer: stripeCustomerId,
+            status: 'all',
+            limit: 20,
+            expand: ['data.latest_invoice'],
+          })
+          existingSub =
+            subs.data.find(
+              (x) =>
+                x.metadata?.application_id === app.id &&
+                ['active', 'trialing', 'past_due', 'incomplete'].includes(x.status),
+            ) ?? null
+        } catch {
+          existingSub = null
+        }
+
+        // Deterministic idempotency keys: a duplicated approval gets the
+        // same price + subscription back from Stripe instead of a second
+        // charge. After a recorded failure (charge_error) a fresh key is
+        // used so a retried approval isn't stuck replaying the decline.
+        const attempt = appAny.charge_error ? `retry-${Date.now()}` : 'first'
+        const keyBase = `app-approve-${app.id}-${savedPaymentMethodId}-${quotedAmountPence}-${interval}-${attempt}`
+        const price = existingSub
+          ? null
+          : await stripe.prices.create(
+              {
+                currency: 'gbp',
+                unit_amount: quotedAmountPence,
+                recurring: { interval },
+                product_data: { name: tierLabel },
+              },
+              { idempotencyKey: `${keyBase}-price` },
+            )
+        const subKey = { idempotencyKey: `${keyBase}-sub` }
+        const sub = existingSub
+          ? existingSub
+          : isBacs
           ? await stripe.subscriptions.create({
               customer: stripeCustomerId,
-              items: [{ price: price.id }],
+              items: [{ price: price!.id }],
               default_payment_method: savedPaymentMethodId,
               // Bacs can't succeed synchronously — the first invoice's
               // payment goes to `processing`. allow_incomplete avoids a 402
@@ -198,16 +340,16 @@ export async function POST(req: NextRequest) {
               off_session: true,
               expand: ['latest_invoice'],
               metadata: { application_id: app.id, tier, cadence, payment_method_type: 'bacs_debit' },
-            })
+            }, subKey)
           : await stripe.subscriptions.create({
               customer: stripeCustomerId,
-              items: [{ price: price.id }],
+              items: [{ price: price!.id }],
               default_payment_method: savedPaymentMethodId,
               payment_behavior: 'error_if_incomplete',
               off_session: true,
               expand: ['latest_invoice.payment_intent'],
               metadata: { application_id: app.id, tier, cadence },
-            })
+            }, subKey)
 
         if (
           isBacs &&
@@ -445,6 +587,22 @@ export async function POST(req: NextRequest) {
       memberId = inserted.id
     }
 
+    // 4b. Tag the subscription with member_id so the webhook's
+    //     customer.subscription.updated / .deleted handlers can find the
+    //     member (portal cancellation, lapses). Best-effort.
+    if (stripeSubscriptionId) {
+      try {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+          apiVersion: '2026-02-25.clover',
+        })
+        await stripe.subscriptions.update(stripeSubscriptionId, {
+          metadata: { member_id: memberId, application_id: app.id },
+        })
+      } catch (e) {
+        console.warn('[approve] could not tag subscription with member_id:', e)
+      }
+    }
+
     // 5. Record the initial subscription payment if the applicant paid
     //    before approval. Idempotent via the subscription id so re-
     //    approving doesn't double-insert. The webhook can't write this
@@ -599,9 +757,5 @@ export async function POST(req: NextRequest) {
       stripe_linked: Boolean(stripeSubscriptionId),
       ...(isBacs ? { direct_debit: true, initial_payment_status: 'pending' } : {}),
     })
-  } catch (e) {
-    console.error('[approve] unhandled error:', e)
-    const message = e instanceof Error ? e.message : 'Unknown error'
-    return Response.json({ error: `Unhandled server error: ${message}` }, { status: 500 })
   }
 }

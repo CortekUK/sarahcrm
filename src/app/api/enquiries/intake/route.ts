@@ -10,14 +10,25 @@
 // best-effort, so a failure in any of them never fails the enquiry itself.
 //
 // Body: { first_name, last_name, email, phone?, company?, position?,
-//         intent?: string[], message, source? }
+//         intent?: string[], message, source?, website? /* honeypot */ }
 // Returns: { ok: true, id } or { ok: false, error }
+//
+// Abuse protection (public + it sends email): a honeypot field (`website` /
+// `company_url` — hidden on the form, so only bots fill it; they get a fake
+// success and nothing is stored), per-field length limits, a per-IP and a
+// per-email rate limit, a global burst cap, and at most one acknowledgement
+// email per address per day (so the club's domain can't be used to email-
+// bomb someone). `intent` is filtered to the known ENQUIRY_INTENTS — unknown
+// values ('__proto__', 'constructor', …) are dropped, never stored.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { scoreEnquiry } from '@/lib/leads/scoring'
-import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { escapeHtml, renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 import { notifyAdmins } from '@/lib/email/admin-notify'
+import { siteUrl } from '@/lib/email/site-url'
+import { ENQUIRY_INTENTS } from '@/lib/concierge/call-booking'
+import { clientIp, overLimit } from '@/lib/public-intake/rate-limit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,6 +53,32 @@ interface IntakeBody {
   intent?: string[]
   message?: string
   source?: string
+  // Honeypots — hidden inputs real visitors never fill.
+  website?: string
+  company_url?: string
+}
+
+// Field caps (characters). Generous enough for the concierge hand-off, which
+// files the visitor's last few chat messages as the enquiry message.
+const LIMITS = {
+  name: 100,
+  email: 254,
+  phone: 40,
+  company: 200,
+  position: 200,
+  message: 15000,
+} as const
+
+// Rate limits. The DB-backed ones hold across serverless instances; the
+// per-IP one is in-memory (per instance) — a best-effort first line.
+const MAX_PER_EMAIL_PER_HOUR = 3
+const MAX_GLOBAL_PER_10_MIN = 30
+const MAX_PER_IP_PER_10_MIN = 5
+
+const KNOWN_INTENTS = new Set<string>(ENQUIRY_INTENTS)
+
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' ? v.trim() : undefined
 }
 
 // Human label for a routing intent, used in the task title + notify copy.
@@ -59,14 +96,28 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: 'Invalid JSON body.' }, { status: 400 })
   }
 
-  const first_name = body.first_name?.trim()
-  const last_name = body.last_name?.trim()
-  const email = body.email?.trim()
-  const message = body.message?.trim()
+  if (!body || typeof body !== 'object') {
+    return Response.json({ ok: false, error: 'Invalid JSON body.' }, { status: 400 })
+  }
+
+  // Honeypot: pretend success so bots don't learn to skip the field.
+  if (str(body.website) || str(body.company_url)) {
+    return Response.json({ ok: true, id: null })
+  }
+
+  const first_name = str(body.first_name)
+  const last_name = str(body.last_name)
+  const email = str(body.email)?.toLowerCase()
+  const message = str(body.message)
+  const phone = str(body.phone) || null
+  const company = str(body.company) || null
+  const position = str(body.position) || null
+  // Known intents only, de-duplicated. Anything else is silently dropped.
   const intent = Array.isArray(body.intent)
-    ? body.intent.filter((i): i is string => typeof i === 'string' && i.length > 0)
+    ? [...new Set(body.intent.filter((i): i is string => typeof i === 'string' && KNOWN_INTENTS.has(i)))]
     : []
-  const source = body.source?.trim() || 'website'
+  const rawSource = str(body.source)
+  const source = rawSource && /^[a-z0-9_-]{1,40}$/i.test(rawSource) ? rawSource : 'website'
 
   if (!first_name || !last_name || !email || !message) {
     return Response.json(
@@ -75,18 +126,72 @@ export async function POST(request: Request) {
     )
   }
   // Cheap email sanity check (RLS/insert is public — keep it honest).
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  if (email.length > LIMITS.email || !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(email)) {
     return Response.json({ ok: false, error: 'A valid email is required.' }, { status: 400 })
   }
+  if (
+    first_name.length > LIMITS.name ||
+    last_name.length > LIMITS.name ||
+    (phone?.length ?? 0) > LIMITS.phone ||
+    (company?.length ?? 0) > LIMITS.company ||
+    (position?.length ?? 0) > LIMITS.position ||
+    message.length > LIMITS.message
+  ) {
+    return Response.json(
+      { ok: false, error: 'One or more fields are too long.' },
+      { status: 400 },
+    )
+  }
+
+  const tooMany = () =>
+    Response.json(
+      { ok: false, error: 'Too many enquiries — please try again a little later.' },
+      { status: 429 },
+    )
+  if (overLimit(`enquiry:${clientIp(request)}`, MAX_PER_IP_PER_10_MIN, 10 * 60_000)) return tooMany()
 
   const admin = getAdminDb()
+
+  // DB-backed limits: per email (1h) and a global burst cap (10 min).
+  // Best-effort — a failed count never blocks a genuine enquiry.
+  let ackedRecently = false
+  // ilike for a case-insensitive match; escape its wildcards (`_` is common
+  // in addresses).
+  const emailPattern = email.replace(/[\\%_]/g, '\\$&')
+  try {
+    const hourAgo = new Date(Date.now() - 60 * 60_000).toISOString()
+    const tenMinAgo = new Date(Date.now() - 10 * 60_000).toISOString()
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
+    const [perEmail, global, acked] = await Promise.all([
+      admin
+        .from('enquiries')
+        .select('id', { count: 'exact', head: true })
+        .ilike('email', emailPattern)
+        .gte('created_at', hourAgo),
+      admin
+        .from('enquiries')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', tenMinAgo),
+      admin
+        .from('enquiries')
+        .select('id', { count: 'exact', head: true })
+        .ilike('email', emailPattern)
+        .not('acknowledged_at', 'is', null)
+        .gte('acknowledged_at', dayAgo),
+    ])
+    if ((perEmail.count ?? 0) >= MAX_PER_EMAIL_PER_HOUR) return tooMany()
+    if ((global.count ?? 0) >= MAX_GLOBAL_PER_10_MIN) return tooMany()
+    ackedRecently = (acked.count ?? 0) > 0
+  } catch (e) {
+    console.error('[enquiries/intake] rate-limit check failed:', e)
+  }
 
   // ── (a) Compute the score, then insert the enquiry ──────────────
   // Score the payload up-front so the row lands already scored.
   const { score, reasons } = scoreEnquiry({
     email,
-    phone: body.phone,
-    company: body.company,
+    phone,
+    company,
     intent,
     message,
   })
@@ -97,9 +202,9 @@ export async function POST(request: Request) {
       first_name,
       last_name,
       email,
-      phone: body.phone?.trim() || null,
-      company: body.company?.trim() || null,
-      position: body.position?.trim() || null,
+      phone,
+      company,
+      position,
       intent: intent.length ? intent : null,
       message,
       source,
@@ -111,8 +216,9 @@ export async function POST(request: Request) {
     .single()
 
   if (insertError || !inserted) {
+    console.error('[enquiries/intake] insert failed:', insertError)
     return Response.json(
-      { ok: false, error: insertError?.message ?? 'Could not save the enquiry.' },
+      { ok: false, error: 'Could not save the enquiry.' },
       { status: 500 },
     )
   }
@@ -131,7 +237,10 @@ export async function POST(request: Request) {
       .eq('key', 'enquiry_routing')
       .maybeSingle()
     const routing = (routingRow?.value ?? {}) as Record<string, unknown>
-    const routed = firstIntent ? routing[firstIntent] : undefined
+    const routed =
+      firstIntent && Object.prototype.hasOwnProperty.call(routing, firstIntent)
+        ? routing[firstIntent]
+        : undefined
     if (typeof routed === 'string' && routed) ownerId = routed
 
     if (!ownerId) {
@@ -153,43 +262,45 @@ export async function POST(request: Request) {
   }
 
   // ── (d) Acknowledgement email to the enquirer ───────────────────
-  try {
-    const html = renderClubEmail({
-      eyebrow: 'The Club',
-      heading: `Thank you, ${first_name}.`,
-      paragraphs: [
-        'We’ve received your enquiry and it has reached the right person on our team.',
-        'Someone will be in touch personally to take the next steps. In the meantime, quiet evenings await at all three clubs.',
-      ],
-    })
-    const result = await sendClubEmail({
-      to: email,
-      subject: 'We’ve received your enquiry — The Club',
-      html,
-      category: 'enquiry_ack',
-    })
-    if (result.sent) {
-      await admin
-        .from('enquiries')
-        .update({ acknowledged_at: new Date().toISOString() })
-        .eq('id', enquiryId)
+  // At most one per address per 24h (see ackedRecently above).
+  if (!ackedRecently) {
+    try {
+      const html = renderClubEmail({
+        eyebrow: 'The Club',
+        heading: `Thank you, ${first_name}.`,
+        paragraphs: [
+          'We’ve received your enquiry and it has reached the right person on our team.',
+          'Someone will be in touch personally to take the next steps. In the meantime, quiet evenings await at all three clubs.',
+        ],
+      })
+      const result = await sendClubEmail({
+        to: email,
+        subject: 'We’ve received your enquiry — The Club',
+        html,
+        category: 'enquiry_ack',
+      })
+      if (result.sent) {
+        await admin
+          .from('enquiries')
+          .update({ acknowledged_at: new Date().toISOString() })
+          .eq('id', enquiryId)
+      }
+    } catch (e) {
+      console.error('[enquiries/intake] acknowledgement email failed:', e)
     }
-  } catch (e) {
-    console.error('[enquiries/intake] acknowledgement email failed:', e)
   }
 
   // ── (e) Notify the admin team about the new scored lead ─────────
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
     await notifyAdmins(admin, {
       subject: `New enquiry · ${fullName} (score ${score})`,
       heading: `New ${intentLabel(firstIntent)} enquiry — lead score ${score}/100`,
       paragraphs: [
-        `<strong>${fullName}</strong>${body.company ? ` · ${body.company}` : ''} just submitted a ${intentLabel(firstIntent)} enquiry via ${source}.`,
-        `Lead score: <strong>${score}/100</strong>. ${reasons.join('; ')}.`,
-        `Email: ${email}${body.phone ? ` · Phone: ${body.phone}` : ''}.`,
+        `<strong>${escapeHtml(fullName)}</strong>${company ? ` · ${escapeHtml(company)}` : ''} just submitted a ${intentLabel(firstIntent)} enquiry via ${source}.`,
+        `Lead score: <strong>${score}/100</strong>. ${escapeHtml(reasons.join('; '))}.`,
+        `Email: ${escapeHtml(email)}${phone ? ` · Phone: ${escapeHtml(phone)}` : ''}.`,
       ],
-      ctaUrl: appUrl ? `${appUrl}/dashboard/enquiries` : undefined,
+      ctaUrl: `${siteUrl()}/dashboard/enquiries`,
       ctaLabel: 'Open enquiries',
     })
   } catch (e) {

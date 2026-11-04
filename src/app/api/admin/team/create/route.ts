@@ -17,6 +17,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail } from '@/lib/email/invite'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -36,6 +37,12 @@ function getAdminDb() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },
   )
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function isAlreadyRegistered(message: string | null | undefined): boolean {
+  return /already (been )?registered|already exists|duplicate key/i.test(message ?? '')
 }
 
 async function requireAdmin() {
@@ -70,31 +77,53 @@ export async function POST(req: NextRequest) {
     }
 
     const role = body.role === 'freelancer' ? 'freelancer' : 'team_member'
-    if (!body.first_name || !body.last_name || !body.email) {
+    const firstName = typeof body.first_name === 'string' ? body.first_name.trim() : ''
+    const lastName = typeof body.last_name === 'string' ? body.last_name.trim() : ''
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    if (!firstName || !lastName || !email) {
       return Response.json(
         { error: 'first_name, last_name, and email are required.' },
         { status: 400 },
       )
     }
+    if (!EMAIL_RE.test(email) || email.length > 254) {
+      return Response.json({ error: 'Please enter a valid email address.' }, { status: 400 })
+    }
+    if (firstName.length > 100 || lastName.length > 100 || (body.job_title?.length ?? 0) > 150) {
+      return Response.json({ error: 'Name or job title is too long.' }, { status: 400 })
+    }
+    body.first_name = firstName
+    body.last_name = lastName
+    body.email = email
 
     const admin = getAdminDb()
 
-    // Reuse an existing auth user / profile if the email is already known.
-    const { data: existingProfile } = await admin
+    // Refuse an email that already belongs to ANY account (case-insensitive).
+    // Reusing it would silently turn a member into staff (losing their
+    // portal) or demote an admin.
+    const { data: existingProfiles } = await admin
       .from('profiles')
-      .select('id')
-      .eq('email', body.email)
-      .maybeSingle()
+      .select('id, role')
+      .ilike('email', email.replace(/[\\%_]/g, (c) => `\\${c}`))
+      .limit(1)
+    const existingProfile = existingProfiles?.[0]
+    if (existingProfile) {
+      const r = existingProfile.role as string
+      const error =
+        r === 'admin'
+          ? 'This email belongs to an admin account. Use a different email.'
+          : r === 'team_member' || r === 'freelancer'
+            ? 'This person is already on the team — use "Send login" to email their credentials.'
+            : 'This email belongs to a member account. Use a different email for their staff login.'
+      return Response.json({ error }, { status: 409 })
+    }
 
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const origin = siteUrl() // fixed site URL — never the request's Origin/Host
     let userId: string
     let inviteSent = false
     let inviteError: string | null = null
 
-    if (existingProfile) {
-      userId = existingProfile.id
-      inviteError = 'An account with this email already existed — use "Send login" to email their credentials.'
-    } else {
+    {
       const send = body.send_invite !== false
       if (send) {
         const inv = await sendInviteEmail(admin, {
@@ -104,6 +133,9 @@ export async function POST(req: NextRequest) {
           loginUrl: `${origin}/admin/login`,
         })
         if (!inv.userId) {
+          if (isAlreadyRegistered(inv.error)) {
+            return Response.json({ error: 'An account with this email already exists.' }, { status: 409 })
+          }
           return Response.json(
             { error: inv.error ?? 'Failed to create auth user' },
             { status: 500 },
@@ -119,6 +151,9 @@ export async function POST(req: NextRequest) {
           user_metadata: { first_name: body.first_name, last_name: body.last_name },
         })
         if (created.error || !created.data.user) {
+          if (isAlreadyRegistered(created.error?.message)) {
+            return Response.json({ error: 'An account with this email already exists.' }, { status: 409 })
+          }
           return Response.json(
             { error: created.error?.message ?? 'Failed to create auth user' },
             { status: 500 },
@@ -146,7 +181,7 @@ export async function POST(req: NextRequest) {
       profile_id: userId,
       invite_sent: inviteSent,
       invite_error: inviteError,
-      reused_existing_user: !!existingProfile,
+      reused_existing_user: false,
     })
   } catch (e) {
     console.error('[team-create] unhandled error:', e)

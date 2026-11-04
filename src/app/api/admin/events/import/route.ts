@@ -73,10 +73,16 @@ function json(body: unknown, status = 200) {
 /** Keep only what we expect, so a hand-crafted payload can't set other columns. */
 function clean(row: EventImportRow) {
   const title = String(row.title ?? '').trim().slice(0, 200)
+  // URL-safe slug (a-z, 0-9, single hyphens) — whatever the sheet typed, so
+  // /events/<slug> always works.
   const slug = String(row.slug ?? '')
-    .trim()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .slice(0, 200)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120)
+    .replace(/-+$/g, '')
   if (!title || !slug) return null
 
   const planning: Record<string, string> = {}
@@ -126,8 +132,17 @@ export async function POST(req: NextRequest) {
   }
 
   const cleaned = incoming.map(clean)
-  const rows = cleaned.filter((r): r is NonNullable<typeof r> => r !== null)
-  const invalid = cleaned.length - rows.length
+  const valid = cleaned.filter((r): r is NonNullable<typeof r> => r !== null)
+  const invalid = cleaned.length - valid.length
+  // The same slug twice in one file would make the whole insert fail on the
+  // unique key — keep the first, count the rest as duplicates.
+  const seenSlugs = new Set<string>()
+  const rows = valid.filter((r) => {
+    if (seenSlugs.has(r.slug)) return false
+    seenSlugs.add(r.slug)
+    return true
+  })
+  const duplicateInFile = valid.length - rows.length
 
   const svc = getServiceClient()
 
@@ -151,6 +166,7 @@ export async function POST(req: NextRequest) {
   const summary = {
     total_rows: incoming.length,
     invalid,
+    duplicate_in_file: duplicateInFile,
     to_create: toInsert.length,
     already_imported: skippedExisting,
     sample: toInsert.slice(0, 8).map((r) => ({
@@ -165,6 +181,8 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString()
   let created = 0
+  const skippedOnInsert: string[] = []
+  const failed: { slug: string; error: string }[] = []
   for (let i = 0; i < toInsert.length; i += CHUNK) {
     const chunk = toInsert.slice(i, i + CHUNK).map((r) => ({
       title: r.title,
@@ -180,14 +198,24 @@ export async function POST(req: NextRequest) {
     const { error, count } = await svc
       .from('events')
       .insert(chunk, { count: 'exact' })
-    if (error) {
-      return json(
-        { error: `Import stopped after ${created} events: ${error.message}`, created },
-        500,
-      )
+    if (!error) {
+      created += count ?? chunk.length
+      continue
     }
-    created += count ?? chunk.length
+    // One clashing row (e.g. a slug created meanwhile) fails the whole
+    // chunk — retry row by row so the rest still import.
+    for (const row of chunk) {
+      const { error: rowErr } = await svc.from('events').insert(row)
+      if (!rowErr) created++
+      else if (rowErr.code === '23505') skippedOnInsert.push(row.slug)
+      else failed.push({ slug: row.slug, error: rowErr.message })
+    }
   }
 
-  return json({ ...summary, created })
+  return json({
+    ...summary,
+    created,
+    ...(skippedOnInsert.length ? { already_exists: skippedOnInsert } : {}),
+    ...(failed.length ? { failed } : {}),
+  })
 }

@@ -178,6 +178,12 @@ export async function POST(req: NextRequest) {
     }
     const eventId = body.event_id
     if (!eventId) return Response.json({ error: 'event_id is required' }, { status: 400 })
+    // Same cap as the deck brief — a pasted document must not run up AI cost
+    // or blow the token limit.
+    if (typeof body.brief === 'string') body.brief = body.brief.slice(0, 4000)
+    else body.brief = undefined
+    if (typeof body.deck_brief === 'string') body.deck_brief = body.deck_brief.slice(0, 4000)
+    else body.deck_brief = undefined
 
     const admin = getAdmin()
 
@@ -194,7 +200,7 @@ export async function POST(req: NextRequest) {
     const [pastSponsorsRes, alignedMembersRes, bookingsRes] = await Promise.all([
       admin
         .from('sponsorships')
-        .select('sponsor_company, sponsor_name, member_id, brand_alignment'),
+        .select('event_id, status, sponsor_company, sponsor_name, member_id, brand_alignment'),
       admin
         .from('members')
         .select(
@@ -209,13 +215,34 @@ export async function POST(req: NextRequest) {
 
     const candidates: Candidate[] = []
 
-    // Past sponsors (any event) — dedup by lowercased company name.
+    // Anyone already on THIS event's sponsor list (confirmed, proposed or
+    // declined) is not a prospect for it — never suggest cold outreach to a
+    // confirmed sponsor or chasing one who said no.
+    const sponsorRows = (pastSponsorsRes.data ?? []) as Record<string, unknown>[]
+    const thisEventRows = sponsorRows.filter((r) => r.event_id === eventId)
+    const excludedNames = new Set(
+      thisEventRows
+        .flatMap((r) => [r.sponsor_company, r.sponsor_name])
+        .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+        .map((v) => v.trim().toLowerCase()),
+    )
+    const excludedMembers = new Set(
+      thisEventRows.map((r) => r.member_id).filter((v): v is string => typeof v === 'string'),
+    )
+    const isExcluded = (name: string | null | undefined, memberId?: string | null) =>
+      Boolean((name && excludedNames.has(name.trim().toLowerCase())) || (memberId && excludedMembers.has(memberId)))
+
+    // Past sponsors (other events; declined ones aren't "past sponsors") —
+    // dedup by lowercased company name.
     {
       const seen = new Set<string>()
-      for (const r of (pastSponsorsRes.data ?? []) as Record<string, unknown>[]) {
+      for (const r of sponsorRows) {
+        if (r.event_id === eventId) continue
+        if (['declined', 'cancelled', 'proposed', 'pending', 'lost'].includes(String(r.status ?? ''))) continue
         const name = (r.sponsor_company as string) || (r.sponsor_name as string) || ''
         const key = name.trim().toLowerCase()
         if (!name || seen.has(key)) continue
+        if (isExcluded(name, r.member_id as string | null)) continue
         seen.add(key)
         candidates.push({
           company_name: name,
@@ -242,6 +269,7 @@ export async function POST(req: NextRequest) {
     for (const m of (alignedMembersRes.data ?? []) as Record<string, unknown>[]) {
       const name = (m.company_name as string) || ''
       if (!name) continue
+      if (isExcluded(name, m.id as string)) continue
       candidates.push({
         company_name: name,
         company_domain: deriveDomain(m.company_website as string | null),
@@ -326,6 +354,7 @@ export async function POST(req: NextRequest) {
       if (cold.status === 'ok') {
         for (const item of cold.items) {
           if (!item.companyName) continue
+          if (isExcluded(item.companyName)) continue
           candidates.push({
             company_name: item.companyName,
             company_domain: item.domain

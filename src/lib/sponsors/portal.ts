@@ -37,6 +37,13 @@ export interface SponsorPortalData {
   roiReach: number | null
 }
 
+// A declined or cancelled sponsorship's link stops working — the portal
+// shows nothing and accepts nothing (same as an unknown token).
+const CLOSED_STATUSES = ['declined', 'cancelled', 'canceled', 'lost']
+export function isSponsorPortalOpen(status: string | null | undefined): boolean {
+  return !CLOSED_STATUSES.includes((status ?? '').toLowerCase().trim())
+}
+
 function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,6 +64,7 @@ export async function loadSponsorPortal(token: string): Promise<SponsorPortalDat
     .eq('booking_token', token)
     .maybeSingle()
   if (error || !sp) return null
+  if (!isSponsorPortalOpen(sp.status as string | null)) return null
 
   // Sponsor display name: external row, else the linked member's profile.
   let sponsorLabel = sp.sponsor_company || sp.sponsor_name || ''

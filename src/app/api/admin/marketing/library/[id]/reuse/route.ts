@@ -16,6 +16,8 @@ import { CHANNEL_META, isMarketingChannel } from '@/lib/marketing/channels'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const REUSE_WINDOW_MS = 30_000
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -54,11 +56,29 @@ export async function POST(
     originalBody,
   ].join('\n')
 
+  // Double-click guard: the same admin reusing the same piece within a few
+  // seconds gets the campaign the first click made, not a second one.
+  const reuseTitle = `Reuse: ${originalTitle}`.slice(0, 200)
+  const recentReuse = async () => {
+    const { data } = await admin
+      .from('marketing_campaigns')
+      .select('id, created_at')
+      .eq('created_by', auth.profile.id)
+      .eq('title', reuseTitle)
+      .gte('created_at', new Date(Date.now() - REUSE_WINDOW_MS).toISOString())
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+    return (data?.[0]?.id as string | undefined) ?? null
+  }
+  const already = await recentReuse()
+  if (already) return Response.json({ campaign_id: already, already: true }, { status: 200 })
+
   // 1. New topic campaign.
   const { data: campaign, error: cErr } = await admin
     .from('marketing_campaigns')
     .insert({
-      title: `Reuse: ${originalTitle}`.slice(0, 200),
+      title: reuseTitle,
       source_type: 'topic',
       topic_brief: topicBrief,
       status: 'draft',
@@ -70,6 +90,12 @@ export async function POST(
     return Response.json({ error: cErr?.message ?? 'Failed to create campaign' }, { status: 500 })
   }
   const campaignId = campaign.id as string
+  // Two clicks that raced past the check above: keep the oldest, drop ours.
+  const first = await recentReuse()
+  if (first && first !== campaignId) {
+    await admin.from('marketing_campaigns').delete().eq('id', campaignId)
+    return Response.json({ campaign_id: first, already: true }, { status: 200 })
+  }
 
   // 2. New draft asset cloned from the source (body copied verbatim). For
   //    newsletters we deliberately DO NOT copy email_template_id/body_html/

@@ -16,7 +16,7 @@ import { NextRequest } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { escapeHtml, renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -131,17 +131,19 @@ async function buildProposalHtml(sp: SponsorRow): Promise<string> {
   const investment = fmtGBP(sp.amount_pence)
   const sponsorLabel = sp.sponsor_company || sp.sponsor_name || 'your organisation'
 
+  // Admin-entered values go into a RAW html panel — escape them.
+  const h = escapeHtml
   const detailsPanel = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 18px 0;background:#FAFAF7;border:1px solid #EAE6DE;border-radius:6px;"><tr><td style="padding:20px 22px;">
        <p style="margin:0 0 12px 0;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.24em;text-transform:uppercase;color:#B8975A;font-weight:600;">Proposal at a glance</p>
-       <p style="margin:0 0 8px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Event</strong> — ${eventTitle}${where ? `, ${where}` : ''}</p>
-       <p style="margin:0 0 8px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Date</strong> — ${when}</p>
-       <p style="margin:0 0 8px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Package</strong> — ${sp.package_name}${sp.showcase_slot ? ` · ${sp.showcase_slot}` : ''}</p>
-       <p style="margin:0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Investment</strong> — ${investment}</p>
+       <p style="margin:0 0 8px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Event</strong> — ${h(eventTitle)}${where ? `, ${h(where)}` : ''}</p>
+       <p style="margin:0 0 8px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Date</strong> — ${h(when)}</p>
+       <p style="margin:0 0 8px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Package</strong> — ${h(sp.package_name)}${sp.showcase_slot ? ` · ${h(sp.showcase_slot)}` : ''}</p>
+       <p style="margin:0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">Investment</strong> — ${h(investment)}</p>
      </td></tr></table>`
 
   const fallbackParagraphs = [
-    `Dear ${sponsorLabel},`,
-    `We would be delighted to welcome ${sponsorLabel} as our <strong style="color:#B8975A;">${sp.package_name}</strong> sponsor for ${eventTitle}${where ? ` at ${where}` : ''} on ${when}.`,
+    `Dear ${h(sponsorLabel)},`,
+    `We would be delighted to welcome ${h(sponsorLabel)} as our <strong style="color:#B8975A;">${h(sp.package_name)}</strong> sponsor for ${h(eventTitle)}${where ? ` at ${h(where)}` : ''} on ${h(when)}.`,
     `The Club by Sarah Restrick brings together an exceptional, private audience of founders and senior leaders. Sponsoring places your brand at the centre of a curated evening built on trusted introductions — the details of the package are set out below.`,
     `The investment is ${investment}. We would be glad to talk it through and tailor the partnership to your goals.`,
   ]

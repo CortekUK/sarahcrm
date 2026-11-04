@@ -8,8 +8,8 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
-import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
-import { renderIntroEmail } from '@/lib/introductions/intro-email'
+import { escapeHtml, renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { fillIntroMergeTags, renderIntroEmail } from '@/lib/introductions/intro-email'
 import { generateSuggestions, pairKey } from '@/lib/introductions/suggest'
 import { scorePairForSuggestion, type MatchCandidate } from '@/lib/introductions/matching'
 import { financeEscalation } from '@/lib/automations/finance-escalation'
@@ -17,7 +17,7 @@ import { sponsorOutreachSequences } from '@/lib/sponsorship/outreach/runner'
 import { computeMemberScores } from '@/lib/members/scoring'
 import { notifyAdmins } from '@/lib/email/admin-notify'
 import { buildChiefOfStaffData } from '@/lib/chief-of-staff/aggregate'
-import { generateChiefOfStaffReport } from '@/lib/chief-of-staff/generate'
+import { generateChiefOfStaffReport, londonToday } from '@/lib/chief-of-staff/generate'
 import type { Database } from '@/types/database'
 
 const APP_URL =
@@ -44,7 +44,25 @@ function fmtDate(d: string | null): string {
   if (!d) return ''
   const date = new Date(d)
   if (Number.isNaN(date.getTime())) return d
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  return date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Europe/London',
+  })
+}
+
+// UK wall-clock start time, e.g. "7:00 pm".
+function fmtTime(d: string | null): string {
+  if (!d) return ''
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Europe/London',
+  })
 }
 
 function fmtMoney(pence: number | null | undefined): string {
@@ -109,10 +127,14 @@ async function processFlow(
   const refIds = valid.map((i) => i.ref_id)
   let handled = new Set<string>()
   if (refIds.length) {
+    // Only a SENT row means "already handled" — a logged failure is retried
+    // on the next run (its row is overwritten below via the (flow, ref_id)
+    // unique key).
     const { data } = await admin
       .from('automation_log')
       .select('ref_id')
       .eq('flow', flow)
+      .eq('status', 'sent')
       .in('ref_id', refIds)
     handled = new Set((data ?? []).map((r: { ref_id: string }) => r.ref_id))
   }
@@ -132,13 +154,17 @@ async function processFlow(
       html: it.html,
       category: `automation:${flow}`,
     })
-    await admin.from('automation_log').insert({
-      flow,
-      ref_id: it.ref_id,
-      recipient_email: it.to,
-      status: r.sent ? 'sent' : 'failed',
-      detail: r.error ?? it.detail,
-    })
+    await admin.from('automation_log').upsert(
+      {
+        flow,
+        ref_id: it.ref_id,
+        recipient_email: it.to,
+        status: r.sent ? 'sent' : 'failed',
+        detail: r.error ?? it.detail,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: 'flow,ref_id' },
+    )
     if (r.sent) sent++
     else failed++
     out.push({
@@ -699,7 +725,7 @@ async function buildOpportunityReport(
          ${matches
            .map(
              (m) =>
-               `<p style="margin:0 0 10px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">${m.name}</strong>${m.company ? ` — ${m.company}` : ''}${m.reason ? `<br/><span style="font-size:13px;color:#6B6560;">${m.reason}</span>` : ''}</p>`,
+               `<p style="margin:0 0 10px 0;font-family:'DM Sans',Arial,sans-serif;font-size:14px;line-height:1.6;color:#3A3530;"><strong style="color:#2C2825;">${escapeHtml(m.name)}</strong>${m.company ? ` — ${escapeHtml(m.company)}` : ''}${m.reason ? `<br/><span style="font-size:13px;color:#6B6560;">${escapeHtml(m.reason)}</span>` : ''}</p>`,
            )
            .join('')}
        </td></tr></table>`
@@ -949,7 +975,7 @@ async function failedPayments(admin: Admin, dryRun: boolean): Promise<FlowResult
         heading: 'A payment didn’t go through.',
         paragraphs: [
           `Hello ${name},`,
-          `We weren’t able to take a payment of <strong style="color:#F0EBE0;">${fmtMoney(p.amount_pence as number)}</strong>. This is usually just an expired or replaced card.`,
+          `We weren’t able to take a payment of <strong style="color:#2C2825;">${fmtMoney(p.amount_pence as number)}</strong>. This is usually just an expired or replaced card.`,
           `Please update your card so your membership continues uninterrupted.`,
         ],
         cta: { label: 'Update payment details', url: `${APP_URL}/portal/billing` },
@@ -1026,7 +1052,7 @@ async function postEventThankYou(
           heading: 'Thank you for joining us.',
           paragraphs: [
             `Hello ${name},`,
-            `It was a pleasure to have you at <strong style="color:#F0EBE0;">${ev.title}</strong>. We hope it was an evening well spent.`,
+            `It was a pleasure to have you at <strong style="color:#2C2825;">${ev.title}</strong>. We hope it was an evening well spent.`,
             `We'll be in touch shortly — in the meantime, do stay in the conversation.`,
           ],
           cta: { label: 'See what’s next', url: `${APP_URL}/events` },
@@ -1061,7 +1087,7 @@ async function postEventFeedback(
           heading: 'How was your evening?',
           paragraphs: [
             `Hello ${name},`,
-            `Now that <strong style="color:#F0EBE0;">${ev.title}</strong> has settled, we'd be grateful for your reflections — your feedback shapes every evening that follows.`,
+            `Now that <strong style="color:#2C2825;">${ev.title}</strong> has settled, we'd be grateful for your reflections — your feedback shapes every evening that follows.`,
             `Share a note, or book a call with the team if you'd like to speak.`,
           ],
           cta: { label: 'Share your thoughts', url: `${APP_URL}/share-your-experience` },
@@ -1098,7 +1124,7 @@ async function postEventConversion(
           heading: 'It was lovely to have you.',
           paragraphs: [
             `Hello ${name},`,
-            `We so enjoyed having you as our guest at <strong style="color:#F0EBE0;">${ev.title}</strong>. The Club is a private community built around trusted introductions and curated evenings — and we'd be glad to tell you more about joining.`,
+            `We so enjoyed having you as our guest at <strong style="color:#2C2825;">${ev.title}</strong>. The Club is a private community built around trusted introductions and curated evenings — and we'd be glad to tell you more about joining.`,
           ],
           cta: { label: 'Explore membership', url: `${APP_URL}/memberships` },
         }),
@@ -1294,7 +1320,7 @@ async function invoiceChasing(admin: Admin, dryRun: boolean): Promise<FlowResult
         heading: 'A small outstanding balance.',
         paragraphs: [
           `Hello ${name},`,
-          `Our records show an outstanding balance of <strong style="color:#F0EBE0;">${fmtMoney(p.amount_pence as number)}</strong>${(p.description as string) ? ` for ${p.description}` : ''}.`,
+          `Our records show an outstanding balance of <strong style="color:#2C2825;">${fmtMoney(p.amount_pence as number)}</strong>${(p.description as string) ? ` for ${p.description}` : ''}.`,
           `If you've already settled this, please disregard — otherwise you can review and pay from your account.`,
         ],
         cta: { label: 'View account', url: `${APP_URL}/portal/billing` },
@@ -1349,24 +1375,25 @@ async function scheduledIntroductions(admin: Admin, dryRun: boolean): Promise<Fl
       row.email_b_scheduled_at && (row.email_b_scheduled_at as string) <= today && !row.email_b_sent_at
 
     if (aDue && a?.email) {
-      const subj = (row.email_a_subject as string) || 'An introduction from The Club'
+      const subj = fillIntroMergeTags((row.email_a_subject as string) || 'An introduction from The Club', a, nameOf(b))
       items.push({
         ref_id: `${row.id}:sched:a`,
         to: a.email,
         subject: subj,
         detail: `${nameOf(a)} ↔ ${nameOf(b)}`,
-        html: renderIntroEmail(nameOf(b), { subject: subj, body: (row.email_a_body as string) || '' }),
+        // Recipient fills {{first_name}} etc. in Sarah's composed text.
+        html: renderIntroEmail(nameOf(b), { subject: subj, body: (row.email_a_body as string) || '' }, a),
       })
       dueSides.push({ introId: row.id as string, side: 'a' })
     }
     if (bDue && b?.email) {
-      const subj = (row.email_b_subject as string) || 'An introduction from The Club'
+      const subj = fillIntroMergeTags((row.email_b_subject as string) || 'An introduction from The Club', b, nameOf(a))
       items.push({
         ref_id: `${row.id}:sched:b`,
         to: b.email,
         subject: subj,
         detail: `${nameOf(b)} ↔ ${nameOf(a)}`,
-        html: renderIntroEmail(nameOf(a), { subject: subj, body: (row.email_b_body as string) || '' }),
+        html: renderIntroEmail(nameOf(a), { subject: subj, body: (row.email_b_body as string) || '' }, b),
       })
       dueSides.push({ introId: row.id as string, side: 'b' })
     }
@@ -1413,13 +1440,24 @@ async function scheduledIntroductions(admin: Admin, dryRun: boolean): Promise<Fl
 // Display-only (the portal shows "X remaining"); never blocks a send.
 async function bumpIntroUsage(admin: Admin, memberIds: string[]): Promise<void> {
   for (const id of memberIds) {
-    const { data: m } = await admin
-      .from('members')
-      .select('intros_used_this_month')
-      .eq('id', id)
-      .maybeSingle()
-    const used = ((m?.intros_used_this_month as number) ?? 0) + 1
-    await admin.from('members').update({ intros_used_this_month: used }).eq('id', id)
+    // Compare-and-swap so a concurrent send can't lose a count.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: m } = await admin
+        .from('members')
+        .select('intros_used_this_month')
+        .eq('id', id)
+        .maybeSingle()
+      if (!m) break
+      const current = (m.intros_used_this_month as number | null) ?? 0
+      const { data: swapped } = await admin
+        .from('members')
+        .update({ intros_used_this_month: current + 1 })
+        .eq('id', id)
+        .eq('intros_used_this_month', current)
+        .select('id')
+        .maybeSingle()
+      if (swapped) break
+    }
   }
 }
 
@@ -1444,7 +1482,7 @@ async function eventReminderSequence(
   // Upcoming events within the 14-day reminder window.
   const { data: events } = await admin
     .from('events')
-    .select('id, title, start_date, venue_name, venue_city')
+    .select('id, title, slug, start_date, venue_name, venue_city')
     .gte('start_date', new Date().toISOString())
     .lte('start_date', daysAheadIso(15))
     .in('status', ['published', 'live'])
@@ -1454,6 +1492,7 @@ async function eventReminderSequence(
     const e = ev as {
       id: string
       title: string
+      slug: string | null
       start_date: string
       venue_name: string | null
       venue_city: string | null
@@ -1469,9 +1508,14 @@ async function eventReminderSequence(
       .eq('event_id', e.id)
       .eq('status', 'confirmed')
     const where = [e.venue_name, e.venue_city].filter(Boolean).join(', ')
+    const startTime = fmtTime(e.start_date)
     for (const b of bookings ?? []) {
       const bk = b as Record<string, unknown>
       const { to, name } = bookingRecipient(bk)
+      // Members manage their booking in the portal; guests get the public
+      // event page (the only page they can open).
+      const eventUrl =
+        bk.is_guest && e.slug ? `${APP_URL}/events/${e.slug}` : `${APP_URL}/portal/events/${e.id}`
       items.push({
         eventId: e.id,
         bookingId: String(bk.id),
@@ -1490,9 +1534,10 @@ async function eventReminderSequence(
               : `${e.title} is ${stage.when}.`,
           paragraphs: [
             `Hello ${name},`,
-            `A gentle reminder that <strong style="color:#F0EBE0;">${e.title}</strong> takes place on <strong style="color:#F0EBE0;">${fmtDate(e.start_date)}</strong>${where ? ` at ${where}` : ''}.`,
+            `A gentle reminder that <strong style="color:#2C2825;">${e.title}</strong> takes place on <strong style="color:#2C2825;">${fmtDate(e.start_date)}</strong>${startTime ? ` at <strong style="color:#2C2825;">${startTime}</strong> (UK time)` : ''}${where ? `, ${where}` : ''}.`,
             `We look forward to welcoming you.`,
           ],
+          cta: { label: 'View the event', url: eventUrl },
         }),
       })
     }
@@ -1525,7 +1570,12 @@ async function resetMonthlyQuotasIfDue(admin: Admin): Promise<void> {
     .maybeSingle()
   const last = (data?.value as string | null) ?? null
   if (last === month) return
-  await admin.from('members').update({ intros_used_this_month: 0 }).gt('intros_used_this_month', 0)
+  // First ever run (no marker yet): just record the current month — we can't
+  // tell whether a reset already happened this month, so never zero live
+  // counters mid-month. Resets start from the next month-turn.
+  if (last !== null) {
+    await admin.from('members').update({ intros_used_this_month: 0 }).gt('intros_used_this_month', 0)
+  }
   await admin
     .from('app_settings')
     .upsert({ key: 'intros_reset_month', value: month }, { onConflict: 'key' })
@@ -1577,6 +1627,27 @@ async function memberSuccessSweep(
   return { swept, updated }
 }
 
+// The briefing narrative is model-written Markdown (**bold**, "- " bullets,
+// "#" headings). Convert one paragraph to the shell's allowed inline HTML:
+// escape first, then map the few Markdown marks to <strong>/<em>/<br />.
+function briefingParagraphHtml(md: string): string {
+  return md
+    .split('\n')
+    .map((line) => {
+      let l = escapeHtml(line.trim())
+      const heading = /^#{1,6}\s+(.*)$/.exec(l)
+      if (heading) l = heading[1]
+      l = l.replace(/^[-*•]\s+/, '• ').replace(/^(\d+)[.)]\s+/, '$1. ')
+      l = l
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__(.+?)__/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+      return heading ? `<strong>${l}</strong>` : l
+    })
+    .filter(Boolean)
+    .join('<br />')
+}
+
 // ── Chief of Staff — Sarah's daily leadership briefing ────────────────
 // A non-email-flow style task (like memberSuccessSweep): generate today's
 // briefing via the SHARED generate implementation the report route also
@@ -1596,13 +1667,27 @@ async function chiefOfStaffDaily(
       return { generated: 0, emailed: 0 }
     }
 
+    // Once per UK day: the cron fires hourly and admins can "Run now", so
+    // skip if today's briefing email already went out (automation_log row,
+    // flow 'chief_of_staff_daily', ref_id = YYYY-MM-DD).
+    const today = londonToday()
+    const { data: already } = await admin
+      .from('automation_log')
+      .select('id')
+      .eq('flow', 'chief_of_staff_daily')
+      .eq('ref_id', today)
+      .eq('status', 'sent')
+      .maybeSingle()
+    if (already) return { generated: 0, emailed: 0 }
+
     const report = await generateChiefOfStaffReport(admin)
 
     // Email the briefing to all admins. Paragraphs mirror the narrative's
-    // own paragraph breaks so the email reads like the on-screen briefing.
+    // own paragraph breaks so the email reads like the on-screen briefing;
+    // Markdown is rendered (not shown raw).
     const paragraphs = (report.narrative ?? '')
       .split(/\n{2,}/)
-      .map((p) => p.trim())
+      .map((p) => briefingParagraphHtml(p))
       .filter(Boolean)
 
     const { data: adminRows } = await admin.from('profiles').select('email').eq('role', 'admin')
@@ -1617,6 +1702,17 @@ async function chiefOfStaffDaily(
       ctaUrl: `${APP_URL}/dashboard/chief-of-staff`,
       ctaLabel: 'Open the full briefing',
     })
+    await admin.from('automation_log').upsert(
+      {
+        flow: 'chief_of_staff_daily',
+        ref_id: today,
+        recipient_email: null,
+        status: 'sent',
+        detail: `Daily briefing emailed to ${emailed} admin(s)`,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: 'flow,ref_id' },
+    )
 
     return { generated: 1, emailed }
   } catch (e) {

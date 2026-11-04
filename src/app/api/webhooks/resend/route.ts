@@ -21,9 +21,9 @@
 // later duplicate event never overwrites the first (earliest) timestamp.
 //
 // Signing: Resend signs with Svix headers (svix-id, svix-timestamp,
-// svix-signature). If RESEND_WEBHOOK_SECRET is set we verify; if it's not set
-// we log a warning and still process (matching how other routes here treat
-// optional secrets), so the integration works before the secret is wired up.
+// svix-signature). RESEND_WEBHOOK_SECRET is REQUIRED: without it every event
+// is refused (503), so nobody can post forged delivered/opened/bounced events
+// into the logs. Timestamps older/newer than 5 minutes are refused (replay).
 
 import { NextRequest } from 'next/server'
 import crypto from 'crypto'
@@ -53,6 +53,9 @@ function verifySvixSignature(args: {
 }): boolean {
   const { secret, id, timestamp, signatureHeader, rawBody } = args
   if (!id || !timestamp || !signatureHeader) return false
+  // Svix timestamps are unix seconds; refuse anything outside a 5-min window.
+  const ts = Number(timestamp)
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false
   try {
     const key = secret.startsWith('whsec_') ? secret.slice('whsec_'.length) : secret
     const keyBytes = Buffer.from(key, 'base64')
@@ -89,22 +92,20 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text()
 
   const secret = process.env.RESEND_WEBHOOK_SECRET
-  if (secret) {
-    const ok = verifySvixSignature({
-      secret,
-      id: req.headers.get('svix-id'),
-      timestamp: req.headers.get('svix-timestamp'),
-      signatureHeader: req.headers.get('svix-signature'),
-      rawBody,
-    })
-    if (!ok) {
-      console.warn('[resend-webhook] signature verification failed')
-      return Response.json({ error: 'Invalid signature' }, { status: 401 })
-    }
-  } else {
-    console.warn(
-      '[resend-webhook] RESEND_WEBHOOK_SECRET not set — processing unverified event',
-    )
+  if (!secret) {
+    console.error('[resend-webhook] RESEND_WEBHOOK_SECRET not set — refusing unverified event')
+    return Response.json({ error: 'Webhook not configured' }, { status: 503 })
+  }
+  const ok = verifySvixSignature({
+    secret,
+    id: req.headers.get('svix-id'),
+    timestamp: req.headers.get('svix-timestamp'),
+    signatureHeader: req.headers.get('svix-signature'),
+    rawBody,
+  })
+  if (!ok) {
+    console.warn('[resend-webhook] signature verification failed')
+    return Response.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
   let event: ResendEvent

@@ -54,8 +54,12 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
 
   const sp = req.nextUrl.searchParams
-  const limit = Math.min(Number(sp.get('limit')) || DEFAULT_LIMIT, MAX_LIMIT)
-  const offset = Math.max(Number(sp.get('offset')) || 0, 0)
+  // Clamp both: a negative/zero/non-numeric limit or offset must never
+  // reach .range() (an inverted range is a 500).
+  const rawLimit = Math.floor(Number(sp.get('limit')))
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, MAX_LIMIT) : DEFAULT_LIMIT
+  const rawOffset = Math.floor(Number(sp.get('offset')))
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0
 
   const admin = getServiceClient()
 

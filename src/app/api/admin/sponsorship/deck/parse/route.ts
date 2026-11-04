@@ -6,9 +6,11 @@
 // { positioning, target_sectors[], keywords[] } that the client then feeds into
 // the /match route as `deck_brief` (+ merged keywords).
 //
-// Best-effort by design: it NEVER blocks. Unsupported files return ok:false
-// with a message; when OpenAI is unavailable it returns the truncated raw text
-// as the brief with empty sectors/keywords. Nothing is sent.
+// Best-effort by design: it NEVER blocks. Bad input / unreadable files return
+// ok:false with a 4xx status and a plain message; asset_path must be an
+// admin-uploaded deck (decks/…pdf|docx). When OpenAI is unavailable it returns
+// the truncated raw text as the brief with empty sectors/keywords. Nothing is
+// sent.
 
 import { NextRequest } from 'next/server'
 import OpenAI from 'openai'
@@ -21,6 +23,14 @@ export const dynamic = 'force-dynamic'
 
 const MAX_TEXT_CHARS = 12000
 const STORAGE_BUCKET = 'sponsor-assets'
+// Admin-uploaded decks live under decks/ in the bucket.
+const DECK_PATH_RE = /^decks\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}\.(pdf|docx)$/i
+
+// Failure → a real 4xx status (ok:false kept for older callers; `error` is
+// what the hub's toast reads). Never echoes raw storage errors.
+function fail(message: string, status: number) {
+  return Response.json({ ok: false, error: message, message }, { status })
+}
 
 const briefSchema = z.object({
   positioning: z.string(),
@@ -78,62 +88,48 @@ export async function POST(req: NextRequest) {
 
     // ── Resolve extracted text ───────────────────────────────────────────
     let extracted = ''
-    if (body.text && body.text.trim()) {
-      extracted = body.text
-    } else if (body.asset_path && body.asset_path.trim()) {
+    const text = typeof body.text === 'string' ? body.text : ''
+    const assetPath = typeof body.asset_path === 'string' ? body.asset_path.trim() : ''
+    if (text.trim()) {
+      extracted = text.slice(0, MAX_TEXT_CHARS * 4)
+    } else if (assetPath) {
+      // Only a deck the admin uploaded (decks/… with a safe name, PDF/DOCX)
+      // — never an arbitrary bucket path such as a sponsor's own upload.
+      if (!DECK_PATH_RE.test(assetPath) || assetPath.includes('..')) {
+        return fail('Unknown deck file — upload the deck again or paste its text.', 400)
+      }
       const admin = getAdmin()
-      const { data: file, error: dlErr } = await admin.storage
-        .from(STORAGE_BUCKET)
-        .download(body.asset_path)
+      const { data: file, error: dlErr } = await admin.storage.from(STORAGE_BUCKET).download(assetPath)
       if (dlErr || !file) {
-        return Response.json(
-          { ok: false, message: `Could not download asset: ${dlErr?.message ?? 'not found'}` },
-          { status: 200 },
-        )
+        if (dlErr) console.error('[deck/parse] download failed:', dlErr)
+        return fail('Deck file not found — upload it again or paste its text.', 404)
       }
       const buffer = Buffer.from(await file.arrayBuffer())
-      const ext = body.asset_path.split('.').pop()?.toLowerCase() ?? ''
+      const ext = assetPath.split('.').pop()?.toLowerCase() ?? ''
       if (ext === 'pdf') {
         try {
           extracted = await extractPdfText(new Uint8Array(buffer))
         } catch (e) {
           console.error('[deck/parse] PDF extraction failed:', e)
-          return Response.json(
-            { ok: false, message: 'Could not read this PDF; paste the text instead.' },
-            { status: 200 },
-          )
+          return fail('Could not read this PDF; paste the text instead.', 422)
         }
-      } else if (ext === 'docx') {
+      } else {
         try {
           const mammoth = await import('mammoth')
           const out = await mammoth.extractRawText({ buffer })
           extracted = out.value ?? ''
         } catch (e) {
           console.error('[deck/parse] DOCX extraction failed:', e)
-          return Response.json(
-            { ok: false, message: 'Could not read this document; paste the text instead.' },
-            { status: 200 },
-          )
+          return fail('Could not read this document; paste the text instead.', 422)
         }
-      } else {
-        return Response.json(
-          { ok: false, message: 'Unsupported file type; export to PDF or paste text' },
-          { status: 200 },
-        )
       }
     } else {
-      return Response.json(
-        { ok: false, message: 'Provide either `text` or an `asset_path`.' },
-        { status: 200 },
-      )
+      return fail('Provide either `text` or an `asset_path`.', 400)
     }
 
     extracted = extracted.replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT_CHARS)
     if (!extracted) {
-      return Response.json(
-        { ok: false, message: 'No readable text found in the deck.' },
-        { status: 200 },
-      )
+      return fail('No readable text found in the deck.', 422)
     }
 
     // ── Summarise (OpenAI structured; graceful fallback to raw text) ──────
@@ -207,7 +203,6 @@ export async function POST(req: NextRequest) {
     })
   } catch (e) {
     console.error('[deck/parse] unhandled error:', e)
-    const message = e instanceof Error ? e.message : 'Unknown error'
-    return Response.json({ error: `Unhandled server error: ${message}` }, { status: 500 })
+    return Response.json({ ok: false, error: 'Could not read the deck.' }, { status: 500 })
   }
 }

@@ -10,7 +10,7 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { requireAdmin, getAdmin } from '@/lib/marketing/admin'
-import { resolveSegmentRecipients } from '@/lib/marketing/segments'
+import { resolveSegmentRecipients, validateSegmentRules } from '@/lib/marketing/segments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,6 +46,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const rulesError = parsed.data.rules ? validateSegmentRules(parsed.data.rules) : null
+  if (rulesError) return Response.json({ error: rulesError }, { status: 400 })
+
   const admin = getAdmin()
 
   // Resolve rules — either inline, or loaded from a saved segment.
@@ -55,7 +58,7 @@ export async function POST(req: NextRequest) {
       .from('marketing_segments')
       .select('rules')
       .eq('id', parsed.data.segment_id)
-      .single()
+      .maybeSingle()
     if (error || !seg) {
       return Response.json({ error: 'Segment not found' }, { status: 404 })
     }

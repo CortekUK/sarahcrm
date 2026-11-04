@@ -16,12 +16,20 @@
 // Admin only. The application transitions to status='rejected' as the
 // final step; if Stripe refund fails we still mark the application
 // rejected but flag the failure in the response so the admin sees it.
+//
+// An APPROVED application (already a provisioned, active member) can't be
+// rejected here — that used to refund the payment while leaving the member
+// active and still billing. Cancel the membership from Members instead.
+// An application mid-approval ('processing') is also refused, and the
+// application is claimed (status → 'processing') before any Stripe call so
+// two reject clicks can't both refund. Refunds carry an idempotency key.
 
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { escapeHtml } from '@/lib/stripe/server-helpers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -74,6 +82,9 @@ async function refundLatestSubscriptionPayment(
   subscriptionId: string,
   customerId: string | null,
 ): Promise<{ refundId: string; amountPence: number } | null> {
+  // One refund per payment, ever — a repeated reject gets the same refund
+  // back from Stripe instead of an error / second refund attempt.
+  const refundKey = (id: string) => ({ idempotencyKey: `app-reject-refund-${id}` })
   // Helper — pull a payment_intent or charge id off any invoice-shaped
   // object across API versions.
   function piFromInvoice(inv: unknown): string | null {
@@ -107,12 +118,12 @@ async function refundLatestSubscriptionPayment(
     if (inv && typeof inv === 'object') {
       const pi = piFromInvoice(inv)
       if (pi) {
-        const refund = await stripe.refunds.create({ payment_intent: pi })
+        const refund = await stripe.refunds.create({ payment_intent: pi }, refundKey(pi))
         return { refundId: refund.id, amountPence: refund.amount }
       }
       const charge = chargeFromInvoice(inv)
       if (charge) {
-        const refund = await stripe.refunds.create({ charge })
+        const refund = await stripe.refunds.create({ charge }, refundKey(charge))
         return { refundId: refund.id, amountPence: refund.amount }
       }
     }
@@ -131,12 +142,12 @@ async function refundLatestSubscriptionPayment(
     for (const inv of invoices.data) {
       const pi = piFromInvoice(inv)
       if (pi) {
-        const refund = await stripe.refunds.create({ payment_intent: pi })
+        const refund = await stripe.refunds.create({ payment_intent: pi }, refundKey(pi))
         return { refundId: refund.id, amountPence: refund.amount }
       }
       const charge = chargeFromInvoice(inv)
       if (charge) {
-        const refund = await stripe.refunds.create({ charge })
+        const refund = await stripe.refunds.create({ charge }, refundKey(charge))
         return { refundId: refund.id, amountPence: refund.amount }
       }
     }
@@ -153,7 +164,10 @@ async function refundLatestSubscriptionPayment(
       const pis = await stripe.paymentIntents.list({ customer: customerId, limit: 10 })
       const succeeded = pis.data.find((p) => p.status === 'succeeded')
       if (succeeded) {
-        const refund = await stripe.refunds.create({ payment_intent: succeeded.id })
+        const refund = await stripe.refunds.create(
+          { payment_intent: succeeded.id },
+          refundKey(succeeded.id),
+        )
         return { refundId: refund.id, amountPence: refund.amount }
       }
     } catch (e) {
@@ -173,12 +187,12 @@ async function sendRejectionEmailViaResend(args: {
   reason?: string | null
 }): Promise<{ sent: boolean; error?: string }> {
   const paragraphs = [
-    `Hello ${args.toName || 'there'},`,
+    `Hello ${escapeHtml(args.toName) || 'there'},`,
     `Thank you for the care you put into your application to The Club. After review, we won't be moving forward at this stage.`,
   ]
   if (args.reason) {
     paragraphs.push(
-      `<span style="font-style:italic;font-family:Georgia,'Times New Roman',serif;color:#8A6D3B;">${args.reason}</span>`,
+      `<span style="font-style:italic;font-family:Georgia,'Times New Roman',serif;color:#8A6D3B;">${escapeHtml(args.reason)}</span>`,
     )
   }
   if (args.refundAmountPence) {
@@ -226,9 +240,51 @@ export async function POST(req: NextRequest) {
       .from('membership_applications')
       .select('*')
       .eq('id', body.application_id)
-      .single()
+      .maybeSingle()
     if (appErr || !app) {
       return Response.json({ error: 'Application not found' }, { status: 404 })
+    }
+
+    const prevStatus: string = app.status ?? 'pending'
+    if (prevStatus === 'approved') {
+      return Response.json(
+        {
+          error:
+            'This applicant has already been approved and is a member. Rejecting would refund them while leaving the membership active — cancel the membership from Members instead.',
+        },
+        { status: 409 },
+      )
+    }
+    if (prevStatus === 'processing') {
+      return Response.json(
+        { error: 'This application is being processed right now. Refresh and try again.' },
+        { status: 409 },
+      )
+    }
+    // Atomic claim so two reject clicks (or a reject racing an approve)
+    // can't both act.
+    const claimQuery = admin
+      .from('membership_applications')
+      .update({ status: 'processing', reviewed_at: new Date().toISOString() })
+      .eq('id', app.id)
+    const { data: claim, error: claimErr } = await (app.status == null
+      ? claimQuery.is('status', null)
+      : claimQuery.eq('status', prevStatus)
+    )
+      .select('id')
+      .maybeSingle()
+    // If the live DB ever restricts status values (check constraint →
+    // 23514), degrade to the old unlocked behaviour rather than block every
+    // decision; the Stripe idempotency keys still guard the charge.
+    if (claimErr && claimErr.code !== '23514') {
+      return Response.json({ error: `Could not lock application: ${claimErr.message}` }, { status: 500 })
+    }
+    if (claimErr) console.warn('[applications] status claim unavailable:', claimErr.message)
+    if (!claim && !claimErr) {
+      return Response.json(
+        { error: 'This application is already being processed. Refresh to see its current status.' },
+        { status: 409 },
+      )
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -330,6 +386,11 @@ export async function POST(req: NextRequest) {
       .update(updatePatch)
       .eq('id', app.id)
     if (updErr) {
+      await admin
+        .from('membership_applications')
+        .update({ status: prevStatus })
+        .eq('id', app.id)
+        .eq('status', 'processing')
       return Response.json(
         {
           error: `Application update failed: ${updErr.message}`,

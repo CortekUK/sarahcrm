@@ -30,6 +30,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail } from '@/lib/email/invite'
 import { planForTier, introQuotaForTier } from '@/lib/membership/plans'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,6 +59,66 @@ function getAdminDb() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },
   )
+}
+
+const VALID_TIERS = ['tier_1', 'tier_2', 'tier_3']
+const VALID_STATUSES = ['active', 'pending']
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Clear 400 messages instead of letting the DB reject bad values as a 500.
+function validateBody(b: RequestBody): string | null {
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  if (!str(b.first_name)) return 'First name is required.'
+  if (!str(b.last_name)) return 'Last name is required.'
+  if (!str(b.email)) return 'Email is required.'
+  if (!EMAIL_RE.test(str(b.email)) || str(b.email).length > 254) return 'Please enter a valid email address.'
+  if (b.membership_tier !== undefined && !VALID_TIERS.includes(b.membership_tier)) {
+    return 'Unknown membership plan.'
+  }
+  if (b.status !== undefined && !VALID_STATUSES.includes(b.status)) {
+    return "Status must be 'active' or 'pending'."
+  }
+  const limits: [keyof RequestBody, string, number][] = [
+    ['first_name', 'First name', 100],
+    ['last_name', 'Last name', 100],
+    ['phone', 'Phone', 40],
+    ['job_title', 'Job title', 150],
+    ['company_name', 'Company name', 200],
+    ['company_website', 'Company website', 500],
+    ['company_description', 'Company description', 5000],
+    ['notes', 'Notes', 10000],
+  ]
+  for (const [key, label, max] of limits) {
+    const v = b[key]
+    if (v === undefined || v === null) continue
+    if (typeof v !== 'string') return `${label} must be text.`
+    if (v.length > max) return `${label} must be ${max} characters or fewer.`
+  }
+  if (b.company_website?.trim() && !/^https?:\/\/[^\s]+$/i.test(b.company_website.trim())) {
+    return 'Company website must start with http:// or https://.'
+  }
+  if (b.tag_ids !== undefined && (!Array.isArray(b.tag_ids) || b.tag_ids.some((t) => typeof t !== 'string' || !UUID_RE.test(t)))) {
+    return 'Invalid tag selection.'
+  }
+  return null
+}
+
+// Escape LIKE wildcards so an ilike() is an exact, case-insensitive match.
+function escapeLike(v: string): string {
+  return v.replace(/[\\%_]/g, (c) => `\\${c}`)
+}
+
+function isAlreadyRegistered(message: string | null | undefined): boolean {
+  return /already (been )?registered|already exists|duplicate key/i.test(message ?? '')
+}
+
+function alreadyExistsMessage(role: string | null): string {
+  if (role === 'admin') return 'This email belongs to an admin account. Use a different email.'
+  if (role === 'team_member' || role === 'freelancer') {
+    return 'This email belongs to a team member account. Use a different email.'
+  }
+  return 'An account with this email already exists. Open that member instead of adding them again.'
 }
 
 async function requireAdmin() {
@@ -90,31 +151,37 @@ export async function POST(req: NextRequest) {
     } catch {
       return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-    if (!body.first_name || !body.last_name || !body.email) {
-      return Response.json(
-        { error: 'first_name, last_name, and email are required.' },
-        { status: 400 },
-      )
-    }
+    const invalid = validateBody(body)
+    if (invalid) return Response.json({ error: invalid }, { status: 400 })
+    // Normalised from here on: trimmed, and the email lower-cased so a
+    // capitalised duplicate is caught as a duplicate (not a 500).
+    body.first_name = body.first_name!.trim()
+    body.last_name = body.last_name!.trim()
+    body.email = body.email!.trim().toLowerCase()
 
     const admin = getAdminDb()
 
-    // 1. Check for existing auth user / profile by email — avoids
-    //    "user already exists" errors when the email's already in the
-    //    system from a prior application.
-    const { data: existingProfile } = await admin
+    // 1. Refuse an email that already belongs to an account (member, admin
+    //    or staff). Reusing it would silently overwrite that person's name
+    //    and turn an admin or staff login into a plain member.
+    const { data: existingProfiles } = await admin
       .from('profiles')
       .select('id, role')
-      .eq('email', body.email)
-      .maybeSingle()
+      .ilike('email', escapeLike(body.email))
+      .limit(1)
+    const existingProfile = existingProfiles?.[0]
+    if (existingProfile) {
+      return Response.json(
+        { error: alreadyExistsMessage(existingProfile.role as string) },
+        { status: 409 },
+      )
+    }
 
     let userId: string
     let inviteSent = false
 
-    if (existingProfile) {
-      userId = existingProfile.id
-    } else {
-      const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    {
+      const origin = siteUrl() // fixed site URL — never the request's Origin/Host
       const send = body.send_invite !== false
       if (send) {
         // Branded invite via Resend (not Supabase's default mailer).
@@ -124,6 +191,9 @@ export async function POST(req: NextRequest) {
           redirectTo: `${origin}/set-password`,
         })
         if (!inv.userId) {
+          if (isAlreadyRegistered(inv.error)) {
+            return Response.json({ error: alreadyExistsMessage(null) }, { status: 409 })
+          }
           return Response.json(
             { error: inv.error ?? 'Failed to create auth user' },
             { status: 500 },
@@ -138,6 +208,9 @@ export async function POST(req: NextRequest) {
           user_metadata: { first_name: body.first_name, last_name: body.last_name },
         })
         if (created.error || !created.data.user) {
+          if (isAlreadyRegistered(created.error?.message)) {
+            return Response.json({ error: alreadyExistsMessage(null) }, { status: 409 })
+          }
           return Response.json(
             { error: created.error?.message ?? 'Failed to create auth user' },
             { status: 500 },
@@ -147,7 +220,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Update profile with the rest of the info.
+    // 2. Update the (brand-new) profile with the rest of the info.
     await admin
       .from('profiles')
       .update({
@@ -213,7 +286,7 @@ export async function POST(req: NextRequest) {
         .from('bookings')
         .update({ member_id: memberId, is_guest: false })
         .is('member_id', null)
-        .ilike('guest_email', body.email)
+        .ilike('guest_email', escapeLike(body.email))
     }
 
     // 4. Tags
@@ -231,7 +304,7 @@ export async function POST(req: NextRequest) {
       member_id: memberId,
       profile_id: userId,
       invite_sent: inviteSent,
-      reused_existing_user: !!existingProfile,
+      reused_existing_user: false,
     })
   } catch (e) {
     console.error('[create-member] unhandled error:', e)

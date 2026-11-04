@@ -10,6 +10,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail, resetPasswordAndSendCredentials } from '@/lib/email/invite'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const origin = siteUrl() // fixed site URL — never the request's Origin/Host
     const loginUrl = `${origin}/admin/login`
 
     const existingUser = await admin.auth.admin.getUserById(profile.id)

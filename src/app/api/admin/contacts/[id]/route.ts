@@ -31,6 +31,21 @@ const EDITABLE = [
   'directory_hidden',
 ] as const
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Max lengths for the free-text fields (anything longer is a paste error).
+const MAX_LEN: Record<string, number> = {
+  first_name: 100,
+  last_name: 100,
+  company_name: 200,
+  job_title: 150,
+  website: 500,
+  phone: 40,
+  city: 150,
+  location: 200,
+  notes: 10000,
+}
+
 async function requireAdmin() {
   const supabase = await createClient()
   const {
@@ -64,6 +79,7 @@ export async function GET(
   if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
 
   const { id } = await params
+  if (!UUID_RE.test(id)) return Response.json({ error: 'Contact not found.' }, { status: 404 })
   const admin = getServiceClient()
   // '*' so the route keeps working before directory_hidden's migration lands.
   const { data, error } = await admin.from('contacts').select('*').eq('id', id).maybeSingle()
@@ -83,6 +99,7 @@ export async function PATCH(
   if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
 
   const { id } = await params
+  if (!UUID_RE.test(id)) return Response.json({ error: 'Contact not found.' }, { status: 404 })
   let body: Record<string, unknown>
   try {
     body = (await req.json()) as Record<string, unknown>
@@ -107,6 +124,12 @@ export async function PATCH(
       if (field === 'email_subscribed' && !v) patch.unsubscribed_at = new Date().toISOString()
     } else {
       const s = typeof v === 'string' ? v.trim() : ''
+      if (s.length > (MAX_LEN[field] ?? 1000)) {
+        return Response.json(
+          { error: `${field.replace('_', ' ')} must be ${MAX_LEN[field] ?? 1000} characters or fewer.` },
+          { status: 400 },
+        )
+      }
       patch[field] = s === '' ? null : s
     }
   }
@@ -116,6 +139,39 @@ export async function PATCH(
   }
 
   const admin = getServiceClient()
+
+  // Consent: a contact who unsubscribed can't be silently opted back in by
+  // an admin toggle (PECR — consent has to come from the contact). It is
+  // only allowed with `resubscribe_reason` recording how the contact asked
+  // to be re-added; the opt-out date is then cleared and the reason is
+  // appended to the contact's notes as an audit line.
+  if (patch.email_subscribed === true) {
+    const { data: current } = await admin
+      .from('contacts')
+      .select('email_subscribed, unsubscribed_at, notes')
+      .eq('id', id)
+      .maybeSingle()
+    if (!current) return Response.json({ error: 'Contact not found.' }, { status: 404 })
+    if (current.unsubscribed_at || current.email_subscribed === false) {
+      const reason =
+        typeof body.resubscribe_reason === 'string' ? body.resubscribe_reason.trim().slice(0, 500) : ''
+      if (reason.length < 5) {
+        return Response.json(
+          {
+            error:
+              'This contact unsubscribed. They can only be re-subscribed if they asked to be — add a short note of how they asked (resubscribe_reason).',
+          },
+          { status: 409 },
+        )
+      }
+      patch.unsubscribed_at = null
+      const stamp = new Date().toISOString().slice(0, 10)
+      const auditLine = `[${stamp}] Re-subscribed to email by an admin: ${reason}`
+      const baseNotes = typeof patch.notes === 'string' ? patch.notes : (current.notes as string | null)
+      patch.notes = baseNotes ? `${baseNotes}\n${auditLine}` : auditLine
+    }
+  }
+
   const { data, error } = await admin
     .from('contacts')
     .update(patch)
@@ -125,7 +181,7 @@ export async function PATCH(
 
   if (error) {
     console.error('[contacts] update failed', error)
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json({ error: 'Could not save the contact.' }, { status: 500 })
   }
   if (!data) return Response.json({ error: 'Contact not found.' }, { status: 404 })
 
@@ -140,12 +196,14 @@ export async function DELETE(
   if ('error' in auth) return Response.json({ error: auth.error }, { status: auth.status })
 
   const { id } = await params
+  if (!UUID_RE.test(id)) return Response.json({ error: 'Contact not found.' }, { status: 404 })
   const admin = getServiceClient()
-  const { error } = await admin.from('contacts').delete().eq('id', id)
+  const { data, error } = await admin.from('contacts').delete().eq('id', id).select('id')
 
   if (error) {
     console.error('[contacts] delete failed', error)
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json({ error: 'Could not delete the contact.' }, { status: 500 })
   }
+  if (!data || data.length === 0) return Response.json({ error: 'Contact not found.' }, { status: 404 })
   return Response.json({ ok: true })
 }

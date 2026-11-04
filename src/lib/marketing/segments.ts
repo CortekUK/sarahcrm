@@ -42,6 +42,37 @@ export interface SegmentRecipient {
   unsubscribe_token: string | null
 }
 
+// The values each rule dimension can actually take (the members enums).
+export const SEGMENT_TIERS = ['tier_1', 'tier_2', 'tier_3'] as const
+export const SEGMENT_STATUSES = ['active', 'pending', 'expired', 'cancelled'] as const
+export const SEGMENT_TYPES = ['individual', 'business'] as const
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Validate a rules object from a request body. Returns a readable error, or
+// null when every value is one that can match. Used by the segment save and
+// preview routes so a rule that can never match is refused up front.
+export function validateSegmentRules(raw: unknown): string | null {
+  if (raw == null) return null
+  if (typeof raw !== 'object' || Array.isArray(raw)) return 'Rules must be an object.'
+  const r = raw as Record<string, unknown>
+  const check = (key: string, allowed: readonly string[] | null, label: string): string | null => {
+    const v = r[key]
+    if (v === undefined) return null
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) return `${label} must be a list.`
+    const bad = (v as string[]).filter((x) => (allowed ? !allowed.includes(x) : !UUID_RE.test(x)))
+    return bad.length > 0 ? `Unknown ${label.toLowerCase()}: ${bad.slice(0, 3).join(', ')}` : null
+  }
+  return (
+    check('tiers', SEGMENT_TIERS, 'Tiers') ??
+    check('statuses', SEGMENT_STATUSES, 'Statuses') ??
+    check('types', SEGMENT_TYPES, 'Types') ??
+    check('tag_ids', null, 'Tag ids') ??
+    (r.tag_match !== undefined && r.tag_match !== 'any' && r.tag_match !== 'all'
+      ? "tag_match must be 'any' or 'all'."
+      : null)
+  )
+}
+
 function cleanList(v: unknown): string[] {
   if (!Array.isArray(v)) return []
   return v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
@@ -68,11 +99,28 @@ async function matchingMemberIds(
   admin: AdminClient,
   rules: SegmentRules,
 ): Promise<string[]> {
-  const tiers = rules.tiers ?? []
-  const statuses = rules.statuses ?? []
-  const types = rules.types ?? []
-  const tagIds = rules.tag_ids ?? []
   const tagMatch = rules.tag_match === 'all' ? 'all' : 'any'
+  // Rules saved before validation existed may hold values that can never
+  // match (an unknown tier, a non-UUID tag id). Sending those to Postgres
+  // is a 500 (invalid enum / uuid), and silently dropping them would WIDEN
+  // the audience — so drop them, and if a dimension had values but none
+  // are valid, the segment matches nobody.
+  const keep = (list: string[] | undefined, ok: (x: string) => boolean) => {
+    const raw = list ?? []
+    const valid = raw.filter(ok)
+    return { valid, impossible: raw.length > 0 && valid.length === 0, dropped: raw.length - valid.length }
+  }
+  const t = keep(rules.tiers, (x) => (SEGMENT_TIERS as readonly string[]).includes(x))
+  const st = keep(rules.statuses, (x) => (SEGMENT_STATUSES as readonly string[]).includes(x))
+  const ty = keep(rules.types, (x) => (SEGMENT_TYPES as readonly string[]).includes(x))
+  const tg = keep(rules.tag_ids, (x) => UUID_RE.test(x))
+  if (t.impossible || st.impossible || ty.impossible || tg.impossible) return []
+  // 'all' tags: one unmatchable tag means nobody can hold all of them.
+  if (tagMatch === 'all' && tg.dropped > 0) return []
+  const tiers = t.valid
+  const statuses = st.valid
+  const types = ty.valid
+  const tagIds = tg.valid
 
   let query = admin
     .from('members')

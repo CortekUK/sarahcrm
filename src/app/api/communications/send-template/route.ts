@@ -25,6 +25,11 @@
 //     preview: Array<{ member_id, email, subject, body_preview }>,
 //   }
 //
+// Every send carries the club header/footer and a working unsubscribe link
+// (members get a signed link — src/lib/email/unsubscribe.ts). For non-
+// transactional templates, members who have opted out are skipped. Merge-tag
+// values are HTML-escaped in the body (the subject is plain text).
+//
 // Admin only.
 
 import { NextRequest } from 'next/server'
@@ -33,6 +38,15 @@ import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js
 import { Resend } from 'resend'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
 import { buildMergeData, type MemberRow, type EventRow, type IntroductionRow } from '@/lib/communications/merge-data'
+import { escapeMergeData } from '@/lib/email/club-email'
+import { siteUrl } from '@/lib/email/site-url'
+import {
+  loadSuppressedEmails,
+  memberUnsubscribeUrl,
+  unsubscribeFooterHtml,
+} from '@/lib/email/unsubscribe'
+import { renderBlocksToHTML } from '@/lib/templates/render-html'
+import type { TemplateTheme } from '@/lib/templates/editor-types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,7 +122,7 @@ export async function POST(req: NextRequest) {
     // Load the template
     const { data: template, error: templateError } = await adminDb
       .from('email_templates')
-      .select('id, name, subject, body_html, theme')
+      .select('id, name, subject, body_html, theme, category')
       .eq('id', body.template_id)
       .single()
 
@@ -212,8 +226,22 @@ export async function POST(req: NextRequest) {
       title: auth.profile.job_title ?? 'Founder, The Club',
       email: auth.profile.email ?? 'sarah@theclub.example.com',
       phone: auth.profile.phone ?? '',
-      booking_link: 'https://theclub.example.com/book',
+      booking_link: `${siteUrl()}/events`,
     }
+
+    // Templates saved by the editor are full documents with the club
+    // header/footer (incl. an {{unsubscribe_url}} link). A bare HTML body
+    // (e.g. imported/raw) is wrapped in the same shell so it gets them too.
+    const rawBody = template.body_html || ''
+    const templateHtml = /<html[\s>]/i.test(rawBody)
+      ? rawBody
+      : renderBlocksToHTML(
+          [{ id: 'body', type: 'html', content: { code: rawBody } }],
+          (template.theme ?? null) as TemplateTheme | null,
+        )
+    const hasUnsubscribeTag = /\{\{\s*unsubscribe_url/.test(templateHtml)
+    const isMarketing = template.category !== 'transactional'
+    const suppressed = isMarketing ? await loadSuppressedEmails(adminDb) : new Set<string>()
 
     const apiKey = process.env.RESEND_API_KEY
     if (!apiKey && !body.dry_run) {
@@ -268,7 +296,13 @@ export async function POST(req: NextRequest) {
         errors.push({ member_id: member.id, error: 'No email on profile' })
         continue
       }
+      if (suppressed.has(toEmail.trim().toLowerCase())) {
+        stats.skipped += 1
+        errors.push({ member_id: member.id, error: 'Unsubscribed from marketing email' })
+        continue
+      }
 
+      const unsubscribeUrl = memberUnsubscribeUrl(toEmail)
       const data = buildMergeData({
         member,
         event,
@@ -276,10 +310,16 @@ export async function POST(req: NextRequest) {
           ? { ...introduction.row, other_member: introduction.other_by_recipient.get(member.id) ?? null }
           : null,
         sender,
+        unsubscribeUrl,
       })
 
       const resolvedSubject = replaceMergeTags(template.subject || '', data) || '(no subject)'
-      const resolvedHtml = replaceMergeTags(template.body_html || '', data)
+      let resolvedHtml = replaceMergeTags(templateHtml, escapeMergeData(data))
+      if (!hasUnsubscribeTag) {
+        const footer = unsubscribeFooterHtml(unsubscribeUrl)
+        const i = resolvedHtml.toLowerCase().lastIndexOf('</body>')
+        resolvedHtml = i >= 0 ? `${resolvedHtml.slice(0, i)}${footer}${resolvedHtml.slice(i)}` : `${resolvedHtml}${footer}`
+      }
       const bodyPreview = stripToText(resolvedHtml).slice(0, 200)
 
       preview.push({

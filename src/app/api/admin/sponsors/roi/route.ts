@@ -13,7 +13,7 @@ import { NextRequest } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { renderClubEmail } from '@/lib/email/club-email'
+import { escapeHtml, renderClubEmail } from '@/lib/email/club-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,8 +58,8 @@ interface RoiStats {
 function statsPanel(s: RoiStats): string {
   const cell = (label: string, value: string) =>
     `<td style="padding:4px 10px 4px 0;vertical-align:top;">
-       <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#2C2825;line-height:1.1;">${value}</p>
-       <p style="margin:4px 0 0 0;font-family:'DM Sans',Arial,sans-serif;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6B6560;">${label}</p>
+       <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#2C2825;line-height:1.1;">${escapeHtml(value)}</p>
+       <p style="margin:4px 0 0 0;font-family:'DM Sans',Arial,sans-serif;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6B6560;">${escapeHtml(label)}</p>
      </td>`
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 18px 0;background:#FAFAF7;border:1px solid #EAE6DE;border-radius:6px;"><tr><td style="padding:20px 22px;">
        <p style="margin:0 0 14px 0;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.24em;text-transform:uppercase;color:#B8975A;font-weight:600;">The evening in numbers</p>
@@ -78,8 +78,8 @@ async function buildRoiHtml(
 ): Promise<string> {
   const sponsorLabel = sp.sponsor_company || sp.sponsor_name || 'there'
   const fallbackParagraphs = [
-    `Dear ${sponsorLabel},`,
-    `Thank you for partnering with us on <strong style="color:#B8975A;">${s.eventTitle}</strong> as our ${sp.package_name} sponsor. Here is a short report on the evening and the audience your brand reached.`,
+    `Dear ${escapeHtml(sponsorLabel)},`,
+    `Thank you for partnering with us on <strong style="color:#B8975A;">${escapeHtml(s.eventTitle)}</strong> as our ${escapeHtml(sp.package_name)} sponsor. Here is a short report on the evening and the audience your brand reached.`,
     `We welcomed <strong style="color:#2C2825;">${s.attended}</strong> guests on the night — ${s.members} members and ${s.guests} invited guests — a curated, senior audience with your brand at the centre of the room.`,
     `We would be glad to build on this partnership for the season ahead.`,
   ]
@@ -150,10 +150,17 @@ export async function POST(req: NextRequest) {
     const admin = getAdmin()
     const { data: sp, error } = await admin
       .from('sponsorships')
-      .select('id, event_id, package_name, sponsor_name, sponsor_company, events(title)')
+      .select('id, event_id, status, package_name, sponsor_name, sponsor_company, events(title)')
       .eq('id', body.sponsorship_id)
-      .single()
+      .maybeSingle()
     if (error || !sp) return Response.json({ error: 'Sponsor not found' }, { status: 404 })
+    // An ROI report is for a sponsor who actually took part.
+    if (!['confirmed', 'invoiced', 'paid'].includes(String(sp.status ?? ''))) {
+      return Response.json(
+        { error: 'ROI reports are only available for confirmed sponsorships.' },
+        { status: 409 },
+      )
+    }
 
     // Build reach/attendance stats from the event's confirmed bookings.
     const { data: bookings } = await admin

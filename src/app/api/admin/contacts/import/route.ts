@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
       continue
     }
     const sector = SECTOR_KEYS.includes(r.sector) ? r.sector : UNSEGMENTED
-    const clean: ContactRow = { ...r, email, sector, groups: r.groups ?? [] }
+    const clean = normaliseRow(r, email, sector)
     const prior = byEmail.get(email)
     if (!prior) {
       byEmail.set(email, clean)
@@ -302,19 +302,30 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Commit ───────────────────────────────────────────────────
+  // Counts reported back are what was ACTUALLY written — a failed row is
+  // reported as failed, never as inserted.
   const errors: { email: string; error: string }[] = []
+  let insertedOk = 0
+  let updatedOk = 0
+  const toDbRow = (r: ContactRow) => ({
+    ...r,
+    unsubscribed_at: r.email_subscribed ? null : new Date().toISOString(),
+  })
 
   for (let i = 0; i < toInsert.length; i += CHUNK) {
     const slice = toInsert.slice(i, i + CHUNK)
-    const { error } = await admin.from('contacts').insert(
-      slice.map((r) => ({
-        ...r,
-        unsubscribed_at: r.email_subscribed ? null : new Date().toISOString(),
-      })),
-    )
-    if (error) {
-      console.error('[contacts/import] insert chunk failed', error)
-      errors.push({ email: `${slice.length} rows from #${i}`, error: error.message })
+    const { error } = await admin.from('contacts').insert(slice.map(toDbRow))
+    if (!error) {
+      insertedOk += slice.length
+      continue
+    }
+    console.error('[contacts/import] insert chunk failed, retrying row by row', error)
+    // One bad row fails the whole statement — retry this chunk row by row
+    // so the good rows still land and only the bad ones are reported.
+    for (const r of slice) {
+      const { error: rowErr } = await admin.from('contacts').insert(toDbRow(r))
+      if (rowErr) errors.push({ email: r.email, error: rowErr.message })
+      else insertedOk++
     }
   }
 
@@ -323,18 +334,65 @@ export async function POST(req: NextRequest) {
   for (const { id, patch } of toUpdate) {
     const { error } = await admin.from('contacts').update(patch).eq('id', id)
     if (error) errors.push({ email: id, error: error.message })
+    else updatedOk++
   }
 
   // Audit row — one per committed upload.
   await admin.from('contact_imports').insert({
     filename: body.filename ?? null,
     total_rows: summary.total_rows,
-    inserted_count: summary.inserted - errors.length,
-    updated_count: summary.updated,
+    inserted_count: insertedOk,
+    updated_count: updatedOk,
     skipped_count: summary.unchanged + summary.invalid,
     error_rows: errors.slice(0, 50),
     imported_by: auth.profile.id,
   })
 
-  return Response.json({ dry_run: false, ...summary, errors: errors.slice(0, 20) })
+  return Response.json(
+    {
+      dry_run: false,
+      ...summary,
+      inserted: insertedOk,
+      updated: updatedOk,
+      failed: errors.length,
+      errors: errors.slice(0, 20),
+      ...(errors.length > 0 && insertedOk + updatedOk === 0
+        ? { error: `Nothing was imported — ${errors.length} row(s) failed: ${errors[0].error}` }
+        : {}),
+    },
+    // Every row failed → not a success.
+    { status: errors.length > 0 && insertedOk + updatedOk === 0 ? 500 : 200 },
+  )
+}
+
+// Keep only known columns and give every row EXPLICIT values for the
+// boolean/array fields. A bulk insert sends the union of all rows' keys, so a
+// row missing email_subscribed would be written as NULL (not the column
+// default) and fail the NOT NULL rule; and a missing flag must never read as
+// an opt-out in the merge. No subscription column = no opt-out recorded.
+function normaliseRow(r: Partial<ContactRow>, email: string, sector: string): ContactRow {
+  const text = (v: unknown, max = 1000): string | null =>
+    typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null
+  const count = Number(r.employee_count)
+  return {
+    email,
+    first_name: text(r.first_name, 100),
+    last_name: text(r.last_name, 100),
+    company_name: text(r.company_name, 200),
+    job_title: text(r.job_title, 150),
+    website: text(r.website, 500),
+    industry_raw: text(r.industry_raw, 300),
+    employee_count: r.employee_count != null && Number.isFinite(count) ? Math.round(count) : null,
+    company_size: text(r.company_size, 100),
+    linkedin_url: text(r.linkedin_url, 500),
+    sector,
+    phone: text(r.phone, 40),
+    city: text(r.city, 150),
+    location: text(r.location, 200),
+    email_subscribed: typeof r.email_subscribed === 'boolean' ? r.email_subscribed : true,
+    sms_subscribed: typeof r.sms_subscribed === 'boolean' ? r.sms_subscribed : true,
+    source: text(r.source, 200),
+    groups: Array.isArray(r.groups) ? r.groups.filter((g): g is string => typeof g === 'string') : [],
+    is_member_flag: r.is_member_flag === true,
+  }
 }

@@ -41,16 +41,67 @@ export function defaultIntroEmail(
 // "View & respond" CTA should appear. If absent, the CTA goes at the end.
 export const CTA_TOKEN = '{{button}}'
 
-export function renderIntroEmail(otherName: string, draft: IntroEmailDraft): string {
+// Who the email is addressed to — fills merge tags admins carry over from
+// the template builder ({{first_name}}, {{last_name}}, {{full_name}},
+// {{name}}, optional "|fallback": {{first_name|there}}), plus
+// {{other_name}} for the member being introduced.
+export interface IntroRecipient {
+  first_name?: string | null
+  last_name?: string | null
+}
+
+export function fillIntroMergeTags(
+  text: string,
+  recipient: IntroRecipient | null | undefined,
+  otherName: string,
+): string {
+  const first = recipient?.first_name?.trim() || ''
+  const last = recipient?.last_name?.trim() || ''
+  const values: Record<string, string> = {
+    first_name: first,
+    firstname: first,
+    last_name: last,
+    lastname: last,
+    full_name: `${first} ${last}`.trim(),
+    name: `${first} ${last}`.trim(),
+    other_name: otherName,
+  }
+  return text.replace(/\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/gi, (match, key: string, fallback?: string) => {
+    const k = key.toLowerCase()
+    if (k === 'button') return match // CTA marker — handled by renderIntroEmail
+    if (!(k in values)) return match
+    return values[k] || (fallback ?? '').trim() || (k.includes('first') ? 'there' : '')
+  })
+}
+
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// The admin's message is plain text (a textarea), so it is HTML-escaped
+// here — a typed "<b>" shows as text, never as markup. Merge tags are
+// filled for `recipient` (without one, {{first_name}} falls back to "there").
+export function renderIntroEmail(
+  otherName: string,
+  draft: IntroEmailDraft,
+  recipient?: IntroRecipient | null,
+): string {
   const lines = draft.body
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
   const tokenIdx = lines.findIndex((l) => l === CTA_TOKEN)
-  const paragraphs = lines.filter((l) => l !== CTA_TOKEN)
+  const paragraphs = lines
+    .filter((l) => l !== CTA_TOKEN)
+    .map((l) => escapeHtml(fillIntroMergeTags(l, recipient, otherName)))
   return renderClubEmail({
     eyebrow: 'Introduction',
-    heading: `We'd like to introduce you to ${otherName}.`,
+    heading: `We'd like to introduce you to ${escapeHtml(otherName)}.`,
     paragraphs,
     cta: { label: 'View & respond', url: `${APP_URL}/portal/introductions` },
     // tokenIdx counts paragraphs before the token (token already removed above).

@@ -10,7 +10,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
+import { escapeHtml, renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,14 +46,22 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: 'Invalid JSON body.' }, { status: 400 })
   }
-  const enquiryId = payload.enquiry_id?.trim()
-  const subject = payload.subject?.trim()
-  const body = payload.body?.trim()
+  const enquiryId = typeof payload.enquiry_id === 'string' ? payload.enquiry_id.trim() : ''
+  // The subject is a plain-text header: strip any tags typed into it and
+  // collapse whitespace/newlines (header injection).
+  const subject =
+    typeof payload.subject === 'string'
+      ? payload.subject.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+      : ''
+  const body = typeof payload.body === 'string' ? payload.body.trim() : ''
   if (!enquiryId || !subject || !body) {
     return Response.json(
       { error: 'enquiry_id, subject and body are all required.' },
       { status: 400 },
     )
+  }
+  if (subject.length > 200 || body.length > 20000) {
+    return Response.json({ error: 'Subject or message is too long.' }, { status: 400 })
   }
 
   const admin = getAdminDb()
@@ -73,14 +81,16 @@ export async function POST(request: Request) {
 
   // ── Render branded HTML + send ──────────────────────────────────
   // The admin writes plain text; each paragraph (blank-line separated)
-  // becomes its own branded paragraph so line breaks read naturally.
+  // becomes its own branded paragraph so line breaks read naturally. The
+  // text is escaped first, so any HTML typed or pasted (e.g. quoting the
+  // enquirer's message) is shown as text, never rendered.
   const paragraphs = body
     .split(/\n{2,}/)
-    .map((p) => p.replace(/\n/g, '<br />').trim())
+    .map((p) => escapeHtml(p.trim()).replace(/\n/g, '<br />'))
     .filter(Boolean)
   const html = renderClubEmail({
-    heading: subject,
-    paragraphs: paragraphs.length ? paragraphs : [body],
+    heading: escapeHtml(subject),
+    paragraphs: paragraphs.length ? paragraphs : [escapeHtml(body)],
   })
 
   const result = await sendClubEmail({

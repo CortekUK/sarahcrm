@@ -87,7 +87,12 @@ export function buildIntroReport(
     map.set(key, row)
   }
 
+  let totalIntroductions = 0
   for (const intro of intros) {
+    // A suggestion Sarah dismissed (declined, never sent, nobody asked for
+    // it) was never an introduction — leave it out of the totals.
+    const dismissedSuggestion = intro.status === 'declined' && !intro.sent_at && !intro.requested_by
+    if (!dismissedSuggestion) totalIntroductions++
     if (intro.requested_by) totalRequested++
     if (intro.sent_at || SENT_STATUSES.has(intro.status)) totalMade++
     if (intro.meeting_held_at) meetingsHeld++
@@ -95,11 +100,16 @@ export function buildIntroReport(
     const rev = intro.revenue_pence ?? 0
     revenuePence += rev
 
+    // One intro counts once per sector even when both members share it
+    // (otherwise a £2,500 deal between two Finance members shows as £5,000).
+    const sectorsSeen = new Set<string>()
     for (const id of [intro.member_a_id, intro.member_b_id]) {
       const m = memberById.get(id)
       if (!m) continue
       bump(memberAgg, id, m.name, rev)
       const sector = m.sector?.trim() || 'Unspecified'
+      if (sectorsSeen.has(sector)) continue
+      sectorsSeen.add(sector)
       bump(sectorAgg, sector, sector, rev)
     }
   }
@@ -111,7 +121,7 @@ export function buildIntroReport(
       .slice(0, topN)
 
   return {
-    totalIntroductions: intros.length,
+    totalIntroductions,
     totalRequested,
     totalMade,
     meetingsHeld,

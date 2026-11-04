@@ -15,6 +15,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail, resetPasswordAndSendCredentials } from '@/lib/email/invite'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -70,12 +71,20 @@ export async function POST(req: NextRequest) {
     // Resolve the member → their email + first name via the joined profile.
     const { data: member, error: memberErr } = await admin
       .from('members')
-      .select('id, profile_id, profiles(email, first_name)')
+      .select('id, profile_id, membership_status, deleted_at, profiles(email, first_name)')
       .eq('id', body.member_id)
       .maybeSingle()
 
-    if (memberErr || !member) {
+    if (memberErr || !member || member.deleted_at) {
       return Response.json({ error: 'Member not found.' }, { status: 404 })
+    }
+    // A cancelled member has no portal access to log in to — don't reset
+    // their password or email them credentials.
+    if (member.membership_status === 'cancelled') {
+      return Response.json(
+        { error: 'This membership is cancelled, so no login email was sent.' },
+        { status: 409 },
+      )
     }
 
     // Supabase types the joined profile loosely (object or array) — normalise.
@@ -92,7 +101,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const origin = siteUrl() // fixed site URL — never the request's Origin/Host
     const redirectTo = `${origin}/login`
 
     // Does an auth user already exist for this profile? profile_id === auth uid.

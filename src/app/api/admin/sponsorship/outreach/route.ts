@@ -7,7 +7,10 @@
 //   PATCH { id, subject?, body_html?, body_text?, to_email?, status?,
 //           auto_send?, delay_days?, stop_sequence? }
 //         — the human review edit:
-//         • Body/subject/recipient edits are always allowed. Editing the
+//         • Body/subject/recipient edits are allowed until a send is
+//           attempted (409 on sent/failed/replied/bounced; a failed step can
+//           be edited with/after a move back to draft). Subject/body must be
+//           non-empty and the recipient a valid email. Editing the
 //           subject or body text re-renders body_html so what was reviewed is
 //           what gets sent. Editing the subject/body of an APPROVED step
 //           returns it to draft (approval, schedule and due date cleared) — it
@@ -39,6 +42,10 @@ import { renderOutreachHtml } from '@/lib/sponsorship/outreach/render'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Statuses after which the content is what was (attempted to be) sent.
+const SEND_ATTEMPTED = ['sent', 'failed', 'replied', 'bounced']
 
 export async function GET(req: NextRequest) {
   try {
@@ -177,7 +184,48 @@ export async function PATCH(req: NextRequest) {
     const update: Record<string, unknown> = { updated_at: nowIso }
     const from = current.status as string
 
-    // Content edits are always allowed.
+    // Content edits: refused once a send was attempted (sent / failed /
+    // replied / bounced), so the queue keeps showing exactly what went out.
+    // A failed step can be edited again together with (or after) moving it
+    // back to draft.
+    const editsContent =
+      body.subject !== undefined ||
+      body.body_html !== undefined ||
+      body.body_text !== undefined ||
+      body.to_email !== undefined
+    if (editsContent && SEND_ATTEMPTED.includes(from) && !(from === 'failed' && body.status === 'draft')) {
+      return Response.json(
+        {
+          error:
+            from === 'failed'
+              ? 'This email failed to send — move it back to draft before editing it.'
+              : 'This email has already been sent, so its content can no longer be changed.',
+        },
+        { status: 409 },
+      )
+    }
+    if (body.subject !== undefined && (typeof body.subject !== 'string' || !body.subject.trim())) {
+      return Response.json({ error: 'The subject can’t be empty.' }, { status: 400 })
+    }
+    if (body.subject && body.subject.length > 300) {
+      return Response.json({ error: 'The subject is too long (max 300 characters).' }, { status: 400 })
+    }
+    if (body.body_text !== undefined && (typeof body.body_text !== 'string' || !body.body_text.trim())) {
+      return Response.json({ error: 'The message can’t be empty.' }, { status: 400 })
+    }
+    if (body.body_html !== undefined && (typeof body.body_html !== 'string' || !body.body_html.trim())) {
+      return Response.json({ error: 'The message can’t be empty.' }, { status: 400 })
+    }
+    if (body.to_email !== undefined) {
+      // Clearing the recipient on a draft is fine (approve requires one);
+      // anything typed must be a real address.
+      const to = typeof body.to_email === 'string' ? body.to_email.trim() : ''
+      if (to && !EMAIL_RE.test(to)) {
+        return Response.json({ error: 'Enter a valid recipient email address.' }, { status: 400 })
+      }
+      body.to_email = to || null
+    }
+
     if (body.subject !== undefined) update.subject = body.subject
     if (body.body_html !== undefined) update.body_html = body.body_html
     if (body.body_text !== undefined) update.body_text = body.body_text
@@ -206,6 +254,16 @@ export async function PATCH(req: NextRequest) {
             { error: `Cannot approve an outreach that is '${from}'.` },
             { status: 400 },
           )
+        }
+        // Only a complete email can be approved for sending.
+        const finalTo = String(update.to_email ?? current.to_email ?? '').trim()
+        const finalSubject = String(update.subject ?? current.subject ?? '').trim()
+        const finalBody = String(update.body_text ?? current.body_text ?? update.body_html ?? current.body_html ?? '').trim()
+        if (!EMAIL_RE.test(finalTo)) {
+          return Response.json({ error: 'Add a valid recipient email before approving.' }, { status: 400 })
+        }
+        if (!finalSubject || !finalBody) {
+          return Response.json({ error: 'Add a subject and message before approving.' }, { status: 400 })
         }
         update.status = 'approved'
         update.approved_by = auth.profile.id

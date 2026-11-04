@@ -8,6 +8,7 @@ import {
   mandateToDirectDebitStatus,
   type DirectDebitStatus,
 } from '@/lib/billing/direct-debit'
+import { escapeHtml, getSiteUrl } from '@/lib/stripe/server-helpers'
 
 // POST /api/membership-application/confirm
 //
@@ -26,6 +27,7 @@ import {
 // page can fire more than once) won't double-send the email.
 //
 // Body: { setup_intent?: string, session_id?: string, application_id?: string }
+// (setup_intent or session_id is required; application_id alone is refused)
 //
 // Direct Debit (Stripe Bacs) variant: the applicant set up a Bacs mandate
 // on a Stripe-hosted Checkout Session (setup mode) instead of saving a card.
@@ -33,8 +35,11 @@ import {
 // session and record the bank-account payment method + mandate the same way.
 // The stripe-webhook edge function records the same data from
 // checkout.session.completed, so either path alone is sufficient.
-// Public — the setup_intent client secret is single-purpose and tied to
-// one application; we only write data Stripe confirms.
+// Public — so an application_id alone is NEVER trusted. A SetupIntent (card)
+// or Checkout Session (Direct Debit) is required, and it must belong to the
+// application: same Stripe customer the /setup route created for it, and
+// (when present) the same application_id in its metadata / the same
+// SetupIntent id recorded on the row. We only write data Stripe confirms.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,7 +63,7 @@ async function sendPendingEmail(args: {
     eyebrow: 'Your application',
     heading: 'We’ve received your application.',
     paragraphs: [
-      `Hello ${args.firstName || 'there'},`,
+      `Hello ${escapeHtml(args.firstName) || 'there'},`,
       `Thank you for applying to The Club. Your application is now with the team for review.`,
       savedLine,
       `You'll hear from us with a decision within 14 working days.`,
@@ -80,9 +85,20 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-    if (!body.setup_intent && !body.session_id && !body.application_id) {
+    const setupIntentParam =
+      typeof body.setup_intent === 'string' && /^seti_[A-Za-z0-9_]{1,250}$/.test(body.setup_intent)
+        ? body.setup_intent
+        : null
+    const sessionParam =
+      typeof body.session_id === 'string' && /^cs_[A-Za-z0-9_]{1,250}$/.test(body.session_id)
+        ? body.session_id
+        : null
+    if (body.application_id != null && typeof body.application_id !== 'string') {
+      return NextResponse.json({ error: 'Invalid application_id' }, { status: 400 })
+    }
+    if (!setupIntentParam && !sessionParam) {
       return NextResponse.json(
-        { error: 'setup_intent, session_id or application_id is required' },
+        { error: 'setup_intent or session_id is required' },
         { status: 400 },
       )
     }
@@ -102,8 +118,17 @@ export async function POST(req: NextRequest) {
     let customerId: string | null = null
     let applicationId = body.application_id ?? null
 
-    if (body.setup_intent) {
-      const si = await stripe.setupIntents.retrieve(body.setup_intent)
+    // application_id recorded in Stripe metadata — must match the request.
+    let stripeAppId: string | null = null
+    let setupIntentId: string | null = null
+
+    if (setupIntentParam) {
+      let si: Stripe.SetupIntent
+      try {
+        si = await stripe.setupIntents.retrieve(setupIntentParam)
+      } catch {
+        return NextResponse.json({ error: 'Card set-up not found.' }, { status: 404 })
+      }
       if (si.status !== 'succeeded') {
         return NextResponse.json(
           { ok: false, status: si.status, error: 'Card not yet saved.' },
@@ -113,7 +138,9 @@ export async function POST(req: NextRequest) {
       paymentMethodId =
         typeof si.payment_method === 'string' ? si.payment_method : (si.payment_method?.id ?? null)
       customerId = typeof si.customer === 'string' ? si.customer : (si.customer?.id ?? null)
-      applicationId = applicationId ?? (si.metadata?.application_id ?? null)
+      stripeAppId = si.metadata?.application_id ?? null
+      setupIntentId = si.id
+      applicationId = applicationId ?? stripeAppId
     }
 
     // Direct Debit (Bacs) — resolve the SetupIntent + mandate via the
@@ -123,10 +150,15 @@ export async function POST(req: NextRequest) {
     let ddStatus: DirectDebitStatus | null = null
     let ddMandateId: string | null = null
     let ddReference: string | null = null
-    if (body.session_id && !body.setup_intent) {
-      const session = await stripe.checkout.sessions.retrieve(body.session_id, {
-        expand: ['setup_intent', 'setup_intent.mandate'],
-      })
+    if (sessionParam && !setupIntentParam) {
+      let session: Stripe.Checkout.Session
+      try {
+        session = await stripe.checkout.sessions.retrieve(sessionParam, {
+          expand: ['setup_intent', 'setup_intent.mandate'],
+        })
+      } catch {
+        return NextResponse.json({ error: 'Direct Debit set-up not found.' }, { status: 404 })
+      }
       if (session.mode !== 'setup' || session.metadata?.kind !== 'application_bacs_mandate') {
         return NextResponse.json({ error: 'Not a Direct Debit set-up session.' }, { status: 400 })
       }
@@ -142,7 +174,9 @@ export async function POST(req: NextRequest) {
         typeof si.payment_method === 'string' ? si.payment_method : (si.payment_method?.id ?? null)
       customerId =
         typeof session.customer === 'string' ? session.customer : (session.customer?.id ?? null)
-      applicationId = applicationId ?? (session.metadata?.application_id ?? null)
+      stripeAppId = session.metadata?.application_id ?? null
+      setupIntentId = si.id
+      applicationId = applicationId ?? stripeAppId
       if (si.mandate && typeof si.mandate === 'object') {
         ddMandateId = si.mandate.id
         ddStatus = mandateToDirectDebitStatus(si.mandate)
@@ -153,21 +187,48 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!applicationId) {
+    if (!applicationId || !/^[0-9a-f-]{36}$/i.test(applicationId)) {
       return NextResponse.json({ error: 'Could not resolve application.' }, { status: 400 })
+    }
+    if (stripeAppId && stripeAppId !== applicationId) {
+      return NextResponse.json(
+        { error: 'This card set-up does not belong to that application.' },
+        { status: 403 },
+      )
     }
 
     // Load the application (also tells us if the email already went out).
     const { data: app, error: appErr } = await admin
       .from('membership_applications')
-      .select('id, email, first_name, stripe_customer_id, pending_email_sent_at')
+      .select('id, email, first_name, status, stripe_customer_id, stripe_setup_intent_id, pending_email_sent_at')
       .eq('id', applicationId)
-      .single()
+      .maybeSingle()
     if (appErr || !app) {
       return NextResponse.json({ error: 'Application not found.' }, { status: 404 })
     }
 
-    customerId = customerId ?? app.stripe_customer_id
+    // Ownership: the SetupIntent / session must be on the Stripe customer
+    // that /setup created for THIS application (and, for cards, be the
+    // SetupIntent recorded on it). Stops someone attaching their own card /
+    // customer to another applicant's application.
+    const customerMatches = !!customerId && !!app.stripe_customer_id && customerId === app.stripe_customer_id
+    const intentMatches =
+      !isDirectDebit && setupIntentId && app.stripe_setup_intent_id
+        ? setupIntentId === app.stripe_setup_intent_id
+        : true
+    if (!customerMatches || !intentMatches) {
+      return NextResponse.json(
+        { error: 'This card set-up does not belong to that application.' },
+        { status: 403 },
+      )
+    }
+    // Only an application still awaiting review can have its card recorded.
+    if (!['pending', 'shortlisted'].includes(app.status ?? 'pending')) {
+      return NextResponse.json(
+        { ok: false, error: 'This application has already been decided.' },
+        { status: 409 },
+      )
+    }
 
     // Persist the saved card + make it the customer's default so approval
     // can charge it off-session without choosing a payment method.
@@ -181,10 +242,23 @@ export async function POST(req: NextRequest) {
     if (paymentMethodId) updatePatch.stripe_payment_method_id = paymentMethodId
     if (customerId) updatePatch.stripe_customer_id = customerId
 
-    // Send the pending-received email exactly once.
+    // Send the pending-received email exactly once. The flag is CLAIMED with
+    // a conditional update first, so two overlapping calls (the success page
+    // can fire more than once) can't both send; it is released again if the
+    // send fails so a later call can retry.
     let emailSent = false
     let emailError: string | null = null
-    if (!app.pending_email_sent_at && app.email) {
+    const { data: emailClaim } =
+      !app.pending_email_sent_at && app.email
+        ? await admin
+            .from('membership_applications')
+            .update({ pending_email_sent_at: new Date().toISOString() })
+            .eq('id', applicationId)
+            .is('pending_email_sent_at', null)
+            .select('id')
+            .maybeSingle()
+        : { data: null }
+    if (emailClaim && app.email) {
       const r = await sendPendingEmail({
         toEmail: app.email,
         firstName: app.first_name ?? '',
@@ -192,17 +266,25 @@ export async function POST(req: NextRequest) {
       })
       emailSent = r.sent
       emailError = r.error ?? null
-      if (r.sent) updatePatch.pending_email_sent_at = new Date().toISOString()
+      if (!r.sent) {
+        await admin
+          .from('membership_applications')
+          .update({ pending_email_sent_at: null })
+          .eq('id', applicationId)
+      }
       // Tell the team a new application is waiting (once, gated by the same
       // pending-email flag).
-      const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+      // Fixed site URL (never request headers) + escaped applicant name —
+      // this email goes to staff from the Club's own domain.
+      const origin = getSiteUrl()
+      const applicantName = escapeHtml(app.first_name) || 'A new applicant'
       await notifyAdmins(admin, {
         subject: 'New membership application received',
         heading: 'A new application has come in.',
         paragraphs: [
           isDirectDebit
-            ? `<strong style="color:#2C2825;">${app.first_name ?? 'A new applicant'}</strong> has submitted a membership application and set up a Direct Debit (nothing collected).`
-            : `<strong style="color:#2C2825;">${app.first_name ?? 'A new applicant'}</strong> has submitted a membership application and saved their card (not charged).`,
+            ? `<strong style="color:#2C2825;">${applicantName}</strong> has submitted a membership application and set up a Direct Debit (nothing collected).`
+            : `<strong style="color:#2C2825;">${applicantName}</strong> has submitted a membership application and saved their card (not charged).`,
           `Review it in the dashboard to approve or decline.`,
         ],
         ctaUrl: `${origin}/dashboard/applications`,
@@ -237,7 +319,6 @@ export async function POST(req: NextRequest) {
     })
   } catch (e) {
     console.error('[confirm] unhandled error:', e)
-    const message = e instanceof Error ? e.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: 'Could not confirm your application.' }, { status: 500 })
   }
 }

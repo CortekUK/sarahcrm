@@ -9,6 +9,9 @@
 //   either declined -> 'declined'
 //   otherwise stays 'sent'/'scheduled'
 //
+// Only allowed once The Club has sent this member the introduction, while
+// it is still open (sent/scheduled), and only once per side.
+//
 // Body: { introduction_id, response: 'accepted' | 'declined', note?: string }
 
 import { NextRequest } from 'next/server'
@@ -53,9 +56,11 @@ export async function POST(req: NextRequest) {
   const admin = getAdminDb()
   const { data: intro } = await admin
     .from('introductions')
-    .select('id, member_a_id, member_b_id, member_a_response, member_b_response, status')
+    .select(
+      'id, member_a_id, member_b_id, member_a_response, member_b_response, email_a_sent_at, email_b_sent_at, status',
+    )
     .eq('id', body.introduction_id)
-    .single()
+    .maybeSingle()
   if (!intro) return Response.json({ error: 'Introduction not found.' }, { status: 404 })
 
   const isA = intro.member_a_id === me.id
@@ -63,29 +68,67 @@ export async function POST(req: NextRequest) {
   if (!isA && !isB) {
     return Response.json({ error: 'This introduction is not yours.' }, { status: 403 })
   }
+  const side = isA ? 'a' : 'b'
+
+  // A member can only answer once The Club has actually sent THEM the
+  // introduction, while it is still open, and only once. (A request the
+  // member made themselves sits at 'suggested' with no email sent until
+  // Sarah approves and sends it, so it can't be self-accepted.) Re-sending
+  // after a decline resets that side to 'pending' (see admin send route).
+  const OPEN = ['sent', 'scheduled']
+  const mySentAt = isA ? intro.email_a_sent_at : intro.email_b_sent_at
+  const myCurrent = isA ? intro.member_a_response : intro.member_b_response
+  if (!mySentAt || !OPEN.includes(intro.status as string)) {
+    return Response.json(
+      { error: 'This introduction is not open for a response yet.' },
+      { status: 409 },
+    )
+  }
+  if (myCurrent !== 'pending') {
+    return Response.json({ error: 'You have already responded to this introduction.' }, { status: 409 })
+  }
 
   const now = new Date().toISOString()
-  const note = body.note?.trim() ? body.note.trim() : null
+  const note = body.note?.trim() ? body.note.trim().slice(0, 2000) : null
 
   const update: Record<string, unknown> = isA
     ? { member_a_response: body.response, member_a_response_note: note, member_a_responded_at: now }
     : { member_b_response: body.response, member_b_response_note: note, member_b_responded_at: now }
+  if (body.response === 'declined') update.status = 'declined'
 
-  // Roll up the overall status.
-  const myResp = body.response
-  const otherResp = isA ? intro.member_b_response : intro.member_a_response
-  if (myResp === 'declined') {
-    update.status = 'declined'
-  } else if (myResp === 'accepted' && otherResp === 'accepted') {
-    update.status = 'accepted'
-    update.accepted_at = now
-  }
-
-  const { error } = await admin.from('introductions').update(update).eq('id', intro.id)
+  // Conditional update = atomic claim: only lands while this side is still
+  // pending and the introduction is still open, so a double-click or a
+  // replay can't flip an answer that was already given.
+  const { data: claimed, error } = await admin
+    .from('introductions')
+    .update(update)
+    .eq('id', intro.id)
+    .eq(`member_${side}_response`, 'pending')
+    .not(`email_${side}_sent_at`, 'is', null)
+    .in('status', OPEN)
+    .select('id, member_a_response, member_b_response, status')
+    .maybeSingle()
   if (error) {
     console.error('[introductions/respond] update failed:', error)
     return Response.json({ error: 'Could not save your response.' }, { status: 500 })
   }
+  if (!claimed) {
+    return Response.json({ error: 'You have already responded to this introduction.' }, { status: 409 })
+  }
 
-  return Response.json({ ok: true, response: body.response, overall: update.status ?? intro.status })
+  // Roll up 'accepted' from the row as it now stands (not from our earlier
+  // read) so two members accepting at the same moment still end accepted.
+  let overall = claimed.status as string
+  if (claimed.member_a_response === 'accepted' && claimed.member_b_response === 'accepted') {
+    const { data: rolled } = await admin
+      .from('introductions')
+      .update({ status: 'accepted', accepted_at: now })
+      .eq('id', intro.id)
+      .in('status', OPEN)
+      .select('status')
+      .maybeSingle()
+    overall = (rolled?.status as string | undefined) ?? 'accepted'
+  }
+
+  return Response.json({ ok: true, response: body.response, overall })
 }

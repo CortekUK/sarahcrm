@@ -23,6 +23,7 @@ import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { isDirectDebitEnabled } from '@/lib/billing/direct-debit'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
       apiVersion: '2026-02-25.clover',
     })
 
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const origin = siteUrl() // fixed site URL — never the request's Origin/Host
     const metadata = {
       kind: 'member_bacs_mandate',
       member_id: member.id,

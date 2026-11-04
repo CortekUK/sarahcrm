@@ -136,6 +136,23 @@ const LINKEDIN_VARIANT_BRIEFS: Record<LinkedInVariantKey, string> = {
   founder_spotlight: `founder_spotlight: a single LinkedIn post (roughly 120-220 words) in SARAH's first-person founder voice with a FOUNDER-SPOTLIGHT angle — Sarah reflecting personally on why she built The Club, what this moment/event means to her, and the community she's proud of. Human and a little vulnerable, still elegant. A few relevant hashtags on the final line.`,
 }
 
+// Recap channels (they describe an event after it happened).
+const RECAP_CHANNELS: readonly string[] = ['recap_blog', 'sponsor_recap']
+
+// Every generated piece must be ready to publish as-is.
+const NO_PLACEHOLDERS_RULE =
+  'Never leave placeholders or fill-in brackets such as "[Your Name]", "[Sponsor Name]", "[Date]", "[insert …]" or "XX" — if a name or detail is not in the source, phrase the sentence so it is not needed (sign off as "The Club" or "Sarah" as the voice requires).'
+
+// Guard against recaps of things that haven't happened.
+const RECAP_TENSE_RULE =
+  'For recap_blog and sponsor_recap: only describe in the past tense things the source explicitly says happened. If the source describes an upcoming event (or does not say it has taken place), do not write it up as if it already happened — no invented menus, speakers, moments or outcomes.'
+
+// "[Your Name]" / "[Name]" sign-offs.
+const SIGNOFF_PLACEHOLDER_RE = /\[(?:your\s+)?(?:full\s+)?name\]/gi
+
+// Bracketed placeholders the model sometimes leaves despite the rule.
+const PLACEHOLDER_RE = /\[(?:your|insert|sponsor|company|name|date|event|first|last|recipient|venue)[^\]]{0,40}\]/i
+
 const responseSchema = z.object({
   assets: z.array(
     z.object({
@@ -407,6 +424,21 @@ export async function POST(req: NextRequest) {
         .eq('id', campaign.event_id)
         .single()
       if (event) {
+        // Recaps describe what HAPPENED — refuse them before the event has
+        // taken place (otherwise the model writes a past-tense account of
+        // an evening that hasn't happened, with invented details).
+        const wantsRecap = requested.some((c) => RECAP_CHANNELS.includes(c))
+        const endsAt = event.end_date ?? event.start_date
+        const eventOver = endsAt ? new Date(String(endsAt)).getTime() <= Date.now() : false
+        if (wantsRecap && !eventOver) {
+          return Response.json(
+            {
+              error:
+                'Recap blog and Sponsor recap can only be generated after the event has taken place. Choose a promotional channel instead.',
+            },
+            { status: 400 },
+          )
+        }
         sourceContext = `SOURCE — an event:\n${formatEventContext(event)}`
 
         // Attendee count (recap channels lean on this). Best-effort — never fatal.
@@ -421,10 +453,19 @@ export async function POST(req: NextRequest) {
         // Sponsor context for the sponsor_recap channel AND the LinkedIn
         // sponsor variant (LinkedIn always includes a sponsor angle).
         if (requested.includes('sponsor_recap') || requested.includes('linkedin')) {
+          // Only real (confirmed or further) sponsors — never thank a
+          // proposed or declined one.
           const { data: sponsorships } = await admin
             .from('sponsorships')
             .select('package_name, benefits, brand_alignment, member_id')
             .eq('event_id', campaign.event_id)
+            .in('status', ['confirmed', 'invoiced', 'paid'])
+          if (requested.includes('sponsor_recap') && (!sponsorships || sponsorships.length === 0)) {
+            return Response.json(
+              { error: 'This event has no confirmed sponsor, so there is no one to address a Sponsor recap to.' },
+              { status: 400 },
+            )
+          }
           if (Array.isArray(sponsorships) && sponsorships.length > 0) {
             const memberIds = sponsorships
               .map((s) => s.member_id)
@@ -457,9 +498,16 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-    } else if (campaign.source_type === 'topic' && campaign.topic_brief) {
+    } else if (campaign.source_type !== 'event' && requested.includes('sponsor_recap')) {
+      // A sponsor recap needs a real event with a confirmed sponsor.
+      return Response.json(
+        { error: 'Sponsor recap is only available for an event campaign with a confirmed sponsor.' },
+        { status: 400 },
+      )
+    }
+    if (!sourceContext && campaign.source_type === 'topic' && campaign.topic_brief) {
       sourceContext = `SOURCE — a topic brief typed by the admin:\n${campaign.topic_brief}`
-    } else if (campaign.source_type === 'audio' && campaign.transcript) {
+    } else if (!sourceContext && campaign.source_type === 'audio' && campaign.transcript) {
       sourceContext = `SOURCE — a transcript of an uploaded recording:\n${campaign.transcript.slice(0, 20000)}`
     }
     if (!sourceContext) {
@@ -521,7 +569,7 @@ export async function POST(req: NextRequest) {
 Write everything in this brand voice:
 ${voiceContext[textBatchVoice]}
 
-You will receive source material and a list of channels. For EACH requested channel, produce exactly ONE asset. Return an object with an "assets" array; each item has "channel" (one of the requested channel keys), "title", "body" and "slides". "slides" is ONLY for instagram_carousel (its on-image slide text, per its brief) — for every other channel return an empty "slides" array. Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — where a detail is missing, write around it gracefully. Produce only the requested channels, one asset each.
+You will receive source material and a list of channels. For EACH requested channel, produce exactly ONE asset. Return an object with an "assets" array; each item has "channel" (one of the requested channel keys), "title", "body" and "slides". "slides" is ONLY for instagram_carousel (its on-image slide text, per its brief) — for every other channel return an empty "slides" array. Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — where a detail is missing, write around it gracefully. ${NO_PLACEHOLDERS_RULE} ${RECAP_TENSE_RULE} Produce only the requested channels, one asset each.
 
 Channel briefs:
 ${channelBriefs}${
@@ -617,6 +665,12 @@ Requested channels (produce exactly one asset for each): ${singleVoiceTextChanne
             if (parsed.hadScaffolding && parsed.caption) text = parsed.caption
             slides = slidesFromText(a.slides.length ? a.slides : parsed.slides)
           }
+          // A sign-off placeholder the model left despite the rule → the
+          // voice's real name (other placeholders are refused by the prompt).
+          text = text.replace(SIGNOFF_PLACEHOLDER_RE, textBatchVoice === 'sarah' ? 'Sarah' : 'The Club')
+          if (PLACEHOLDER_RE.test(text)) {
+            console.warn('[marketing/generate] placeholder left in', a.channel)
+          }
           byChannel.set(a.channel, { title: a.title, body: text, slides })
         }
       }
@@ -711,7 +765,7 @@ ${voiceContext.club}
 === VOICE: Sarah (warm founder, first person) ===
 ${voiceContext.sarah}
 
-Return an object with an "assets" array; each item has "variant" (exactly one of the requested variant keys), "title" (a short internal label), and "body" (the LinkedIn post). Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — write around missing detail gracefully. Produce exactly one asset per requested variant, and make the variants genuinely distinct from one another.
+Return an object with an "assets" array; each item has "variant" (exactly one of the requested variant keys), "title" (a short internal label), and "body" (the LinkedIn post). Do NOT invent facts, dates, names, statistics or quotes that aren't in the source — write around missing detail gracefully. ${NO_PLACEHOLDERS_RULE} Produce exactly one asset per requested variant, and make the variants genuinely distinct from one another.
 
 Variant briefs:
 ${variantBriefs}`

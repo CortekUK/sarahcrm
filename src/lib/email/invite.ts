@@ -1,14 +1,20 @@
-// Onboarding credentials — sent via Resend, NOT Supabase's built-in mailer.
+// Onboarding emails — sent via Resend, NOT Supabase's built-in mailer.
 //
-// The member is given a temporary password directly in a branded email and
-// signs in at /login with their email + that password. This deliberately
-// avoids the magic-link / set-password redirect flow (which depended on
-// Supabase redirect config landing on /set-password). They're asked to change
-// the password after their first sign-in.
+// No password ever goes in an email. We ask Supabase (admin generateLink) for
+// a ONE-TIME set-password link — `invite` for a new account, `recovery` for an
+// existing one — and send it in the branded shell. The link verifies with
+// Supabase and lands on /set-password (SetPasswordPage reads the session from
+// the URL hash; AuthHashRedirect forwards it there if it lands elsewhere),
+// where the person chooses their own password. The link is single-use and
+// expires per the project's email OTP expiry.
+//
+// The redirect target is always built from the fixed site URL (siteUrl()),
+// never from the caller's request origin. `${siteUrl()}/set-password` must be
+// in Supabase Auth → URL Configuration → Redirect URLs.
 
-import { randomInt } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { renderClubEmail, sendClubEmail } from './club-email'
+import { escapeHtml, renderClubEmail, sendClubEmail } from './club-email'
+import { siteUrl } from './site-url'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Admin = SupabaseClient<any, 'public', any>
@@ -19,78 +25,64 @@ export interface InviteResult {
   error?: string
 }
 
-// Strong 12-char temporary password, guaranteed to include an upper, lower,
-// digit and symbol. Ambiguous glyphs (0/O/1/l/I) are excluded so it's easy to
-// read and type from the email.
-export function generatePassword(): string {
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  const lower = 'abcdefghijkmnpqrstuvwxyz'
-  const nums = '23456789'
-  const sym = '!@#$%&*'
-  const all = upper + lower + nums + sym
-  const pick = (s: string) => s[randomInt(s.length)]
-  const chars = [pick(upper), pick(lower), pick(nums), pick(sym)]
-  for (let i = 0; i < 8; i++) chars.push(pick(all))
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1)
-    ;[chars[i], chars[j]] = [chars[j], chars[i]]
-  }
-  return chars.join('')
+type Audience = 'member' | 'staff'
+
+// Staff invites historically pass an explicit `loginUrl` (the staff sign-in);
+// member invites never do. `audience` makes it explicit for new callers.
+function audienceOf(args: { audience?: Audience; loginUrl?: string }): Audience {
+  if (args.audience) return args.audience
+  return args.loginUrl ? 'staff' : 'member'
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+function setPasswordRedirect(): string {
+  return `${siteUrl()}/set-password`
 }
 
-// A highlighted, boxed credentials card so the email + password stand out
-// clearly rather than reading as plain sentences. Email-client-safe (tables +
-// inline styles, monospace values).
-function credentialsPanel(email: string, password: string): string {
-  return `
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 22px 0;border:1px solid #E5E0D8;border-radius:12px;overflow:hidden;">
-  <tr><td style="padding:16px 22px;background:#FAFAF7;border-bottom:1px solid #EEEBE4;">
-    <p style="margin:0 0 5px 0;font-family:'DM Sans',Arial,sans-serif;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:#B8975A;font-weight:600;">Email</p>
-    <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:16px;color:#2C2825;font-weight:600;word-break:break-all;">${escapeHtml(email)}</p>
-  </td></tr>
-  <tr><td style="padding:16px 22px;background:#F3EFE6;">
-    <p style="margin:0 0 5px 0;font-family:'DM Sans',Arial,sans-serif;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:#96793F;font-weight:600;">Temporary password</p>
-    <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:19px;letter-spacing:0.06em;color:#2C2825;font-weight:700;word-break:break-all;">${escapeHtml(password)}</p>
-  </td></tr>
-</table>`
-}
-
-// Renders + sends the branded "here are your login details" email.
-async function sendCredentialsMail(
-  email: string,
-  firstName: string | null | undefined,
-  password: string,
-  loginUrl: string,
-): Promise<{ sent: boolean; error?: string }> {
-  const name = firstName || 'there'
+// Renders + sends the branded "set your password" email.
+async function sendSetPasswordMail(args: {
+  email: string
+  firstName: string | null | undefined
+  actionLink: string
+  audience: Audience
+  heading?: string
+  intro?: string
+}): Promise<{ sent: boolean; error?: string }> {
+  const name = escapeHtml(args.firstName || 'there')
+  const staff = args.audience === 'staff'
+  const intro =
+    args.intro ??
+    (staff
+      ? 'Your staff account for The Club’s team workspace is ready. Use the button below to choose your password — you’ll then go straight to your team workspace.'
+      : 'Your members account is ready. Use the button below to choose your password and sign in to your members area — your home for events, introductions and everything The Club offers.')
+  const after = staff
+    ? `After that, sign in any time at ${escapeHtml(`${siteUrl()}/admin/login`)}.`
+    : `After that, sign in any time at ${escapeHtml(`${siteUrl()}/login`)}.`
   const html = renderClubEmail({
-    eyebrow: 'Welcome',
-    heading: 'Your Club login details',
+    eyebrow: staff ? 'The Club · team' : 'Welcome',
+    heading: args.heading ?? (staff ? 'Set up your staff account' : 'Set up your Club account'),
     paragraphs: [
       `Hello ${name},`,
-      `Your members account is ready. Sign in to your members area — your home for events, introductions and everything The Club offers — using the details below:`,
-      `For your security, please change your password from your profile after your first sign-in. If you didn't expect this email, you can simply ignore it.`,
+      intro,
+      `This link works once and expires soon for your security. ${after} If you didn't expect this email, you can simply ignore it.`,
     ],
-    panelAfterIndex: 2,
-    panelHtml: credentialsPanel(email, password),
-    cta: { label: 'Sign in', url: loginUrl },
+    cta: { label: 'Set your password', url: args.actionLink },
+    ctaAfterIndex: 2,
+    signoff: staff ? 'The Club platform' : undefined,
   })
   const r = await sendClubEmail({
-    to: email,
-    subject: 'Your Club login details',
+    to: args.email,
+    subject: staff ? 'Set up your Club staff account' : 'Set up your Club account',
     html,
+    category: staff ? 'staff_invite' : 'member_invite',
   })
   return { sent: r.sent, error: r.error }
 }
 
-// Creates a NEW auth user with a generated password (confirmed, so they can
-// sign in immediately) and emails the credentials. Used by application
-// approval and manual member create. Signature/return unchanged from the old
-// invite-link flow so callers don't change: `redirectTo` is now the login URL.
+// Creates a NEW auth user via a one-time invite link and emails that link.
+// Used by application approval, manual member/rep create, import and staff
+// create. Signature/return unchanged so callers don't change; `redirectTo` /
+// `loginUrl` are accepted for compatibility, but links are always built from
+// the fixed site URL (a passed `loginUrl` marks the invite as a STAFF invite).
 export async function sendInviteEmail(
   admin: Admin,
   args: {
@@ -99,36 +91,38 @@ export async function sendInviteEmail(
     redirectTo: string
     heading?: string
     intro?: string
-    // Optional explicit sign-in URL. When omitted we derive `${origin}/login`
-    // from redirectTo (member flow). Staff invites pass the staff sign-in URL.
     loginUrl?: string
+    audience?: Audience
   },
 ): Promise<InviteResult> {
-  const password = generatePassword()
-  const created = await admin.auth.admin.createUser({
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'invite',
     email: args.email,
-    password,
-    email_confirm: true,
+    options: { redirectTo: setPasswordRedirect() },
   })
-  if (created.error || !created.data?.user) {
+  const userId = data?.user?.id ?? null
+  const actionLink = data?.properties?.action_link
+  if (error || !userId || !actionLink) {
     return {
-      userId: created.data?.user?.id ?? null,
+      userId,
       emailSent: false,
-      error: created.error?.message ?? 'Could not create the account',
+      error: error?.message ?? 'Could not create the account',
     }
   }
-  const r = await sendCredentialsMail(
-    args.email,
-    args.firstName,
-    password,
-    args.loginUrl ?? loginUrlFrom(args.redirectTo),
-  )
-  return { userId: created.data.user.id, emailSent: r.sent, error: r.error }
+  const r = await sendSetPasswordMail({
+    email: args.email,
+    firstName: args.firstName,
+    actionLink,
+    audience: audienceOf(args),
+    heading: args.heading,
+    intro: args.intro,
+  })
+  return { userId, emailSent: r.sent, error: r.error }
 }
 
-// Resets an EXISTING member's password to a fresh temporary one and emails it.
-// Used by the admin "Resend login" button for members who already have an
-// account (imported, or approved on the existing-profile path).
+// Emails an EXISTING account a fresh one-time set-password (recovery) link.
+// Used by the admin "Resend login" buttons. The current password is left
+// untouched — nothing is reset until the person uses the link.
 export async function resetPasswordAndSendCredentials(
   admin: Admin,
   args: {
@@ -137,32 +131,25 @@ export async function resetPasswordAndSendCredentials(
     firstName?: string | null
     redirectTo: string
     loginUrl?: string
+    audience?: Audience
   },
 ): Promise<InviteResult> {
-  const password = generatePassword()
-  const upd = await admin.auth.admin.updateUserById(args.userId, {
-    password,
-    email_confirm: true,
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'recovery',
+    email: args.email,
+    options: { redirectTo: setPasswordRedirect() },
   })
-  if (upd.error) {
-    return { userId: args.userId, emailSent: false, error: upd.error.message }
+  const actionLink = data?.properties?.action_link
+  if (error || !actionLink) {
+    return { userId: args.userId, emailSent: false, error: error?.message ?? 'Could not create a sign-in link' }
   }
-  const r = await sendCredentialsMail(
-    args.email,
-    args.firstName,
-    password,
-    args.loginUrl ?? loginUrlFrom(args.redirectTo),
-  )
+  const r = await sendSetPasswordMail({
+    email: args.email,
+    firstName: args.firstName,
+    actionLink,
+    audience: audienceOf(args),
+    heading: 'Set a new password',
+    intro: 'Here is a fresh link to choose your password and get back into your account.',
+  })
   return { userId: args.userId, emailSent: r.sent, error: r.error }
-}
-
-// Callers historically pass `${origin}/set-password` as redirectTo. Under the
-// password flow we point members at /login on the same origin instead.
-function loginUrlFrom(redirectTo: string): string {
-  try {
-    const u = new URL(redirectTo)
-    return `${u.origin}/login`
-  } catch {
-    return redirectTo
-  }
 }

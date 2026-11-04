@@ -8,6 +8,12 @@
 //
 // Body: { template_id: string, audience_id: string | null }
 //
+// Every recipient — subscriber OR member — gets a working unsubscribe link
+// (subscribers: their mailing_list token; members: a signed link, see
+// src/lib/email/unsubscribe.ts), and anyone who has opted out (a
+// mailing_list row with unsubscribed_at set) is skipped. Merge-tag values are
+// HTML-escaped in the body; links use the fixed site URL, never headers.
+//
 // Delivery:
 //   - If `RESEND_API_KEY` is set, hits Resend's batch endpoint.
 //   - If it's not set, the campaign is saved as `draft` with a clear
@@ -20,6 +26,13 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
+import { escapeMergeData } from '@/lib/email/club-email'
+import { siteUrl } from '@/lib/email/site-url'
+import {
+  loadSuppressedEmails,
+  unsubscribeFooterHtml,
+  unsubscribeUrlFor,
+} from '@/lib/email/unsubscribe'
 import {
   resolveSegmentRecipients,
   summariseRules,
@@ -137,16 +150,26 @@ async function buildRecipients(
     }
   }
 
-  // Dedupe by email (lowercased)
-  const seen = new Set<string>()
-  const deduped: Recipient[] = []
-  for (const r of result) {
-    const key = r.email.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    deduped.push(r)
+  return result
+}
+
+// Dedupe by email (case-insensitive, preferring a row that carries a
+// subscriber token) and drop anyone who has opted out of marketing email.
+function finaliseRecipients(list: Recipient[], suppressed: Set<string>): Recipient[] {
+  const byEmail = new Map<string, Recipient>()
+  for (const r of list) {
+    const key = r.email.trim().toLowerCase()
+    if (!key || suppressed.has(key)) continue
+    const prev = byEmail.get(key)
+    if (!prev || (!prev.unsubscribe_token && r.unsubscribe_token)) byEmail.set(key, r)
   }
-  return deduped
+  return [...byEmail.values()]
+}
+
+// Put the footer inside <body> when the template is a full document.
+function appendFooter(html: string, footer: string): string {
+  const i = html.toLowerCase().lastIndexOf('</body>')
+  return i >= 0 ? `${html.slice(0, i)}${footer}${html.slice(i)}` : `${html}${footer}`
 }
 
 // Personalise + append unsubscribe footer to the body HTML.
@@ -164,8 +187,10 @@ function buildBodyFor(
 ): string {
   // Full merge-tag resolution — handles {{first_name|there}} fallbacks,
   // {{#if ...}} blocks and {{sender_*}} fields. The naive two-field replace
-  // this used to do left every other token raw in the inbox.
-  const data = {
+  // this used to do left every other token raw in the inbox. Values are
+  // HTML-escaped: they come from what people typed when signing up.
+  const unsubscribeUrl = unsubscribeUrlFor(recipient)
+  const data = escapeMergeData({
     first_name: recipient.first_name || undefined,
     last_name: recipient.last_name || undefined,
     email: recipient.email,
@@ -175,24 +200,14 @@ function buildBodyFor(
     sender_email: sender.email,
     booking_link: `${origin}/events`,
     month_name: sender.month,
-  }
+    unsubscribe_url: unsubscribeUrl,
+  })
   const personalised = replaceMergeTags(html, data)
 
-  if (!recipient.unsubscribe_token) {
-    // Members don't have an unsubscribe token. Their list governance
-    // sits in the dashboard, not a public one-click. Skip the footer.
-    return personalised
-  }
-  const url = `${origin}/unsubscribe?token=${recipient.unsubscribe_token}`
-  const footer = `
-    <hr style="border:none;border-top:1px solid #2C313B;margin:32px 0 16px;" />
-    <p style="font-family:Helvetica,Arial,sans-serif;font-size:11px;color:#5C5953;text-align:center;">
-      You're receiving this because you subscribed at The Club by Sarah Restrick.
-      <br/>
-      <a href="${url}" style="color:#A87B4F;text-decoration:underline;">Unsubscribe</a>
-    </p>
-  `
-  return `${personalised}${footer}`
+  // Templates built in the editor already carry an {{unsubscribe_url}}
+  // footer (now filled above); anything else gets the standard footer.
+  if (/\{\{\s*unsubscribe_url/.test(html)) return personalised
+  return appendFooter(personalised, unsubscribeFooterHtml(unsubscribeUrl))
 }
 
 interface ResendSendItem {
@@ -291,9 +306,11 @@ export async function POST(req: NextRequest) {
       recipients = await buildRecipients(admin, audienceId)
     }
 
+    recipients = finaliseRecipients(recipients, await loadSuppressedEmails(admin))
     const recipientCount = recipients.length
 
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    // Links come from the fixed site URL — never the request's Origin/Host.
+    const origin = siteUrl()
 
     // Insert campaign row up-front so even drafts/failures show up
     // in the history table.

@@ -36,6 +36,7 @@
 // Never 500s on a normal path — every failure degrades to a calm canned reply.
 
 import { NextRequest } from 'next/server'
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import OpenAI from 'openai'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { z } from 'zod'
@@ -291,14 +292,58 @@ function getAdmin() {
   )
 }
 
-// First hop of x-forwarded-for, else x-real-ip.
+// Client IP for the rate limits. Prefer the headers Vercel's edge SETS
+// (x-vercel-forwarded-for / x-real-ip — a caller can't override them there)
+// over the first x-forwarded-for hop, which a caller can forge when the
+// request doesn't come through the platform proxy.
 function deriveIp(req: NextRequest): string {
+  const platform =
+    req.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip')?.trim()
+  if (platform) return platform
   const fwd = req.headers.get('x-forwarded-for')
   if (fwd) {
     const first = fwd.split(',')[0]?.trim()
     if (first) return first
   }
-  return req.headers.get('x-real-ip')?.trim() || 'unknown'
+  return 'unknown'
+}
+
+// ── Conversation ownership (privacy) ────────────────────────────────
+// The client session_token is only an identifier — anyone who learns it
+// could otherwise continue that visitor's chat and ask the bot to repeat
+// the name/email they gave. So the browser that STARTS a conversation gets
+// an httpOnly cookie carrying the conversation's key, HMAC-signed with a
+// server secret. A request for an existing conversation without that
+// cookie is "forked" into a brand-new, empty conversation (same widget
+// token, new server key) — the earlier transcript and captured details are
+// never fed back. No DB or widget change needed.
+const OWNER_COOKIE = 'cc_owner'
+const OWNER_COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
+
+function ownerSecret(): string {
+  return process.env.CONCIERGE_CHAT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+}
+
+function signKey(key: string): string {
+  return createHmac('sha256', ownerSecret()).update(`concierge:${key}`).digest('base64url')
+}
+
+// The conversation key this browser has proven it owns, or null.
+function readOwnedKey(req: NextRequest): string | null {
+  const raw = req.cookies.get(OWNER_COOKIE)?.value
+  if (!raw || !ownerSecret()) return null
+  const dot = raw.lastIndexOf('.')
+  if (dot <= 0) return null
+  const key = raw.slice(0, dot)
+  const sig = Buffer.from(raw.slice(dot + 1))
+  const want = Buffer.from(signKey(key))
+  return sig.length === want.length && timingSafeEqual(sig, want) ? key : null
+}
+
+function ownerCookieHeader(key: string): string {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+  return `${OWNER_COOKIE}=${key}.${signKey(key)}; Path=/api/concierge; Max-Age=${OWNER_COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax${secure}`
 }
 
 function isValidEmail(email: string | null | undefined): email is string {
@@ -357,6 +402,19 @@ function clean(v: unknown): string | undefined {
 }
 
 export async function POST(req: NextRequest) {
+  const ctx: { setCookie?: string } = {}
+  const res = await handleChat(req, ctx)
+  if (ctx.setCookie) {
+    try {
+      res.headers.append('Set-Cookie', ctx.setCookie)
+    } catch (e) {
+      console.error('[concierge/chat] could not set owner cookie:', e)
+    }
+  }
+  return res
+}
+
+async function handleChat(req: NextRequest, ctx: { setCookie?: string }): Promise<Response> {
   // ── Parse body ───────────────────────────────────────────────────
   let body: { session_token?: unknown; message?: unknown; company_url?: unknown }
   try {
@@ -374,9 +432,16 @@ export async function POST(req: NextRequest) {
     return ok(CANNED.honeypot)
   }
 
-  if (!sessionToken) {
+  if (!sessionToken || sessionToken.length > 100 || sessionToken.includes('~')) {
     return Response.json({ reply: CANNED.error, qualified: false, done: false }, { status: 400 })
   }
+  // Server-side conversation key: the widget token, or a fork of it this
+  // browser owns (see readOwnedKey).
+  const ownedKey = readOwnedKey(req)
+  let sessionKey =
+    ownedKey && (ownedKey === sessionToken || ownedKey.startsWith(`${sessionToken}~`))
+      ? ownedKey
+      : sessionToken
 
   // ── (2) Message length cap: truncate rather than reject outright.
   let message = rawMessage.trim()
@@ -419,9 +484,14 @@ export async function POST(req: NextRequest) {
       .select(
         'id, messages, message_count, visitor_name, visitor_email, visitor_goal, enquiry_id, qualified',
       )
-      .eq('session_token', sessionToken)
+      .eq('session_token', sessionKey)
       .maybeSingle()
-    if (data) {
+    if (data && sessionKey !== ownedKey && ownerSecret()) {
+      // Someone else's conversation (or one started before ownership
+      // cookies existed): never continue it from this browser — start a
+      // fresh private conversation instead.
+      sessionKey = `${sessionToken}~${randomUUID()}`
+    } else if (data) {
       convo = {
         id: data.id,
         messages: Array.isArray(data.messages) ? (data.messages as StoredMessage[]) : [],
@@ -462,7 +532,7 @@ export async function POST(req: NextRequest) {
     try {
       const { data, error } = await admin
         .from('concierge_conversations')
-        .insert({ session_token: sessionToken, ip, user_agent: userAgent })
+        .insert({ session_token: sessionKey, ip, user_agent: userAgent })
         .select('id, messages, message_count, visitor_name, visitor_email, visitor_goal, enquiry_id, qualified')
         .single()
       if (error || !data) throw error ?? new Error('insert returned no row')
@@ -482,9 +552,10 @@ export async function POST(req: NextRequest) {
       const { data } = await admin
         .from('concierge_conversations')
         .select('id, messages, message_count, visitor_name, visitor_email, visitor_goal, enquiry_id, qualified')
-        .eq('session_token', sessionToken)
+        .eq('session_token', sessionKey)
         .maybeSingle()
-      if (data) {
+      // Only adopt the raced row if this browser owns it.
+      if (data && sessionKey === ownedKey) {
         convo = {
           id: data.id,
           messages: Array.isArray(data.messages) ? (data.messages as StoredMessage[]) : [],
@@ -503,6 +574,8 @@ export async function POST(req: NextRequest) {
     // DB unavailable — degrade gracefully, still answer.
     return ok(CANNED.error)
   }
+  // This browser now owns the conversation it is talking in.
+  if (sessionKey !== ownedKey && ownerSecret()) ctx.setCookie = ownerCookieHeader(sessionKey)
 
   // ── (3) Per-conversation message cap ─────────────────────────────
   // Never lose a lead: a capped conversation that captured name + email but

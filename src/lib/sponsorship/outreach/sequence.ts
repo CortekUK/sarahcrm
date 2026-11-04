@@ -230,10 +230,22 @@ export async function dispatchOutreach(
       .select('id')
     if (claimErr) {
       // The claim column only exists once the sequences migration is applied.
-      // A manual send keeps its original (claim-less) behaviour; the runner
-      // never sends without a claim.
+      // The runner never sends without a claim. A manual send falls back to a
+      // compare-and-swap on updated_at (the set_updated_at trigger moves it on
+      // every write), so of two simultaneous Send clicks only one gets the
+      // row back — never two copies of the same email.
       if (opts.auto) return { ok: false, httpStatus: 500, error: claimErr.message }
-      console.warn('[outreach/sequence] claim unavailable, sending unclaimed:', claimErr.message)
+      console.warn('[outreach/sequence] claim column unavailable, using updated_at claim:', claimErr.message)
+      const { data: casClaimed } = await admin
+        .from('sponsor_outreach')
+        .update({ updated_at: claimIso })
+        .eq('id', row.id as string)
+        .eq('status', 'approved')
+        .eq('updated_at', row.updated_at as string)
+        .select('id')
+      if (!casClaimed || casClaimed.length === 0) {
+        return { ok: false, httpStatus: 409, error: 'This outreach is already being sent.' }
+      }
     } else if (!claimed || claimed.length === 0) {
       return { ok: false, httpStatus: 409, error: 'This outreach is already being sent.' }
     }

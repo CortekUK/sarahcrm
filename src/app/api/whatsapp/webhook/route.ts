@@ -2,10 +2,15 @@
 //   GET  — verification handshake (hub.mode / hub.verify_token / hub.challenge).
 //   POST — delivery/read status callbacks + inbound messages.
 //
-// No admin gate: Meta calls this directly. We always return 200 quickly on
-// POST (Meta retries on any non-2xx) and never throw from the processing path.
+// No admin gate: Meta calls this directly. Every POST must carry Meta's
+// X-Hub-Signature-256 (HMAC-SHA256 of the raw body keyed with the app secret,
+// WHATSAPP_APP_SECRET); unsigned/forged payloads are refused with 401, and if
+// the secret isn't configured nothing is processed (503). Once verified we
+// always return 200 quickly (Meta retries on any non-2xx) and never throw from
+// the processing path.
 
 import { NextRequest } from 'next/server'
+import crypto from 'crypto'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -69,11 +74,34 @@ function mapStatus(raw: string | undefined): 'delivered' | 'read' | 'failed' | '
   }
 }
 
+// Meta signs the exact raw body: header is `sha256=<hex hmac>`.
+function verifyMetaSignature(rawBody: string, header: string | null, secret: string): boolean {
+  if (!header || !header.startsWith('sha256=')) return false
+  const expected = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')
+  const a = Buffer.from(header.slice('sha256='.length), 'utf8')
+  const b = Buffer.from(expected, 'utf8')
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
 // ── POST: statuses + inbound messages ───────────────────────────────
 export async function POST(req: NextRequest) {
+  const rawBody = await req.text()
+  const appSecret = process.env.WHATSAPP_APP_SECRET
+  if (!appSecret) {
+    console.error('[whatsapp/webhook] WHATSAPP_APP_SECRET not set — refusing unverified payload')
+    return new Response('Webhook not configured', { status: 503 })
+  }
+  if (!verifyMetaSignature(rawBody, req.headers.get('x-hub-signature-256'), appSecret)) {
+    console.warn('[whatsapp/webhook] signature verification failed')
+    return new Response('Invalid signature', { status: 401 })
+  }
+
   try {
-    const body = (await req.json().catch(() => ({}))) as {
-      entry?: { changes?: { value?: WebhookValue }[] }[]
+    let body: { entry?: { changes?: { value?: WebhookValue }[] }[] } = {}
+    try {
+      body = JSON.parse(rawBody)
+    } catch {
+      // Malformed but signed — nothing to process; ack so Meta doesn't retry.
     }
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL

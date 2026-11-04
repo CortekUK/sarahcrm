@@ -16,21 +16,82 @@ interface ClubEmailParts {
   signoff?: string
 }
 
+// ── Escaping ──────────────────────────────────────────────────────────
+// Names, companies, event titles, guest names etc. are user-typed and end up
+// interpolated into the strings callers pass below. Everything is escaped
+// HERE, at the shared layer, so a "name" like `<a href=evil>Verify</a>` can
+// never become a live link in an email sent from the club's domain.
+//
+// Existing entities (&amp; &#39; &mdash; …) are left as-is, so callers that
+// already escape their values are not double-escaped.
+const ENTITY_SAFE_AMP = /&(?!(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#\d{1,7}|#x[0-9a-fA-F]{1,6});)/g
+
+// Full escape — safe for text AND double-quoted attribute values.
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(ENTITY_SAFE_AMP, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Escape every string value of a merge-tag dictionary, for substitution into
+// an HTML body (subjects are plain text — resolve those with the raw data).
+export function escapeMergeData<T extends Record<string, unknown>>(data: T): T {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(data)) out[k] = typeof v === 'string' ? escapeHtml(v) : v
+  return out as T
+}
+
+// Inline-text sanitiser for the shell's text slots (heading, eyebrow,
+// paragraphs, CTA label, sign-off). Escapes everything EXCEPT the small set
+// of literal formatting tags the app's own callers write: <strong>/<b>/<em>/
+// <i>/<span>, <br />, and <strong|span|em style="…"> with a plain inline style
+// (no double quotes, angle brackets or parentheses, so no url()/expression()).
+// Links and every other tag become escaped text — a typed tag can bold text
+// at most. Already-escaped text (&lt;b&gt;) stays text.
+const SAFE_STYLE = "[a-zA-Z0-9#:;,.%' -]{1,200}"
+const ALLOWED_INLINE_TAG = new RegExp(
+  `<\\/?(?:strong|b|em|i|span)>|<(?:strong|span|em) style="${SAFE_STYLE}">|<br\\s*\\/?>`,
+  'gi',
+)
+function escapeText(s: string): string {
+  return s.replace(ENTITY_SAFE_AMP, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+function inlineHtml(value: unknown): string {
+  const s = String(value ?? '')
+  let out = ''
+  let last = 0
+  for (const m of s.matchAll(ALLOWED_INLINE_TAG)) {
+    const at = m.index ?? 0
+    out += escapeText(s.slice(last, at)) + (/^<br/i.test(m[0]) ? '<br />' : m[0])
+    last = at + m[0].length
+  }
+  return out + escapeText(s.slice(last))
+}
+
+// CTA hrefs: only absolute http(s)/mailto URLs, attribute-escaped.
+function safeHref(url: string): string {
+  return /^(https?:\/\/|mailto:)/i.test(url.trim()) ? escapeHtml(url.trim()) : '#'
+}
+
 // Branded LIGHT shell (cream + gold) — Sarah's preferred palette, aligned
 // with the booking-confirmation emails so every message reads as the same
-// brand. Paragraphs are plain strings (basic inline <strong>/<a> allowed
-// by the caller).
+// brand. Text slots are sanitised by inlineHtml (basic <strong>/<em>/<br />
+// allowed; everything else, including <a>, is escaped). `panelHtml` is the
+// one raw-HTML slot — callers must escape any user values they put in it.
 export function renderClubEmail(parts: ClubEmailParts): string {
   const eyebrow = parts.eyebrow
-    ? `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#B8975A;font-weight:600;">${parts.eyebrow}</p>`
+    ? `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#B8975A;font-weight:600;">${inlineHtml(parts.eyebrow)}</p>`
     : ''
   const paraHtml = parts.paragraphs.map(
     (p) =>
-      `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:15px;line-height:1.7;color:#3A3530;">${p}</p>`,
+      `<p style="margin:0 0 16px 0;font-family:'DM Sans',Arial,sans-serif;font-size:15px;line-height:1.7;color:#3A3530;">${inlineHtml(p)}</p>`,
   )
   const cta = parts.cta
     ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 6px 0;"><tr><td style="background:#B8975A;border-radius:999px;">
-         <a href="${parts.cta.url}" style="display:inline-block;padding:13px 30px;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#FFFFFF;text-decoration:none;font-weight:600;">${parts.cta.label}</a>
+         <a href="${safeHref(parts.cta.url)}" style="display:inline-block;padding:13px 30px;font-family:'DM Sans',Arial,sans-serif;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#FFFFFF;text-decoration:none;font-weight:600;">${inlineHtml(parts.cta.label)}</a>
        </td></tr></table>`
     : ''
   const panelBlock = parts.panelHtml ?? ''
@@ -50,7 +111,7 @@ export function renderClubEmail(parts: ClubEmailParts): string {
           }
           return arr.join('') + cta
         })()
-  const signoff = parts.signoff ?? 'Sarah Restrick &amp; the team'
+  const signoff = inlineHtml(parts.signoff ?? 'Sarah Restrick &amp; the team')
   return `
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8" /></head>
@@ -68,7 +129,7 @@ export function renderClubEmail(parts: ClubEmailParts): string {
         </td></tr>
         <tr><td style="padding:40px 40px 8px 40px;">
           ${eyebrow}
-          <h1 style="margin:0 0 22px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:#2C2825;font-weight:500;letter-spacing:-0.01em;">${parts.heading}</h1>
+          <h1 style="margin:0 0 22px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:#2C2825;font-weight:500;letter-spacing:-0.01em;">${inlineHtml(parts.heading)}</h1>
           ${body}
         </td></tr>
         <tr><td style="padding:22px 40px 40px 40px;">

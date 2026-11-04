@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
       currency: 'gbp',
       unit_amount: plan.monthly_price_pence,
       recurring: { interval: 'month' },
-      product_data: { name: `${plan.name} Membership` },
+      product_data: { name: `${plan.name.replace(/\s*membership$/i, '')} Membership` },
     })
 
     // Create or reuse Stripe Customer

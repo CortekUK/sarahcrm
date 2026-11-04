@@ -56,6 +56,27 @@ async function loadMember(
   }
 }
 
+// Oldest introduction for the pair that is still in flight (not completed
+// or declined), if any.
+const IN_FLIGHT = ['suggested', 'approved', 'sent', 'scheduled', 'accepted']
+async function findInFlight(
+  admin: ReturnType<typeof getAdminDb>,
+  aId: string,
+  bId: string,
+): Promise<{ id: string; status: string } | null> {
+  const { data } = await admin
+    .from('introductions')
+    .select('id, status, created_at')
+    .eq('member_a_id', aId)
+    .eq('member_b_id', bId)
+    .in('status', IN_FLIGHT)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(1)
+  const row = data?.[0]
+  return row ? { id: row.id as string, status: row.status as string } : null
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const {
@@ -111,8 +132,9 @@ export async function POST(req: NextRequest) {
         .eq('id', intro.id)
     }
   } else {
-    // Fresh approve from a suggested match → always a NEW record (a pair can
-    // have multiple introductions over time).
+    // Fresh approve from a suggested match → a NEW record (a pair can have
+    // multiple introductions over time) — but never while another one for
+    // the same pair is still in progress.
     if (!body.target_member_id || !body.match_member_id) {
       return Response.json(
         { error: 'target_member_id and match_member_id (or introduction_id) are required.' },
@@ -123,6 +145,17 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Cannot introduce a member to themselves.' }, { status: 400 })
     }
     ;[aId, bId] = orderedPair(body.target_member_id, body.match_member_id)
+    const inFlight = await findInFlight(admin, aId, bId)
+    if (inFlight) {
+      return Response.json(
+        {
+          error: 'These members already have an introduction in progress.',
+          introduction_id: inFlight.id,
+          status: inFlight.status,
+        },
+        { status: 409 },
+      )
+    }
     const { data: created, error } = await admin
       .from('introductions')
       .insert({
@@ -142,6 +175,20 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Could not create introduction.' }, { status: 500 })
     }
     introId = created.id
+    // Two creates at once can both pass the check above — keep the oldest
+    // in-flight row for the pair and drop ours if it lost the race.
+    const first = await findInFlight(admin, aId, bId)
+    if (first && first.id !== introId) {
+      await admin.from('introductions').delete().eq('id', introId).eq('status', 'approved')
+      return Response.json(
+        {
+          error: 'These members already have an introduction in progress.',
+          introduction_id: first.id,
+          status: first.status,
+        },
+        { status: 409 },
+      )
+    }
   }
 
   const [memberA, memberB] = await Promise.all([loadMember(admin, aId), loadMember(admin, bId)])

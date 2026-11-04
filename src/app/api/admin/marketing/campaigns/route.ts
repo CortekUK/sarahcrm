@@ -87,6 +87,13 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = getAdmin()
+  if (sourceType === 'event') {
+    const eventId = String(body.event_id)
+    const { data: ev } = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)
+      ? await admin.from('events').select('id').eq('id', eventId).maybeSingle()
+      : { data: null }
+    if (!ev) return Response.json({ error: 'Event not found' }, { status: 404 })
+  }
   const { data, error } = await admin
     .from('marketing_campaigns')
     .insert({
@@ -102,6 +109,13 @@ export async function POST(req: NextRequest) {
     .select('id, title, source_type, status, created_at')
     .single()
 
-  if (error) return Response.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // 23503 = the event was deleted between the check and the insert.
+    if (error.code === '23503') return Response.json({ error: 'Event not found' }, { status: 404 })
+    if (error.code === '23514' || error.code === '22001') {
+      return Response.json({ error: 'Invalid campaign details' }, { status: 400 })
+    }
+    return Response.json({ error: error.message }, { status: 500 })
+  }
   return Response.json({ campaign: data }, { status: 201 })
 }

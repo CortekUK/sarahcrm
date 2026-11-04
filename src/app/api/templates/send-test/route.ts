@@ -9,6 +9,8 @@ import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { renderBlocksToHTML } from '@/lib/templates/render-html'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
+import { escapeMergeData } from '@/lib/email/club-email'
+import { siteUrl } from '@/lib/email/site-url'
 import type { EditorBlock, TemplateTheme } from '@/lib/templates/editor-types'
 
 const SAMPLE_MERGE_DATA = {
@@ -33,6 +35,29 @@ const SAMPLE_MERGE_DATA = {
   month_name: 'March',
 }
 
+// Keep only well-formed blocks (an object `content`, recursively for
+// columns/conditional children) so a half-built block can't crash the
+// renderer (e.g. "Cannot read properties of undefined (reading 'fontSize')").
+function cleanBlocks(input: unknown): EditorBlock[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter(
+      (b): b is EditorBlock =>
+        !!b &&
+        typeof b === 'object' &&
+        typeof (b as EditorBlock).type === 'string' &&
+        !!(b as EditorBlock).content &&
+        typeof (b as EditorBlock).content === 'object',
+    )
+    .map((b) => {
+      const c = { ...b.content }
+      for (const key of ['leftBlocks', 'rightBlocks', 'centerBlocks', 'children']) {
+        if (Array.isArray(c[key])) c[key] = cleanBlocks(c[key])
+      }
+      return { ...b, content: c }
+    })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -42,6 +67,10 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    if (me?.role !== 'admin') {
+      return NextResponse.json({ error: 'Admin only.' }, { status: 403 })
+    }
     if (!user.email) {
       return NextResponse.json(
         { error: 'Your account has no email address — cannot send test.' },
@@ -49,12 +78,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
-    const blocks = (body.blocks || []) as EditorBlock[]
-    const subject = String(body.subject || 'Test email')
-    const theme = (body.theme ?? null) as TemplateTheme | null
+    const body = await request.json().catch(() => ({}))
+    const blocks = cleanBlocks(body?.blocks)
+    const subject = String(body?.subject || 'Test email')
+    const theme =
+      body?.theme && typeof body.theme === 'object' ? (body.theme as TemplateTheme) : null
 
-    if (!Array.isArray(blocks) || blocks.length === 0) {
+    if (blocks.length === 0) {
       return NextResponse.json(
         { error: 'Template has no content yet — add at least one block first.' },
         { status: 400 },
@@ -87,8 +117,17 @@ export async function POST(request: NextRequest) {
       sender_title: profile?.job_title || 'Founder, The Club',
     }
 
-    const rawHtml = renderBlocksToHTML(blocks, theme)
-    const html = replaceMergeTags(rawHtml, data)
+    let rawHtml: string
+    try {
+      rawHtml = renderBlocksToHTML(blocks, theme)
+    } catch (e) {
+      console.error('[send-test] render failed:', e)
+      return NextResponse.json(
+        { error: 'This template could not be rendered — check its blocks and try again.' },
+        { status: 400 },
+      )
+    }
+    const html = replaceMergeTags(rawHtml, escapeMergeData({ ...data, unsubscribe_url: `${siteUrl()}/unsubscribe` }))
     const renderedSubject = replaceMergeTags(subject, data)
 
     const resend = new Resend(apiKey)

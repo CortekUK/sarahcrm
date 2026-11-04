@@ -5,8 +5,10 @@
 // so we never handle file uploads here).
 //
 // For each row we:
-//   1. Reuse an existing auth user/profile if the email is already known
-//      (so re-importing the same sheet is safe and idempotent).
+//   1. Skip any email that already belongs to an account (member, admin or
+//      staff) — never reuse/overwrite it or change its role — and any email
+//      repeated within the same file (case-insensitive). Re-importing the
+//      same sheet is therefore safe: existing rows are reported as skipped.
 //   2. Otherwise create the auth user. By default we DO NOT email anyone
 //      (bulk import of historic contacts shouldn't blast invites); pass
 //      send_invites=true to send the branded set-password email instead.
@@ -34,6 +36,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { sendInviteEmail } from '@/lib/email/invite'
 import { planForTier, introQuotaForTier } from '@/lib/membership/plans'
+import { siteUrl } from '@/lib/email/site-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -50,6 +53,8 @@ interface ImportRow {
   job_title?: string
   membership_tier?: string
   membership_status?: string
+  // Optional "member since" date from the sheet (YYYY-MM-DD or any date).
+  membership_start_date?: string
 }
 
 interface RequestBody {
@@ -112,6 +117,18 @@ function normaliseStatus(v: string | undefined, fallback: Status): Status {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// A past-or-today calendar date (YYYY-MM-DD), or null.
+function parseStartDate(v: unknown): string | null {
+  if (typeof v !== 'string' || !v.trim()) return null
+  const t = v.trim()
+  // UK-style dd/mm/yyyy from spreadsheets.
+  const uk = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(t)
+  const d = uk ? new Date(Date.UTC(+uk[3], +uk[2] - 1, +uk[1])) : new Date(t)
+  if (Number.isNaN(d.getTime()) || d.getTime() > Date.now()) return null
+  return d.toISOString().slice(0, 10)
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -139,12 +156,22 @@ export async function POST(req: NextRequest) {
     }
 
     const sendInvites = body.send_invites === true
+    if (body.default_tier !== undefined && !VALID_TIERS.includes(body.default_tier)) {
+      return Response.json({ error: 'Unknown default membership plan.' }, { status: 400 })
+    }
+    if (body.default_status !== undefined && !VALID_STATUSES.includes(body.default_status)) {
+      return Response.json({ error: "Default status must be 'active' or 'pending'." }, { status: 400 })
+    }
     const defaultTier: Tier = body.default_tier ?? 'tier_1'
     const defaultStatus: Status = body.default_status ?? 'pending'
     const tagIds = Array.isArray(body.tag_ids) ? body.tag_ids : []
+    if (tagIds.some((t) => typeof t !== 'string' || !UUID_RE.test(t))) {
+      return Response.json({ error: 'Invalid tag selection.' }, { status: 400 })
+    }
+    const seenEmails = new Set<string>()
 
     const admin = getAdminDb()
-    const origin = req.headers.get('origin') ?? `https://${req.headers.get('host')}`
+    const origin = siteUrl() // fixed site URL — never the request's Origin/Host
 
     // Resolve the live intro quota for each tier once (not per row) so a
     // 1000-row import doesn't make 1000 extra round-trips.
@@ -171,9 +198,29 @@ export async function POST(req: NextRequest) {
         results.push({ row: rowNum, email: email || '(blank)', status: 'skipped', reason: 'Missing or invalid email' })
         continue
       }
+      if (seenEmails.has(email)) {
+        skipped++
+        results.push({ row: rowNum, email, status: 'skipped', reason: 'Duplicate email in this file' })
+        continue
+      }
+      seenEmails.add(email)
       if (!r.first_name?.trim() && !r.last_name?.trim()) {
         skipped++
         results.push({ row: rowNum, email, status: 'skipped', reason: 'Missing name' })
+        continue
+      }
+      const tooLong = (
+        [
+          [r.first_name, 100],
+          [r.last_name, 100],
+          [r.phone, 40],
+          [r.company_name, 200],
+          [r.job_title, 150],
+        ] as [unknown, number][]
+      ).some(([v, max]) => typeof v === 'string' && v.trim().length > max)
+      if (tooLong) {
+        skipped++
+        results.push({ row: rowNum, email, status: 'skipped', reason: 'A field is too long' })
         continue
       }
 
@@ -183,20 +230,30 @@ export async function POST(req: NextRequest) {
       const status = normaliseStatus(r.membership_status, defaultStatus)
 
       try {
-        // 1. Existing user?
-        const { data: existingProfile } = await admin
+        // 1. Existing account? (case-insensitive) → skip, never overwrite.
+        const { data: existingProfiles } = await admin
           .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .maybeSingle()
+          .select('id, role')
+          .ilike('email', email.replace(/[\\%_]/g, (c) => `\\${c}`))
+          .limit(1)
+        if (existingProfiles && existingProfiles.length > 0) {
+          skipped++
+          results.push({
+            row: rowNum,
+            email,
+            status: 'skipped',
+            reason:
+              existingProfiles[0].role === 'member'
+                ? 'Already has an account'
+                : 'Email belongs to an admin or staff account',
+          })
+          continue
+        }
 
         let userId: string
-        let didReuse = false
+        const didReuse = false
 
-        if (existingProfile) {
-          userId = existingProfile.id
-          didReuse = true
-        } else if (sendInvites) {
+        if (sendInvites) {
           const inv = await sendInviteEmail(admin, {
             email,
             firstName,
@@ -251,7 +308,11 @@ export async function POST(req: NextRequest) {
           monthly_intro_quota: quotaByTier[tier],
           membership_status: status,
           company_name: r.company_name?.trim() || null,
-          membership_start_date: new Date().toISOString().slice(0, 10),
+          // Imported people are usually EXISTING members: never stamp today
+          // (the welcome journey emails anyone who started in the last ~16
+          // days, so that would send the Day 2/10/14 welcome to the whole
+          // sheet). Use the sheet's start date when given, else leave empty.
+          membership_start_date: parseStartDate(r.membership_start_date),
           deleted_at: null,
         }
 

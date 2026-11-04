@@ -37,7 +37,15 @@ interface Loaded {
   profileLines: string[]
 }
 
-function shape(row: Record<string, unknown>): Loaded {
+type TagRow = { member_id: string; tags: { name?: string | null; category?: string | null } | null }
+
+const TAG_LABELS: Record<string, string> = {
+  need: 'Looking for (tags)',
+  industry: 'Industry (tags)',
+  interest: 'Interests (tags)',
+}
+
+function shape(row: Record<string, unknown>, tagRows: TagRow[] = []): Loaded {
   const p = (row.profiles ?? {}) as Record<string, string | null>
   const name = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Member'
   const f = (label: string, val: unknown) => {
@@ -54,6 +62,17 @@ function shape(row: Record<string, unknown>): Loaded {
     f('Dream introductions', row.dream_introductions),
     f('Business objectives', row.business_objectives),
     f('Bio', p.bio),
+    // The tags are what the match engine scored — always give them to the
+    // model, otherwise thin profiles get reasons invented from the names.
+    ...(['need', 'industry', 'interest'] as const).map((cat) =>
+      f(
+        TAG_LABELS[cat],
+        tagRows
+          .filter((t) => t.member_id === row.id && t.tags?.category === cat && t.tags?.name)
+          .map((t) => t.tags!.name!.trim())
+          .join(', '),
+      ),
+    ),
   ].filter(Boolean) as { label: string; value: string }[]
   return {
     id: row.id as string,
@@ -89,10 +108,16 @@ export async function POST(req: NextRequest) {
   const other = (rows ?? []).map((r) => r as Record<string, unknown>).find((r) => r.id === body.other_id)
   if (!target || !other) return Response.json({ error: 'Members not found.' }, { status: 404 })
 
-  const T = shape(target)
-  const O = shape(other)
+  const { data: tagData } = await admin
+    .from('member_tags')
+    .select('member_id, tags(name, category)')
+    .in('member_id', [body.member_id, body.other_id])
+  const tagRows = (tagData ?? []) as unknown as TagRow[]
 
-  const systemPrompt = `You are the relationship-intelligence assistant for "The Club by Sarah Restrick", a private members networking club. Two members have been matched for a possible introduction. Explain WHY this is a strong introduction, grounded ONLY in the facts provided about each member. Be specific — quote or paraphrase what each member said. Do not invent facts. Frame it as a concierge would: warm, concise, business-savvy.`
+  const T = shape(target, tagRows)
+  const O = shape(other, tagRows)
+
+  const systemPrompt = `You are the relationship-intelligence assistant for "The Club by Sarah Restrick", a private members networking club. Two members have been matched for a possible introduction. Explain WHY this is a strong introduction, grounded ONLY in the facts provided about each member. The "(tags)" lines are the tags the match was scored on (e.g. one member's "Looking for" tag meeting the other's "Industry" tag) — base the reasoning on them first. Be specific — quote or paraphrase what each member said. Do not invent facts, and never infer an industry, service or need from a person's or company's NAME. If there is little to go on, say so plainly (e.g. "The match is based only on their tags: …") rather than filling the gap. Frame it as a concierge would: warm, concise, business-savvy.`
 
   const userPrompt = `MEMBER A — ${T.name}:\n${T.profileLines.join('\n') || '(limited profile)'}\n\nMEMBER B — ${O.name}:\n${O.profileLines.join('\n') || '(limited profile)'}\n\nExplain why introducing ${T.name} to ${O.name} is valuable.`
 
