@@ -1,12 +1,15 @@
 import type { Metadata } from 'next'
 
-// Metadata lives here because the page itself is a client component.
+const DESCRIPTION =
+  'Private Concierge from The Club: event services, access, travel and retail and hospitality bookings, handled end to end.'
+
 export const metadata: Metadata = {
-  title: 'Concierge | The Club by Sarah Restrick',
-  description: "The Club's concierge service — tell us what you need and the team will arrange it personally.",
+  title: 'Private Concierge | The Club by Sarah Restrick',
+  description: DESCRIPTION,
+  alternates: { canonical: '/concierge' },
   openGraph: {
-    title: 'Concierge | The Club by Sarah Restrick',
-    description: "The Club's concierge service — tell us what you need and the team will arrange it personally.",
+    title: 'Private Concierge | The Club by Sarah Restrick',
+    description: DESCRIPTION,
   },
 }
 

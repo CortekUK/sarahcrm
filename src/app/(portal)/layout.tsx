@@ -73,7 +73,7 @@ const COMMUNITY_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard
     to: '/portal/network',
     label: 'Network',
     icon: Users,
-    description: 'Members across Manchester, Leeds and London.',
+    description: 'The Club Members across the UK and beyond.',
   },
   // Member chat — only listed when the chat service is configured.
   ...(chatEnabled
@@ -86,6 +86,12 @@ const COMMUNITY_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard
         },
       ]
     : []),
+  {
+    to: '/portal/journal/submit',
+    label: 'Write for the Journal',
+    icon: Newspaper,
+    description: 'Submit an article for The Club Journal.',
+  },
 ]
 
 // Notification deep links: main-feed posts open on /portal/feed, group posts

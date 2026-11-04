@@ -7,7 +7,9 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import { dbErrorMessage, dbErrorToken } from '@/components/portal/portal-utils'
 import {
   ArrowUpRight,
+  Award,
   BadgeCheck,
+  Share2,
   Check,
   Gift,
   Sparkles,
@@ -61,6 +63,8 @@ interface MemberRow {
   id: string
   member_number: number | null
   membership_tier: string | null
+  renewal_date: string | null
+  membership_end_date: string | null
   profiles: { first_name: string | null; last_name: string | null } | null
 }
 
@@ -73,6 +77,8 @@ const CLAIM_STATUS_META: Record<string, { label: string; variant: PortalBadgeVar
 export function PortalRewardsPage() {
   const { user } = useAuth()
   const [member, setMember] = useState<MemberRow | null>(null)
+  const [planName, setPlanName] = useState<string | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [partners, setPartners] = useState<Partner[]>([])
   const [offers, setOffers] = useState<Offer[]>([])
   const [claims, setClaims] = useState<Claim[]>([])
@@ -89,16 +95,51 @@ export function PortalRewardsPage() {
     if (user?.id) init(user.id)
   }, [user?.id])
 
+  // Verification QR on the Members Card. It encodes the member's CRM
+  // record URL — only The Club's signed-in team can open it, so scanning
+  // at an event or partner desk verifies the member without exposing data.
+  useEffect(() => {
+    if (!member?.id) return
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+    const target = `${appUrl}/dashboard/members/${member.id}`
+    let cancelled = false
+    import('qrcode')
+      .then((QRCode) => QRCode.toDataURL(target, { width: 240, margin: 1, color: { dark: '#0E1014', light: '#FFFFFF' } }))
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url)
+      })
+      .catch(() => {
+        /* The QR is a nicety — the card still shows without it. */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [member?.id])
+
   async function init(userId: string) {
     setLoading(true)
     const { data: me } = await supabase
       .from('members')
-      .select('id, member_number, membership_tier, profiles(first_name, last_name)')
+      .select('id, member_number, membership_tier, renewal_date, membership_end_date, profiles(first_name, last_name)')
       .eq('profile_id', userId)
       .maybeSingle()
 
     if (me) {
       setMember(me as unknown as MemberRow)
+
+      // Tier name from membership_plans (tier_classification = the
+      // member's tier); the card falls back to "Tier I/II/III".
+      if (me.membership_tier) {
+        void supabase
+          .from('membership_plans')
+          .select('name')
+          .eq('tier_classification', me.membership_tier)
+          .eq('is_active', true)
+          .order('display_order', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+          .then(({ data }) => setPlanName(data?.name ?? null))
+      }
 
       const [partnersRes, offersRes] = await Promise.all([
         supabase
@@ -207,26 +248,40 @@ export function PortalRewardsPage() {
   }
 
   const name = `${member?.profiles?.first_name ?? ''} ${member?.profiles?.last_name ?? ''}`.trim()
+  const renewsOn = member?.renewal_date ?? member?.membership_end_date ?? null
+  const validityLabel = renewsOn
+    ? `${member?.renewal_date ? 'Renews' : 'Valid until'} ${formatDate(renewsOn)}`
+    : null
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
       <PortalPageHeader
         eyebrow="Rewards & Benefits"
         title="Your privileges."
-        subtitle="A curated collection of partner offers, member rates and access — reserved for The Club. Present your card, claim an offer, and enjoy."
+        subtitle="Your Members Card and partner benefits, for The Club Members. Present your card, claim an offer, and enjoy."
       />
 
-      {/* Digital membership card */}
-      <div className="mb-12 lg:mb-14 flex justify-center sm:justify-start">
-        <DigitalCard
-          name={name}
-          tier={member?.membership_tier ?? null}
-          memberNumber={member?.member_number ?? null}
-        />
-      </div>
+      {/* The Club Members Card */}
+      <section id="card" className="scroll-mt-24 mb-12 lg:mb-14">
+        <PortalSectionTitle eyebrow="The Club Members Card">Your card.</PortalSectionTitle>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-6 lg:gap-10">
+          <DigitalCard
+            name={name}
+            tier={planName ?? member?.membership_tier ?? null}
+            memberNumber={member?.member_number ?? null}
+            validityLabel={validityLabel}
+            qrDataUrl={qrDataUrl}
+          />
+          <p className="max-w-xs font-[family-name:var(--font-editorial)] italic text-[14px] leading-[1.7] text-ivory-soft">
+            Show this card at events and to partners. The QR code lets The Club&rsquo;s team verify
+            your membership.
+          </p>
+        </div>
+      </section>
 
-      {/* Browse offers */}
-      <PortalSectionTitle eyebrow="Browse">Partner offers.</PortalSectionTitle>
+      {/* Partner benefits directory */}
+      <section id="directory" className="scroll-mt-24">
+      <PortalSectionTitle eyebrow="Partner benefits">For The Club Members.</PortalSectionTitle>
       {grouped.length === 0 ? (
         <PortalEmptyState
           icon={<Gift size={18} strokeWidth={1.5} />}
@@ -327,7 +382,7 @@ export function PortalRewardsPage() {
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-2 rounded-full border border-graphite-line/70 px-5 py-2.5 font-[family-name:var(--font-meta)] text-[10px] font-medium uppercase tracking-[0.28em] text-ivory/85 hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.05] transition-all duration-300"
                               >
-                                Book / Visit
+                                Visit partner
                                 <ArrowUpRight size={13} strokeWidth={1.5} />
                               </a>
                             )}
@@ -371,6 +426,37 @@ export function PortalRewardsPage() {
           {error}
         </p>
       )}
+
+      </section>
+
+      {/* Loyalty + Referrals — launching 2027 */}
+      <div className="mt-14 lg:mt-16 grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <section id="loyalty" className="scroll-mt-24">
+          <PortalCard className="h-full p-6 lg:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <Award size={18} strokeWidth={1.5} className="text-bronze-light" />
+              <PortalBadge variant="neutral">Launching 2027</PortalBadge>
+            </div>
+            <p className="mt-5 font-[family-name:var(--font-display)] text-[19px] text-ivory">Loyalty</p>
+            <p className="mt-2 font-[family-name:var(--font-editorial)] text-[13.5px] leading-[1.7] text-ivory-soft/85">
+              Your loyalty balance and history will appear here when the programme launches.
+            </p>
+          </PortalCard>
+        </section>
+        <section id="referrals" className="scroll-mt-24">
+          <PortalCard className="h-full p-6 lg:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <Share2 size={18} strokeWidth={1.5} className="text-bronze-light" />
+              <PortalBadge variant="neutral">Launching 2027</PortalBadge>
+            </div>
+            <p className="mt-5 font-[family-name:var(--font-display)] text-[19px] text-ivory">Referrals</p>
+            <p className="mt-2 font-[family-name:var(--font-editorial)] text-[13.5px] leading-[1.7] text-ivory-soft/85">
+              Your personal referral link, with every introduction tracked to you, arrives with the
+              referrals programme.
+            </p>
+          </PortalCard>
+        </section>
+      </div>
 
       {/* Usage history */}
       <div className="mt-14 lg:mt-16">

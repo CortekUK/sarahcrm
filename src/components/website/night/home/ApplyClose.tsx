@@ -16,7 +16,8 @@ import { fireBronzeConfetti } from '@/lib/effects/confetti'
 //
 // Newsletter posts to /api/newsletter/subscribe (server-side upsert into
 // public.mailing_list — visitors can't write that table directly). It
-// requires first_name, last_name, email. `website` is a hidden honeypot.
+// requires first_name, last_name, email; `source` tags the CRM row as
+// "Website newsletter". `website` is a hidden honeypot.
 
 export function ApplyClose() {
   const [firstName, setFirstName] = useState('')
@@ -43,6 +44,7 @@ export function ApplyClose() {
           first_name: firstName.trim(),
           last_name: lastName.trim(),
           email: email.trim(),
+          source: 'Website newsletter',
           website,
         }),
       })

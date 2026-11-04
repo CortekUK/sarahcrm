@@ -898,7 +898,7 @@ Modal `Edit card {numeral} · {title}`: Numeral* (≤8 chars), Title* (≤80), B
 
 ### MembershipComparisonPage.tsx
 
-Header "Membership comparison". Columns Feature | Individual | Business | Corporate. Drag-sortable rows with check/minus icons, ActiveToggle, Edit/Delete.
+Header "Membership comparison". Columns Feature | Access | The Club Membership | The Club Business Membership. Each cell is text (`tier_N_text`) or, if blank, a check/minus from the Included flag. Drag-sortable rows, ActiveToggle, Edit/Delete, plus a footnote editor (app_settings `membership_comparison_footnote`). Sister page `/dashboard/website/business-categories` (BusinessCategoriesPage) manages the "one business per category" chips on /memberships: add, rename, drag-reorder, delete, toggle Taken.
 
 Modal: Feature label*, "Included for" (3 checkboxes), Display order, Active. Delete confirm: "Delete this row?" Revalidates `/memberships`. Empty: "No comparison rows yet" / "Add rows so the comparison table is editable here..."
 

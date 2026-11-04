@@ -9,18 +9,23 @@ import Image from 'next/image'
 // ("MEMBER No. 1042").
 
 const TIER_LABELS: Record<string, string> = {
-  tier_1: 'Tier I',
-  tier_2: 'Tier II',
-  tier_3: 'Tier III',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 interface DigitalCardProps {
   name: string
+  /** Tier key (tier_1…) or an already-resolved plan name. */
   tier: string | null
   memberNumber: number | null
+  /** e.g. "Renews 12 Mar 2027" — shown under the number when set. */
+  validityLabel?: string | null
+  /** Data-URL QR for verification at events and partners (optional). */
+  qrDataUrl?: string | null
 }
 
-export function DigitalCard({ name, tier, memberNumber }: DigitalCardProps) {
+export function DigitalCard({ name, tier, memberNumber, validityLabel, qrDataUrl }: DigitalCardProps) {
   const tierLabel = tier ? TIER_LABELS[tier] ?? tier : null
   const formattedNumber =
     memberNumber != null ? String(memberNumber).padStart(4, '0') : '—'
@@ -64,28 +69,43 @@ export function DigitalCard({ name, tier, memberNumber }: DigitalCardProps) {
                 The Club
               </p>
               <p className="font-[family-name:var(--font-meta)] text-[8px] font-medium uppercase tracking-[0.32em] text-bronze-light mt-1">
-                Member Card
+                Members Card
               </p>
             </div>
           </div>
           {tierLabel && (
-            <span className="inline-flex items-center rounded-full border border-bronze/50 bg-bronze/10 px-3 py-1 font-[family-name:var(--font-meta)] text-[9px] font-medium uppercase tracking-[0.22em] text-bronze-light whitespace-nowrap">
+            <span className="inline-flex items-center rounded-full border border-bronze/50 bg-bronze/10 px-3 py-1 font-[family-name:var(--font-meta)] text-[9px] font-medium uppercase tracking-[0.22em] text-bronze-light text-right leading-[1.4] max-w-[60%]">
               {tierLabel}
             </span>
           )}
         </div>
 
-        {/* Bottom — name + number */}
-        <div>
+        {/* Bottom — name + number (+ QR) */}
+        <div className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
           <p className="font-[family-name:var(--font-meta)] text-[8.5px] uppercase tracking-[0.34em] text-slate-haze mb-1.5">
             Member No.
           </p>
           <p className="font-[family-name:var(--font-display)] text-[26px] sm:text-[30px] leading-none tracking-[0.12em] text-bronze-light tabular-nums mb-4">
             {formattedNumber}
           </p>
-          <p className="font-[family-name:var(--font-meta)] text-[12px] font-medium uppercase tracking-[0.28em] text-ivory">
+          <p className="font-[family-name:var(--font-meta)] text-[12px] font-medium uppercase tracking-[0.28em] text-ivory truncate">
             {name || 'Member'}
           </p>
+          {validityLabel && (
+            <p className="mt-1.5 font-[family-name:var(--font-meta)] text-[8.5px] uppercase tracking-[0.3em] text-slate-haze">
+              {validityLabel}
+            </p>
+          )}
+        </div>
+        {qrDataUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={qrDataUrl}
+            alt="Membership verification QR code"
+            className="h-[72px] w-[72px] sm:h-[84px] sm:w-[84px] shrink-0 rounded-md bg-white p-1"
+          />
+        )}
         </div>
       </div>
     </div>

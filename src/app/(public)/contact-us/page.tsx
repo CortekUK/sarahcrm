@@ -2,17 +2,15 @@
 
 import { forwardRef, useEffect, useId, useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { supabase } from '@/lib/supabase/client'
-import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import { ArrowUpRight, Check, Mail, MapPin } from 'lucide-react'
+import { ArrowUpRight, Check, Globe, Mail, MapPin, Phone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fireBronzeConfetti } from '@/lib/effects/confetti'
 
@@ -50,11 +48,11 @@ const HERO_FALLBACK: HeroData = {
 //   • Subject options as a grid of checklist tiles (matches the
 //     interests grid on the membership flow)
 //   • PremiumPillButton as the primary CTA
-//   • Closing "Three cities" strip mirroring the homepage locations
 //
-// No fabricated voice copy — labels and prompts only. Email is the one
-// real contact channel we have; phone is left out until Sarah confirms
-// a number for the public site.
+// No fabricated voice copy — labels and prompts only. Contact details are
+// the brief's (28 Oct 2026): membership@, events@, sarah@theclubgroup.co
+// and +44 (0)7921 507 442. No location branding — one club, events
+// UK-wide and internationally.
 // ─────────────────────────────────────────────────────────────────────
 
 const HERO_IMAGE = '/theclub-section.png'
@@ -68,12 +66,6 @@ const SUBJECT_OPTIONS = [
   { value: 'venue', label: 'Venue / space hire' },
   { value: 'press', label: 'Press / media' },
 ] as const
-
-const CITIES = [
-  { name: 'Manchester', image: '/manchester.png', note: 'The original chapter.' },
-  { name: 'Leeds', image: '/gallery/land1.png', note: 'The new northern room.' },
-  { name: 'London', image: '/gallery/bigland.png', note: 'Capital evenings.' },
-]
 
 const enquirySchema = z.object({
   first_name: z.string().min(1, 'Required'),
@@ -328,11 +320,35 @@ export default function ContactPage() {
                 <ul className="space-y-5">
                   <ContactRow
                     icon={Mail}
-                    label="Email"
-                    href="mailto:hello@theclubbysarahrestrick.com"
-                    value="hello@theclubbysarahrestrick.com"
+                    label="Membership"
+                    href="mailto:membership@theclubgroup.co"
+                    value="membership@theclubgroup.co"
                   />
-                  <ContactRow icon={MapPin} label="Cities" value="Manchester · Leeds · London" />
+                  <ContactRow
+                    icon={Mail}
+                    label="Events"
+                    href="mailto:events@theclubgroup.co"
+                    value="events@theclubgroup.co"
+                  />
+                  <ContactRow
+                    icon={Mail}
+                    label="Sarah Restrick"
+                    href="mailto:sarah@theclubgroup.co"
+                    value="sarah@theclubgroup.co"
+                  />
+                  <ContactRow
+                    icon={Phone}
+                    label="Telephone"
+                    href="tel:+447921507442"
+                    value="+44 (0)7921 507 442"
+                  />
+                  <ContactRow
+                    icon={Globe}
+                    label="Website"
+                    href="https://www.theclubgroup.co"
+                    value="www.theclubgroup.co"
+                  />
+                  <ContactRow icon={MapPin} label="Where" value="Events UK-wide and internationally" />
                 </ul>
               </div>
             </Reveal>
@@ -371,48 +387,6 @@ export default function ContactPage() {
         </div>
       </Chapter>
 
-      {/* ── Locations strip ─────────────────────────────────────────── */}
-      <section className="always-night relative bg-graphite border-t border-graphite-line/40 py-24 lg:py-32 overflow-hidden">
-        <Aurora variant="soft" />
-        <div className="relative z-10 max-w-6xl mx-auto px-6 lg:px-10">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light text-center mb-5">
-              Three cities
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={120}>
-            <h2 className="display-md text-center mb-16 max-w-3xl mx-auto">
-              Find us in <em className="italic text-bronze-light">Manchester, Leeds and London</em>.
-            </h2>
-          </Reveal>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {CITIES.map((c, i) => (
-              <Reveal key={c.name} type="up" delay={300 + i * 120}>
-                <div className="group relative aspect-[3/4] overflow-hidden border border-graphite-line/40 hover:border-bronze/55 transition-colors duration-500">
-                  <Image
-                    src={c.image}
-                    alt={c.name}
-                    fill
-                    sizes="(max-width: 768px) 100vw, 33vw"
-                    className="object-cover transition-transform duration-[1400ms] ease-out group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-b from-ink/30 via-ink/50 to-ink/90 transition-opacity duration-500" />
-                  <CornerBrackets />
-                  <div className="absolute inset-x-0 bottom-0 p-6 lg:p-8">
-                    <p className="font-[family-name:var(--font-display)] text-[26px] tracking-[0.02em] text-ivory">
-                      {c.name}
-                    </p>
-                    <p className="font-[family-name:var(--font-editorial)] italic text-[14px] text-bronze-light mt-2">
-                      {c.note}
-                    </p>
-                  </div>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
     </>
   )
 }
@@ -431,8 +405,7 @@ function SuccessPanel() {
         </p>
         <h2 className="display-md mb-6">Your note has reached us.</h2>
         <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-relaxed max-w-md mx-auto">
-          The team will write back personally. In the meantime — quiet evenings on the calendar at
-          all three clubs.
+          The team will write back personally.
         </p>
       </div>
     </Reveal>
@@ -535,23 +508,6 @@ function ContactRow({
         <div className="flex items-center gap-4">{inner}</div>
       )}
     </li>
-  )
-}
-
-// ─── Corner brackets ────────────────────────────────────────────────
-
-function CornerBrackets() {
-  return (
-    <>
-      <span aria-hidden className="absolute top-3 left-3 w-4 h-px bg-ivory/50" />
-      <span aria-hidden className="absolute top-3 left-3 w-px h-4 bg-ivory/50" />
-      <span aria-hidden className="absolute top-3 right-3 w-4 h-px bg-ivory/50" />
-      <span aria-hidden className="absolute top-3 right-3 w-px h-4 bg-ivory/50" />
-      <span aria-hidden className="absolute bottom-3 left-3 w-4 h-px bg-ivory/50" />
-      <span aria-hidden className="absolute bottom-3 left-3 w-px h-4 bg-ivory/50" />
-      <span aria-hidden className="absolute bottom-3 right-3 w-4 h-px bg-ivory/50" />
-      <span aria-hidden className="absolute bottom-3 right-3 w-px h-4 bg-ivory/50" />
-    </>
   )
 }
 

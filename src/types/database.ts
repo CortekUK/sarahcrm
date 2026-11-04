@@ -356,6 +356,7 @@ export type Database = {
       }
       concierge_requests: {
         Row: {
+          form_data: Json | null
           assigned_to: string | null
           budget_pence: number | null
           commission_pence: number | null
@@ -385,6 +386,7 @@ export type Database = {
           xero_invoice_id: string | null
         }
         Insert: {
+          form_data?: Json | null
           assigned_to?: string | null
           budget_pence?: number | null
           commission_pence?: number | null
@@ -414,6 +416,7 @@ export type Database = {
           xero_invoice_id?: string | null
         }
         Update: {
+          form_data?: Json | null
           assigned_to?: string | null
           budget_pence?: number | null
           commission_pence?: number | null
@@ -1030,6 +1033,7 @@ export type Database = {
       }
       enquiries: {
         Row: {
+          form_data: Json | null
           acknowledged_at: string | null
           admin_notes: string | null
           assigned_to: string | null
@@ -1075,6 +1079,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          form_data?: Json | null
           acknowledged_at?: string | null
           admin_notes?: string | null
           assigned_to?: string | null
@@ -1120,6 +1125,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          form_data?: Json | null
           acknowledged_at?: string | null
           admin_notes?: string | null
           assigned_to?: string | null
@@ -1168,6 +1174,13 @@ export type Database = {
       }
       events: {
         Row: {
+          programme: string | null
+          visibility: string
+          booking_status: string
+          short_description: string | null
+          who_youll_meet: string | null
+          sponsorship_available: boolean
+          is_portfolio: boolean
           accommodation_available: boolean
           accommodation_price_pence: number | null
           agenda: Json | null
@@ -1206,6 +1219,13 @@ export type Database = {
           venue_url: string | null
         }
         Insert: {
+          programme?: string | null
+          visibility?: string
+          booking_status?: string
+          short_description?: string | null
+          who_youll_meet?: string | null
+          sponsorship_available?: boolean
+          is_portfolio?: boolean
           accommodation_available?: boolean
           accommodation_price_pence?: number | null
           agenda?: Json | null
@@ -1244,6 +1264,13 @@ export type Database = {
           venue_url?: string | null
         }
         Update: {
+          programme?: string | null
+          visibility?: string
+          booking_status?: string
+          short_description?: string | null
+          who_youll_meet?: string | null
+          sponsorship_available?: boolean
+          is_portfolio?: boolean
           accommodation_available?: boolean
           accommodation_price_pence?: number | null
           agenda?: Json | null
@@ -3971,6 +3998,8 @@ export type Database = {
       }
       testimonials: {
         Row: {
+          testimonial_type: string
+          photo_url: string | null
           company_name: string | null
           created_at: string
           display_order: number
@@ -3982,6 +4011,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          testimonial_type?: string
+          photo_url?: string | null
           company_name?: string | null
           created_at?: string
           display_order?: number
@@ -3993,6 +4024,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          testimonial_type?: string
+          photo_url?: string | null
           company_name?: string | null
           created_at?: string
           display_order?: number

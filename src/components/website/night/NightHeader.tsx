@@ -1,5 +1,6 @@
 'use client'
 
+import { HARRODS_APPROVED } from '@/components/website/night/london/content'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -20,25 +21,30 @@ import type { LenisWindow } from '@/components/website/SmoothScrolling'
 //     and the wordmark animating from the corner. No magnetic buttons,
 //     no custom cursor — restraint is the brief.
 
-// The full set lives in the fullscreen menu overlay. Only a few
-// essentials show inline on desktop so the bar stays calm and luxe
-// (Annabel's-style restraint) rather than a congested row of links.
-const LINKS = [
+// Top nav (Sarah's brief): The Club · Memberships · Events · PITCH ·
+// Concierge · Partner With Us, with Member Login + Apply on the right.
+// Everything else lives in the Menu overlay (and the footer).
+const PRIMARY = [
   { href: '/about', label: 'The Club' },
   { href: '/memberships', label: 'Memberships' },
   { href: '/events', label: 'Events' },
+  { href: '/pitch', label: 'PITCH' },
   { href: '/concierge', label: 'Concierge' },
-  { href: '/rewards', label: 'Rewards' },
-  { href: '/gallery', label: 'Gallery' },
-  { href: '/blog', label: 'Journal' },
-  { href: '/reviews', label: 'Testimonials' },
-  { href: '/private-event-services', label: 'Private Events' },
+  { href: '/partner', label: 'Partner With Us' },
 ]
 
-// Inline desktop links — a deliberate subset. Everything else is one
-// click away behind the Menu button.
-const PRIMARY_HREFS = ['/memberships', '/events', '/reviews']
-const PRIMARY = LINKS.filter((l) => PRIMARY_HREFS.includes(l.href))
+// Full set for the fullscreen Menu overlay: the six primary links first,
+// then the rest of the site.
+const SECONDARY = [
+  // The London Series page stays unlinked until Harrods approves it.
+  ...(HARRODS_APPROVED ? [{ href: '/london-series', label: 'London Series at Harrods' }] : []),
+  { href: '/portfolio', label: 'Portfolio' },
+  { href: '/rewards', label: 'Rewards & Benefits' },
+  { href: '/success-stories', label: 'Success Stories' },
+  { href: '/journal', label: 'Journal' },
+  { href: '/contact-us', label: 'Contact' },
+]
+const LINKS = [...PRIMARY, ...SECONDARY]
 
 export function NightHeader() {
   const pathname = usePathname()
@@ -176,7 +182,7 @@ export function NightHeader() {
           {/* Desktop nav — essentials only; the rest live in the Menu.
               Hidden entirely while the menu overlay is open so it doesn't
               compete with the fullscreen list. */}
-          <nav className={cn('items-center gap-9', menuOpen ? 'hidden' : 'hidden lg:flex')}>
+          <nav className={cn('items-center gap-5 2xl:gap-8', menuOpen ? 'hidden' : 'hidden xl:flex')}>
             {PRIMARY.map((l) => {
               const active = pathname === l.href || (l.href !== '/' && pathname.startsWith(l.href))
               return (
@@ -184,7 +190,7 @@ export function NightHeader() {
                   key={l.href}
                   href={l.href}
                   className={cn(
-                    'group relative font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.22em] transition-colors',
+                    'group relative whitespace-nowrap font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.16em] 2xl:tracking-[0.2em] transition-colors',
                     active ? 'text-bronze-light' : 'text-ivory/75 hover:text-ivory',
                   )}
                 >
@@ -207,7 +213,7 @@ export function NightHeader() {
               login is a quiet text link, and a Menu button (desktop too)
               opens the fullscreen overlay holding the full link set. The
               toggle is a quiet icon so nothing competes with Apply. */}
-          <div className="flex items-center gap-5 lg:gap-6">
+          <div className="flex items-center gap-5 lg:gap-6 xl:gap-5 2xl:gap-6">
             <ThemeToggle variant="icon" className="hidden lg:inline-flex" />
             <Link
               href="/login"
@@ -235,7 +241,7 @@ export function NightHeader() {
               className="inline-flex items-center justify-center gap-2 p-2 -mr-2 min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 text-ivory/85 hover:text-bronze-light transition-colors"
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             >
-              <span className="hidden lg:inline font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em]">
+              <span className="hidden lg:inline xl:hidden 2xl:inline font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em]">
                 {menuOpen ? 'Close' : 'Menu'}
               </span>
               {menuOpen ? <X size={20} strokeWidth={1.5} /> : <Menu size={20} strokeWidth={1.5} />}

@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     const { data: event } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, venue_name, member_price_pence, guest_price_pence, sponsor_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm, vat_mode, vat_rate',
+        'id, slug, title, status, start_date, venue_name, member_price_pence, guest_price_pence, sponsor_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm, vat_mode, vat_rate, booking_status',
       )
       .eq('id', body.event_id)
       .maybeSingle()
@@ -153,6 +153,15 @@ export async function POST(req: NextRequest) {
       .neq('status', 'declined')
       .limit(1)
     const sponsorship = sponsorRows?.[0] ?? null
+
+    // Waitlist / invitation-only / sold-out events take requests, not
+    // bookings (sponsors still book their own places).
+    if ((event.booking_status ?? 'open') !== 'open' && !sponsorship) {
+      return NextResponse.json(
+        { error: 'This event isn’t open for direct booking — please request your place instead.' },
+        { status: 409 },
+      )
+    }
     const sponsorRate = sponsorship
       ? (sponsorship.event_price_pence ?? event.sponsor_price_pence ?? 0)
       : 0

@@ -10,7 +10,18 @@
 // best-effort, so a failure in any of them never fails the enquiry itself.
 //
 // Body: { first_name, last_name, email, phone?, company?, position?,
-//         intent?: string[], message, source?, website? /* honeypot */ }
+//         intent?: string[], message, source?, website? /* honeypot */,
+//         form_data?: object, consent?: boolean }
+//
+// Website rebuild (brief "Forms and CRM capture"): `source` may also be one
+// of the CRM source tags in FORM_SOURCES ('Web – PITCH Founder', …). For
+// those: `consent: true` is required, `form_data` (≤ 10KB of JSON, flat
+// key → primitive / list) is stored in enquiries.form_data, `message` is
+// optional (composed from form_data when absent), the team notification
+// goes to the brief's inbox for that source (membership@ / sarah@ /
+// events@) and the acknowledgement carries a per-form next step. Uploaded
+// file paths (private `form-uploads` bucket, see /api/forms/upload) ride in
+// form_data.files and are pattern-checked here.
 // Returns: { ok: true, id } or { ok: false, error }
 //
 // Abuse protection (public + it sends email): a honeypot field (`website` /
@@ -29,6 +40,12 @@ import { notifyAdmins } from '@/lib/email/admin-notify'
 import { siteUrl } from '@/lib/email/site-url'
 import { ENQUIRY_INTENTS } from '@/lib/concierge/call-booking'
 import { clientIp, overLimit } from '@/lib/public-intake/rate-limit'
+import {
+  FORM_UPLOAD_PATH_RE,
+  SOURCE_META,
+  isFormSource,
+  type FormSource,
+} from '@/components/website/forms/sources'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -53,6 +70,8 @@ interface IntakeBody {
   intent?: string[]
   message?: string
   source?: string
+  form_data?: unknown
+  consent?: unknown
   // Honeypots — hidden inputs real visitors never fill.
   website?: string
   company_url?: string
@@ -76,6 +95,107 @@ const MAX_GLOBAL_PER_10_MIN = 30
 const MAX_PER_IP_PER_10_MIN = 5
 
 const KNOWN_INTENTS = new Set<string>(ENQUIRY_INTENTS)
+
+// form_data caps: total serialised size, keys, string values, list lengths.
+const FORM_DATA_MAX_BYTES = 10_000
+const FORM_DATA_MAX_KEYS = 60
+const FORM_DATA_MAX_STR = 5000
+const FORM_DATA_MAX_LIST = 30
+
+type FormValue = string | number | boolean | null | string[] | FormFile[]
+interface FormFile {
+  path: string
+  name: string
+  slot: string
+}
+
+// Safe key: letters/digits/underscore, never a prototype key.
+const KEY_RE = /^[a-z][a-z0-9_]{0,59}$/i
+const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+// Flatten the posted form_data to a whitelist-shaped object: string keys,
+// primitive values or lists of strings; `files` is a list of upload records
+// whose paths must match the private-bucket pattern. Anything else is
+// dropped, never stored. Returns null when nothing usable remains, or
+// 'too_big' when the cleaned payload is over the cap.
+function cleanFormData(raw: unknown): Record<string, FormValue> | null | 'too_big' | 'bad_file' {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out: Record<string, FormValue> = Object.create(null)
+  let keys = 0
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (keys >= FORM_DATA_MAX_KEYS) break
+    if (!KEY_RE.test(k) || BAD_KEYS.has(k)) continue
+    if (k === 'files') {
+      if (!Array.isArray(v)) continue
+      const files: FormFile[] = []
+      for (const f of v.slice(0, 6)) {
+        if (!f || typeof f !== 'object') continue
+        const rec = f as Record<string, unknown>
+        const path = typeof rec.path === 'string' ? rec.path : ''
+        if (!FORM_UPLOAD_PATH_RE.test(path) || path.includes('..')) return 'bad_file'
+        files.push({
+          path,
+          name: typeof rec.name === 'string' ? rec.name.slice(0, 200) : path.split('/').pop()!,
+          slot: path.split('/')[0],
+        })
+      }
+      if (files.length) {
+        out.files = files
+        keys++
+      }
+      continue
+    }
+    if (v === null || typeof v === 'boolean') out[k] = v
+    else if (typeof v === 'number') {
+      if (Number.isFinite(v)) out[k] = v
+      else continue
+    } else if (typeof v === 'string') {
+      const t = v.trim()
+      if (!t) continue
+      out[k] = t.slice(0, FORM_DATA_MAX_STR)
+    } else if (Array.isArray(v)) {
+      const list = v
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .slice(0, FORM_DATA_MAX_LIST)
+        .map((x) => x.trim().slice(0, 300))
+      if (!list.length) continue
+      out[k] = list
+    } else continue
+    keys++
+  }
+  if (keys === 0) return null
+  const plain = { ...out }
+  if (JSON.stringify(plain).length > FORM_DATA_MAX_BYTES) return 'too_big'
+  return plain
+}
+
+// "budget_range" → "Budget range"
+function humanKey(k: string): string {
+  const s = k.replace(/_/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// Readable plain-text version of form_data — used as the enquiry message
+// when the form has no free-text field, and in the team notification.
+function formDataLines(fd: Record<string, FormValue>): string[] {
+  const lines: string[] = []
+  for (const [k, v] of Object.entries(fd)) {
+    if (k === 'files' && Array.isArray(v)) {
+      for (const f of v as FormFile[]) lines.push(`File (${f.slot.replace(/-/g, ' ')}): ${f.name}`)
+      continue
+    }
+    if (k === 'consent_at') continue
+    const val = Array.isArray(v)
+      ? (v as string[]).join(', ')
+      : v === true
+        ? 'Yes'
+        : v === false
+          ? 'No'
+          : String(v ?? '')
+    if (val) lines.push(`${humanKey(k)}: ${val}`)
+  }
+  return lines
+}
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v.trim() : undefined
@@ -114,14 +234,58 @@ export async function POST(request: Request) {
   const position = str(body.position) || null
   // Known intents only, de-duplicated. Anything else is silently dropped.
   const intent = Array.isArray(body.intent)
-    ? [...new Set(body.intent.filter((i): i is string => typeof i === 'string' && KNOWN_INTENTS.has(i)))]
+    ? [
+        ...new Set(
+          body.intent.filter((i): i is string => typeof i === 'string' && KNOWN_INTENTS.has(i)),
+        ),
+      ]
     : []
   const rawSource = str(body.source)
-  const source = rawSource && /^[a-z0-9_-]{1,40}$/i.test(rawSource) ? rawSource : 'website'
+  // A brief CRM source tag (exact match), else a legacy slug, else 'website'.
+  const formSource: FormSource | null = isFormSource(rawSource) ? rawSource : null
+  const source =
+    formSource ?? (rawSource && /^[a-z0-9_-]{1,40}$/i.test(rawSource) ? rawSource : 'website')
+  const meta = formSource ? SOURCE_META[formSource] : null
 
-  if (!first_name || !last_name || !email || !message) {
+  // form_data + consent — the website forms (FORM_SOURCES) only.
+  let formData: Record<string, FormValue> | null = null
+  if (formSource) {
+    if (body.consent !== true) {
+      return Response.json(
+        { ok: false, error: 'Please confirm you agree to the Privacy Policy.' },
+        { status: 400 },
+      )
+    }
+    const cleaned = cleanFormData(body.form_data)
+    if (cleaned === 'too_big') {
+      return Response.json({ ok: false, error: 'The form is too long.' }, { status: 400 })
+    }
+    if (cleaned === 'bad_file') {
+      return Response.json(
+        {
+          ok: false,
+          error: 'One of the uploaded files was not recognised — please upload it again.',
+        },
+        { status: 400 },
+      )
+    }
+    formData = { ...(cleaned ?? {}), consent_at: new Date().toISOString() }
+    // The form's own intent (owner routing / scoring) unless one was sent.
+    if (!intent.length) intent.push(meta!.intent)
+  }
+  // Website forms may have no free-text field: file a readable summary.
+  const finalMessage =
+    message ||
+    (formData
+      ? [meta!.label, '', ...formDataLines(formData)].join('\n').slice(0, LIMITS.message)
+      : undefined)
+
+  if (!first_name || !last_name || !email || !finalMessage) {
     return Response.json(
-      { ok: false, error: 'first_name, last_name, email and message are required.' },
+      {
+        ok: false,
+        error: 'first_name, last_name, email and message are required.',
+      },
       { status: 400 },
     )
   }
@@ -135,20 +299,21 @@ export async function POST(request: Request) {
     (phone?.length ?? 0) > LIMITS.phone ||
     (company?.length ?? 0) > LIMITS.company ||
     (position?.length ?? 0) > LIMITS.position ||
-    message.length > LIMITS.message
+    finalMessage.length > LIMITS.message
   ) {
-    return Response.json(
-      { ok: false, error: 'One or more fields are too long.' },
-      { status: 400 },
-    )
+    return Response.json({ ok: false, error: 'One or more fields are too long.' }, { status: 400 })
   }
 
   const tooMany = () =>
     Response.json(
-      { ok: false, error: 'Too many enquiries — please try again a little later.' },
+      {
+        ok: false,
+        error: 'Too many enquiries — please try again a little later.',
+      },
       { status: 429 },
     )
-  if (overLimit(`enquiry:${clientIp(request)}`, MAX_PER_IP_PER_10_MIN, 10 * 60_000)) return tooMany()
+  if (overLimit(`enquiry:${clientIp(request)}`, MAX_PER_IP_PER_10_MIN, 10 * 60_000))
+    return tooMany()
 
   const admin = getAdminDb()
 
@@ -193,34 +358,57 @@ export async function POST(request: Request) {
     phone,
     company,
     intent,
-    message,
+    message: finalMessage,
   })
 
-  const { data: inserted, error: insertError } = await admin
+  const row = {
+    first_name,
+    last_name,
+    email,
+    phone,
+    company,
+    position,
+    intent: intent.length ? intent : null,
+    message: finalMessage,
+    source,
+    status: 'new',
+    lead_score: score,
+    score_reasons: reasons,
+  }
+  type EnquiryInsert = Database['public']['Tables']['enquiries']['Insert']
+  const insertRow: EnquiryInsert = formData
+    ? { ...row, form_data: formData as unknown as EnquiryInsert['form_data'] }
+    : row
+  let { data: inserted, error: insertError } = await admin
     .from('enquiries')
-    .insert({
-      first_name,
-      last_name,
-      email,
-      phone,
-      company,
-      position,
-      intent: intent.length ? intent : null,
-      message,
-      source,
-      status: 'new',
-      lead_score: score,
-      score_reasons: reasons,
-    })
+    .insert(insertRow)
     .select('id')
     .single()
+  // Deploy-order safety net: if the 20261106_a migration (enquiries.form_data)
+  // isn't applied yet, still save the enquiry — the readable summary is
+  // already in `message`. Undefined column = 42703 / PostgREST PGRST204.
+  if (
+    insertError &&
+    formData &&
+    (insertError.code === '42703' || insertError.code === 'PGRST204')
+  ) {
+    console.warn('[enquiries/intake] form_data column missing — saved without it')
+    const withDetails =
+      message && formData
+        ? [finalMessage, '', ...formDataLines(formData)].join('\n').slice(0, LIMITS.message)
+        : finalMessage
+    const retry = await admin
+      .from('enquiries')
+      .insert({ ...row, message: withDetails })
+      .select('id')
+      .single()
+    inserted = retry.data
+    insertError = retry.error
+  }
 
   if (insertError || !inserted) {
     console.error('[enquiries/intake] insert failed:', insertError)
-    return Response.json(
-      { ok: false, error: 'Could not save the enquiry.' },
-      { status: 500 },
-    )
+    return Response.json({ ok: false, error: 'Could not save the enquiry.' }, { status: 500 })
   }
 
   const enquiryId = inserted.id
@@ -268,14 +456,18 @@ export async function POST(request: Request) {
       const html = renderClubEmail({
         eyebrow: 'The Club',
         heading: `Thank you, ${first_name}.`,
-        paragraphs: [
-          'We’ve received your enquiry and it has reached the right person on our team.',
-          'Someone will be in touch personally to take the next steps. In the meantime, quiet evenings await at all three clubs.',
-        ],
+        paragraphs: meta
+          ? [`${meta.ackTitle} It has reached the right person on our team.`, meta.nextStep]
+          : [
+              'We’ve received your enquiry and it has reached the right person on our team.',
+              'Someone will be in touch personally to take the next steps.',
+            ],
       })
       const result = await sendClubEmail({
         to: email,
-        subject: 'We’ve received your enquiry — The Club',
+        subject: meta
+          ? `${meta.label} received — The Club`
+          : 'We’ve received your enquiry — The Club',
         html,
         category: 'enquiry_ack',
       })
@@ -291,20 +483,57 @@ export async function POST(request: Request) {
   }
 
   // ── (e) Notify the admin team about the new scored lead ─────────
-  try {
-    await notifyAdmins(admin, {
-      subject: `New enquiry · ${fullName} (score ${score})`,
-      heading: `New ${intentLabel(firstIntent)} enquiry — lead score ${score}/100`,
-      paragraphs: [
-        `<strong>${escapeHtml(fullName)}</strong>${company ? ` · ${escapeHtml(company)}` : ''} just submitted a ${intentLabel(firstIntent)} enquiry via ${source}.`,
-        `Lead score: <strong>${score}/100</strong>. ${escapeHtml(reasons.join('; '))}.`,
-        `Email: ${escapeHtml(email)}${phone ? ` · Phone: ${escapeHtml(phone)}` : ''}.`,
-      ],
-      ctaUrl: `${siteUrl()}/dashboard/enquiries`,
-      ctaLabel: 'Open enquiries',
-    })
-  } catch (e) {
-    console.error('[enquiries/intake] admin notify failed:', e)
+  // Website forms notify the brief's inbox for that source (membership@ /
+  // sarah@ / events@) through the same branded admin shell; the Testimonial
+  // form keeps the notify-all-admins path (moderation queue); Newsletter
+  // sends nothing. Legacy sources are unchanged.
+  if (meta && meta.inbox && meta.inbox !== 'admins') {
+    try {
+      const details = formData ? formDataLines(formData) : []
+      const html = renderClubEmail({
+        eyebrow: 'The Club · website form',
+        heading: `${meta.label} — ${fullName}`,
+        paragraphs: [
+          `<strong>${escapeHtml(fullName)}</strong>${company ? ` · ${escapeHtml(company)}` : ''} submitted the ${escapeHtml(meta.label.toLowerCase())} form (${escapeHtml(source)}).`,
+          `Email: ${escapeHtml(email)}${phone ? ` · Phone: ${escapeHtml(phone)}` : ''}. Lead score: <strong>${score}/100</strong>.`,
+          ...(details.length ? [details.map((l) => escapeHtml(l)).join('<br>')] : []),
+          ...(message ? [`Message:<br>${escapeHtml(message).replace(/\n/g, '<br>')}`] : []),
+          ...(formData?.files
+            ? ['Uploaded files are private — open them from the enquiry in the dashboard.']
+            : []),
+        ],
+        cta: {
+          url: `${siteUrl()}/dashboard/enquiries`,
+          label: 'Open enquiries',
+        },
+        signoff: 'The Club platform',
+      })
+      await sendClubEmail({
+        to: meta.inbox,
+        subject: `${meta.label} · ${fullName}`,
+        html,
+        category: 'enquiry_notify',
+        replyTo: email,
+      })
+    } catch (e) {
+      console.error('[enquiries/intake] inbox notify failed:', e)
+    }
+  } else if (!meta || meta.inbox === 'admins') {
+    try {
+      await notifyAdmins(admin, {
+        subject: `New enquiry · ${fullName} (score ${score})`,
+        heading: `New ${intentLabel(firstIntent)} enquiry — lead score ${score}/100`,
+        paragraphs: [
+          `<strong>${escapeHtml(fullName)}</strong>${company ? ` · ${escapeHtml(company)}` : ''} just submitted a ${intentLabel(firstIntent)} enquiry via ${escapeHtml(source)}.`,
+          `Lead score: <strong>${score}/100</strong>. ${escapeHtml(reasons.join('; '))}.`,
+          `Email: ${escapeHtml(email)}${phone ? ` · Phone: ${escapeHtml(phone)}` : ''}.`,
+        ],
+        ctaUrl: `${siteUrl()}/dashboard/enquiries`,
+        ctaLabel: 'Open enquiries',
+      })
+    } catch (e) {
+      console.error('[enquiries/intake] admin notify failed:', e)
+    }
   }
 
   // ── (f) Auto-create a linked sales follow-up task ───────────────

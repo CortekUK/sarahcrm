@@ -9,11 +9,19 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { formatCurrency, formatDate, formatTime } from '@/lib/utils'
 import { apiError, fetchSeatsTaken } from '@/components/portal/portal-utils'
+import { eventPriceLine, ukDay } from '@/components/website/events/format'
+import {
+  BOOKING_STATUS_LABELS,
+  PROGRAMME_TAG,
+  TIER_ALLOWANCE,
+  isProgramme,
+} from '@/components/website/events/programmes'
 import {
   AlertCircle,
   ArrowLeft,
   Calendar,
   Clock,
+  Lock,
   MapPin,
   Ticket,
   Users,
@@ -51,7 +59,7 @@ interface AgendaItem {
 
 const typeLabels: Record<EventType, string> = {
   member_event: 'Member Event',
-  curated_luxury: 'Curated Luxury',
+  curated_luxury: 'Curated Experience',
   retreat: 'Retreat',
 }
 
@@ -74,7 +82,14 @@ function parseAgenda(raw: Json | null): AgendaItem[] {
 export function PortalEventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
+  // The member's tier — drives the place-allowance note (display only; the
+  // allowance is not enforced by /api/events/book).
+  const [memberTier, setMemberTier] = useState<string | null>(null)
+  // Request-a-place (invitation only) / waitlist (waitlist, sold out).
+  const [reqPlaces, setReqPlaces] = useState('1')
+  const [reqDietary, setReqDietary] = useState('')
+  const [reqState, setReqState] = useState<'idle' | 'sending' | 'done'>('idle')
 
   const [event, setEvent] = useState<EventRow | null>(null)
   // Seats taken (booker + guests over confirmed/pending bookings), counted
@@ -110,7 +125,7 @@ export function PortalEventDetailPage() {
   async function fetchData(uid: string) {
     const [eventResult, memberResult, seats] = await Promise.all([
       supabase.from('events').select('*').eq('id', id!).single(),
-      supabase.from('members').select('id').eq('profile_id', uid).single(),
+      supabase.from('members').select('id, membership_tier').eq('profile_id', uid).single(),
       fetchSeatsTaken([id!]),
     ])
     setSeatsTaken(typeof seats[id!] === 'number' ? seats[id!] : null)
@@ -132,6 +147,7 @@ export function PortalEventDetailPage() {
 
     if (memberResult.data) {
       setMemberId(memberResult.data.id)
+      setMemberTier(memberResult.data.membership_tier ?? null)
       const { data: bookingData } = await supabase
         .from('bookings')
         .select('id, status, charge_error, guests_invited')
@@ -214,6 +230,57 @@ export function PortalEventDetailPage() {
     }
   }
 
+  // Invitation-only / waitlist events: the member asks for places instead of
+  // booking. Lands in the CRM via the shared intake (source "Web/App – Event").
+  async function handleRequest(kind: 'invitation' | 'waitlist') {
+    if (!event || reqState !== 'idle') return
+    setReqState('sending')
+    setError(null)
+    const places = Math.min(4, Math.max(1, Number(reqPlaces) || 1))
+    try {
+      const res = await fetch('/api/enquiries/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: profile?.first_name?.trim() || 'Member',
+          last_name: profile?.last_name?.trim() || '—',
+          email: profile?.email || user?.email || '',
+          phone: profile?.phone || null,
+          intent: ['event'],
+          source: 'Web/App – Event',
+          // Members accepted the Privacy Policy on joining; the line under
+          // the button restates it.
+          consent: true,
+          message: [
+            `${kind === 'waitlist' ? 'Waitlist request' : 'Place request'} from The Club Member: ${event.title}.`,
+            `Places: ${places}.`,
+            reqDietary.trim() && `Dietary requirements: ${reqDietary.trim()}.`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          form_data: {
+            event_id: event.id,
+            event_slug: event.slug,
+            event_title: event.title,
+            places,
+            dietary: reqDietary.trim() || '',
+            request: kind,
+            member_id: memberId ?? '',
+          },
+        }),
+      })
+      if (!res.ok) {
+        setError(await apiError(res, 'Could not send your request. Please try again.'))
+        setReqState('idle')
+        return
+      }
+      setReqState('done')
+    } catch {
+      setError('Something went wrong. Please check your connection and try again.')
+      setReqState('idle')
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12">
@@ -251,7 +318,19 @@ export function PortalEventDetailPage() {
     event.capacity && seatsTaken !== null
       ? Math.max(0, event.capacity - Math.max(0, seatsTaken - ownHold))
       : null
-  const isFullyBooked = spotsRemaining !== null && spotsRemaining <= 0
+  const bookingStatus = event.booking_status ?? 'open'
+  const isFullyBooked =
+    bookingStatus === 'sold_out' || (spotsRemaining !== null && spotsRemaining <= 0)
+  const requestMode: 'invitation' | 'waitlist' | null =
+    bookingStatus === 'invitation_only'
+      ? 'invitation'
+      : bookingStatus === 'waitlist' || bookingStatus === 'sold_out'
+        ? 'waitlist'
+        : null
+  const statusLabel = BOOKING_STATUS_LABELS[bookingStatus] ?? null
+  const programme = isProgramme(event.programme) ? event.programme : null
+  const multiDay = !!(event.start_date && event.end_date && ukDay(event.start_date) !== ukDay(event.end_date))
+  const allowance = memberTier ? TIER_ALLOWANCE[memberTier] : undefined
   // Finished once the end (or, failing that, the start) has passed.
   const finishAt = event.end_date ?? event.start_date
   const isPast =
@@ -331,10 +410,19 @@ export function PortalEventDetailPage() {
       {/* Title + booking side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 mb-12">
         <div className="lg:col-span-8">
-          <div className="mb-5">
+          <div className="mb-5 flex flex-wrap gap-2">
             <PortalBadge variant={typeVariant[event.event_type]}>
-              {typeLabels[event.event_type]}
+              {programme ? PROGRAMME_TAG[programme] : typeLabels[event.event_type]}
             </PortalBadge>
+            {event.visibility === 'members' && (
+              <PortalBadge variant="neutral">
+                <Lock size={9} strokeWidth={1.8} className="inline -mt-0.5 mr-1" />
+                Members only
+              </PortalBadge>
+            )}
+            {statusLabel && !isPast && (
+              <PortalBadge variant={bookingStatus === 'sold_out' ? 'urgent' : 'draft'}>{statusLabel}</PortalBadge>
+            )}
           </div>
           <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.5vw,3.25rem)] leading-[1.1] tracking-[-0.01em] text-ivory">
             {event.title}
@@ -352,8 +440,9 @@ export function PortalEventDetailPage() {
               <li className="flex items-center gap-2.5">
                 <Clock size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
                 <span>
+                  {multiDay ? 'From ' : ''}
                   {formatTime(event.start_date)}
-                  {event.end_date ? ` – ${formatTime(event.end_date)}` : ''}
+                  {event.end_date && !multiDay ? ` – ${formatTime(event.end_date)}` : ''}
                   {event.doors_open ? ` · Doors ${formatTime(event.doors_open)}` : ''}
                   <span className="text-slate-haze"> (UK time)</span>
                 </span>
@@ -368,7 +457,11 @@ export function PortalEventDetailPage() {
                 </span>
               </li>
             )}
-            {spotsRemaining !== null && !isPast && (
+            <li className="flex items-center gap-2.5">
+              <Ticket size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
+              <span className="normal-case tracking-[0.08em]">{eventPriceLine(event)}</span>
+            </li>
+            {spotsRemaining !== null && !isPast && bookingStatus === 'open' && (
               <li className="flex items-center gap-2.5">
                 <Users size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
                 <span>
@@ -455,10 +548,66 @@ export function PortalEventDetailPage() {
                   Upcoming events
                 </Link>
               </div>
-            ) : isFullyBooked ? (
-              <PortalButton disabled className="w-full justify-center">
-                Fully booked
-              </PortalButton>
+            ) : requestMode || isFullyBooked ? (
+              reqState === 'done' ? (
+                <p role="status" className="text-center font-[family-name:var(--font-editorial)] italic text-[13.5px] text-ivory-soft leading-[1.7]">
+                  {requestMode === 'invitation'
+                    ? 'Thank you — your request is with the events team. We’ll confirm your places by email.'
+                    : 'You’re on the waitlist. We’ll email you if a place opens up.'}
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-center font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/90 leading-[1.7]">
+                    {requestMode === 'invitation'
+                      ? 'Places on this event are confirmed by the team. Tell us how many you need.'
+                      : 'This event is full. Join the waitlist and we’ll offer you a place if one opens up.'}
+                  </p>
+                  <label className="block">
+                    <span className="block font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-haze mb-1.5">
+                      Places
+                    </span>
+                    <select
+                      value={reqPlaces}
+                      onChange={(e) => setReqPlaces(e.target.value)}
+                      className="w-full bg-graphite/40 border border-graphite-line/45 rounded-sm px-3 py-2 text-[13px] text-ivory focus:outline-none focus:border-bronze/55"
+                    >
+                      {['1', '2', '3', '4'].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <input
+                    type="text"
+                    value={reqDietary}
+                    maxLength={500}
+                    onChange={(e) => setReqDietary(e.target.value)}
+                    placeholder="Dietary requirements (optional)"
+                    className="w-full bg-graphite/40 border border-graphite-line/45 rounded-sm px-3 py-2 text-[13px] text-ivory placeholder:text-slate-haze focus:outline-none focus:border-bronze/55"
+                  />
+                  <PortalButton
+                    className="w-full justify-center"
+                    loading={reqState === 'sending'}
+                    disabled={reqState === 'sending'}
+                    onClick={() => handleRequest(requestMode === 'invitation' ? 'invitation' : 'waitlist')}
+                  >
+                    {requestMode === 'invitation' ? 'Request your places' : 'Join the waitlist'}
+                  </PortalButton>
+                  <p className="text-center font-[family-name:var(--font-editorial)] italic text-[11px] text-slate-haze">
+                    Sent to the events team under our{' '}
+                    <Link href="/privacy-policy" className="underline hover:text-bronze-light">
+                      Privacy Policy
+                    </Link>
+                    .
+                  </p>
+                  {error && (
+                    <p className="text-center font-[family-name:var(--font-editorial)] italic text-[12.5px] text-accent-warm">
+                      {error}
+                    </p>
+                  )}
+                </div>
+              )
             ) : (
               <>
                 {awaitingCheckout && (
@@ -559,6 +708,19 @@ export function PortalEventDetailPage() {
               </>
             )}
           </PortalCard>
+          {!isPast && (
+            <div className="mt-4 px-4 py-3.5 border border-graphite-line/45 bg-graphite/30">
+              <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-bronze-light mb-1.5">
+                Your place allowance
+              </p>
+              <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft leading-[1.65]">
+                {allowance
+                  ? `${allowance.allowance}.`
+                  : '1 event on Access · 2 places per event on The Club Membership · 4 on Business.'}{' '}
+                Additional guests can be added as paid places.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -569,6 +731,16 @@ export function PortalEventDetailPage() {
           <div className="font-[family-name:var(--font-editorial)] text-[15.5px] leading-[1.85] text-ivory-soft whitespace-pre-line max-w-prose">
             {event.description}
           </div>
+        </section>
+      )}
+
+      {/* Who you'll meet */}
+      {event.who_youll_meet && (
+        <section className="mb-12">
+          <PortalSectionTitle eyebrow="In the Room">Who you&apos;ll meet.</PortalSectionTitle>
+          <p className="font-[family-name:var(--font-editorial)] italic text-[15.5px] leading-[1.85] text-ivory-soft whitespace-pre-line max-w-prose">
+            {event.who_youll_meet}
+          </p>
         </section>
       )}
 
@@ -601,7 +773,7 @@ export function PortalEventDetailPage() {
       {/* Agenda */}
       {agenda.length > 0 && (
         <section className="mb-12">
-          <PortalSectionTitle eyebrow="The Order">Agenda.</PortalSectionTitle>
+          <PortalSectionTitle eyebrow="The Order">Running order.</PortalSectionTitle>
           <ol className="space-y-3">
             {agenda.map((item, i) => (
               <li

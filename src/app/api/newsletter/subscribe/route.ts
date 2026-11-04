@@ -10,7 +10,9 @@
 //   • honeypot (`website` — hidden on the form; bots get a fake success),
 //     per-IP limit + a global burst cap
 //
-// Body: { first_name, last_name, email, website? /* honeypot */ }
+// Body: { first_name, last_name, email, source?, website? /* honeypot */ }
+//   `source` is optional and allow-listed (default 'Website newsletter') so
+//   the CRM can tell where a subscriber came from; unknown values fall back.
 // Returns: { ok: true } or { ok: false, error }
 
 import { createClient as createAdminClient } from '@supabase/supabase-js'
@@ -29,6 +31,9 @@ function getAdminDb() {
     { auth: { persistSession: false } },
   )
 }
+
+const ALLOWED_SOURCES = ['Website newsletter', 'Journal newsletter', 'Footer newsletter'] as const
+const DEFAULT_SOURCE = 'Website newsletter'
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
@@ -50,6 +55,10 @@ export async function POST(request: Request) {
   const first_name = str(body.first_name)
   const last_name = str(body.last_name)
   const email = str(body.email).toLowerCase()
+  const requestedSource = str(body.source)
+  const source = (ALLOWED_SOURCES as readonly string[]).includes(requestedSource)
+    ? requestedSource
+    : DEFAULT_SOURCE
   if (!first_name || !last_name || !email) {
     return Response.json(
       { ok: false, error: 'First name, last name and email are required.' },
@@ -106,7 +115,7 @@ export async function POST(request: Request) {
         email,
         first_name,
         last_name,
-        source: 'website',
+        source,
         subscribed: true,
         subscribed_at: now,
       })

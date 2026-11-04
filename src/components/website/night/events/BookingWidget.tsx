@@ -351,11 +351,11 @@ export function BookingWidget({ event, sponsor, paymentCancelled = false }: Book
                 Already a member?
               </p>
               <Link
-                href="/login"
+                href={`/login?redirect=${encodeURIComponent(`/portal/events/${event.id}`)}`}
                 className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
               >
                 <Lock size={11} strokeWidth={1.5} />
-                Sign in to book
+                Sign in to reserve
               </Link>
             </div>
           )}

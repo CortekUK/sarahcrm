@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
@@ -17,13 +18,20 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { Plus, Pencil, Trash2, Check, Minus, Table2 } from 'lucide-react'
 import { dbErrorMessage } from '@/lib/form-validation'
+import type { Database } from '@/types/database'
 
 // /dashboard/website/membership-comparison
 //
 // CMS surface for the "Membership comparison" spec sheet on /memberships.
-// One row per feature, with an Included/Not-included flag for each of the
-// three public tiers (Individual / Business / Corporate). Admins can add,
-// edit, reorder (drag), delete, and toggle rows on/off.
+// One row per feature, with a text cell (or, if the text is blank, an
+// Included/Not-included tick) for each of the three tiers — Access / The
+// Club Membership / The Club Business Membership. Admins can add, edit,
+// reorder (drag), delete, and toggle rows on/off. The footnote under the
+// table is edited here too (app_settings 'membership_comparison_footnote').
+//
+// Column names individual / business / corporate are the tier_1 / tier_2 /
+// tier_3 ticks (they predate the Nov 2026 rename); tier_N_text columns
+// were added in 20261106_b_memberships.sql.
 //
 // The public page (/memberships) falls back to a hardcoded COMPARISON
 // constant when this table is empty, so it never renders blank — exactly
@@ -53,6 +61,9 @@ interface ComparisonRow {
   individual: boolean
   business: boolean
   corporate: boolean
+  tier_1_text?: string | null
+  tier_2_text?: string | null
+  tier_3_text?: string | null
   display_order: number
   is_active: boolean
   created_at: string
@@ -61,16 +72,27 @@ interface ComparisonRow {
 
 const TIER_KEYS = ['individual', 'business', 'corporate'] as const
 const TIER_LABELS: Record<(typeof TIER_KEYS)[number], string> = {
-  individual: 'Individual',
-  business: 'Business',
-  corporate: 'Corporate',
+  individual: 'Access',
+  business: 'The Club Membership',
+  corporate: 'The Club Business Membership',
 }
+const TEXT_KEY = {
+  individual: 'tier_1_text',
+  business: 'tier_2_text',
+  corporate: 'tier_3_text',
+} as const
+
+const FOOTNOTE_KEY = 'membership_comparison_footnote'
+type ComparisonWrite = Database['public']['Tables']['membership_comparison']['Insert']
 
 const schema = z.object({
   label: z.string().min(1, 'Feature label is required'),
   individual: z.boolean(),
   business: z.boolean(),
   corporate: z.boolean(),
+  tier_1_text: z.string().max(300).optional(),
+  tier_2_text: z.string().max(300).optional(),
+  tier_3_text: z.string().max(300).optional(),
   display_order: z.coerce.number().int().min(0),
   is_active: z.boolean(),
 })
@@ -94,10 +116,46 @@ export function MembershipComparisonPage() {
       individual: false,
       business: false,
       corporate: false,
+      tier_1_text: '',
+      tier_2_text: '',
+      tier_3_text: '',
       display_order: 0,
       is_active: true,
     },
   })
+
+  // ── Footnote (app_settings) ─────────────────────────────────────
+  const [footnote, setFootnote] = useState('')
+  const [footnoteSaved, setFootnoteSaved] = useState('')
+  const [savingFootnote, setSavingFootnote] = useState(false)
+  useEffect(() => {
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', FOOTNOTE_KEY)
+      .maybeSingle()
+      .then(({ data }) => {
+        const v = typeof data?.value === 'string' ? data.value : ''
+        setFootnote(v)
+        setFootnoteSaved(v)
+      })
+  }, [])
+  async function saveFootnote() {
+    setSavingFootnote(true)
+    const value = footnote.trim()
+    const { error: err } = await supabase
+      .from('app_settings')
+      .upsert({ key: FOOTNOTE_KEY, value }, { onConflict: 'key' })
+    setSavingFootnote(false)
+    if (err) {
+      toast({ title: 'Footnote not saved', description: dbErrorMessage(err), variant: 'destructive' })
+      return
+    }
+    setFootnoteSaved(value)
+    setFootnote(value)
+    toast({ title: 'Footnote saved', description: value ? undefined : 'Hidden on the public page.' })
+    void flushPublicCache()
+  }
 
   const fetchRows = useCallback(async () => {
     setLoading(true)
@@ -132,6 +190,9 @@ export function MembershipComparisonPage() {
         individual: editing.individual,
         business: editing.business,
         corporate: editing.corporate,
+        tier_1_text: editing.tier_1_text ?? '',
+        tier_2_text: editing.tier_2_text ?? '',
+        tier_3_text: editing.tier_3_text ?? '',
         display_order: editing.display_order,
         is_active: editing.is_active,
       })
@@ -141,6 +202,9 @@ export function MembershipComparisonPage() {
         individual: false,
         business: false,
         corporate: false,
+        tier_1_text: '',
+        tier_2_text: '',
+        tier_3_text: '',
         display_order: rows.length,
         is_active: true,
       })
@@ -156,9 +220,12 @@ export function MembershipComparisonPage() {
       individual: data.individual,
       business: data.business,
       corporate: data.corporate,
+      tier_1_text: data.tier_1_text?.trim() || null,
+      tier_2_text: data.tier_2_text?.trim() || null,
+      tier_3_text: data.tier_3_text?.trim() || null,
       display_order: data.display_order,
       is_active: data.is_active,
-    }
+    } as ComparisonWrite
     try {
       if (editing) {
         const { error: err } = await supabase
@@ -254,7 +321,7 @@ export function MembershipComparisonPage() {
     <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Membership comparison"
-        description="The 'at a glance' comparison table on /memberships. Each row is one feature with an Included tick per tier. Drag to reorder, toggle to hide a row, or add new rows as the offering changes. The public site falls back to a hidden hardcoded set until you add the first row here."
+        description="The 'at a glance' comparison table on /memberships. Each row is one feature with a text cell (or an Included tick) per tier. Drag to reorder, toggle to hide a row, or add new rows as the offering changes. The public site falls back to a hidden hardcoded set until you add the first row here."
         meta={
           <span className="text-xs text-text-dim">
             {rows.length} row{rows.length === 1 ? '' : 's'}
@@ -300,8 +367,8 @@ export function MembershipComparisonPage() {
         <Card>
           <CardContent className="p-0">
             {/* Tier column header strip — mirrors the public table's
-                Individual / Business / Corporate columns so the admin can
-                read the ticks against the right tier. */}
+                Access / The Club Membership / The Club Business Membership
+                columns so the admin can read the cells against the right tier. */}
             <div className="hidden sm:flex items-center gap-4 px-5 py-3 border-b border-border bg-surface-2/40">
               <span className="w-5" />
               <span className="flex-1 text-[10px] font-medium uppercase tracking-[0.22em] text-text-dim">
@@ -310,7 +377,7 @@ export function MembershipComparisonPage() {
               {TIER_KEYS.map((key) => (
                 <span
                   key={key}
-                  className="w-16 text-center text-[10px] font-medium uppercase tracking-[0.18em] text-text-dim"
+                  className="w-28 text-center text-[10px] font-medium uppercase tracking-[0.12em] leading-snug text-text-dim"
                 >
                   {TIER_LABELS[key]}
                 </span>
@@ -340,10 +407,14 @@ export function MembershipComparisonPage() {
                     {TIER_KEYS.map((key) => (
                       <span
                         key={key}
-                        className="w-16 flex items-center justify-center"
-                        aria-label={`${TIER_LABELS[key]}: ${row[key] ? 'included' : 'not included'}`}
+                        className="sm:w-28 flex items-center justify-center text-center"
+                        aria-label={`${TIER_LABELS[key]}: ${row[TEXT_KEY[key]] || (row[key] ? 'included' : 'not included')}`}
                       >
-                        {row[key] ? (
+                        {row[TEXT_KEY[key]] ? (
+                          <span className="text-[11.5px] leading-snug text-text-muted line-clamp-3">
+                            {row[TEXT_KEY[key]]}
+                          </span>
+                        ) : row[key] ? (
                           <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gold-muted border border-border-gold text-gold">
                             <Check size={13} strokeWidth={2} />
                           </span>
@@ -390,6 +461,28 @@ export function MembershipComparisonPage() {
         </Card>
       )}
 
+      <Card className="mt-6">
+        <CardContent className="p-5 space-y-3">
+          <Textarea
+            label="Footnote under the table"
+            rows={3}
+            hint="Shown in italics below the comparison table. Leave blank to hide it."
+            value={footnote}
+            onChange={(e) => setFootnote(e.target.value)}
+          />
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              loading={savingFootnote}
+              disabled={footnote.trim() === footnoteSaved.trim()}
+              onClick={saveFootnote}
+            >
+              Save footnote
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Modal
         open={modalOpen}
         onClose={() => {
@@ -416,21 +509,29 @@ export function MembershipComparisonPage() {
           {/* Per-tier included toggles */}
           <div>
             <label className="block font-[family-name:var(--font-label)] text-[10px] font-medium uppercase tracking-[0.22em] text-text-dim mb-2">
-              Included for
+              Per tier
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <p className="text-[12px] text-text-dim mb-3">
+              Type what the public table shows for each tier (e.g. “£6,000”, or “—” for not
+              included). Leave the text blank to show a tick or dash from the Included box instead.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {TIER_KEYS.map((key) => (
-                <label
+                <div
                   key={key}
-                  className="flex items-center gap-3 px-3.5 py-3 bg-surface-2 border border-border rounded-[var(--radius-md)] cursor-pointer hover:border-gold/40 transition-colors"
+                  className="px-3.5 py-3 bg-surface-2 border border-border rounded-[var(--radius-md)] space-y-3"
                 >
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded border-border text-gold accent-gold"
-                    {...form.register(key)}
-                  />
-                  <span className="text-sm text-text">{TIER_LABELS[key]}</span>
-                </label>
+                  <p className="text-sm font-medium text-text">{TIER_LABELS[key]}</p>
+                  <Textarea rows={3} placeholder="Cell text" {...form.register(TEXT_KEY[key])} />
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-border text-gold accent-gold"
+                      {...form.register(key)}
+                    />
+                    <span className="text-[12.5px] text-text-muted">Included</span>
+                  </label>
+                </div>
               ))}
             </div>
           </div>

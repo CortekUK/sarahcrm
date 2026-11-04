@@ -4,51 +4,20 @@ import { Chapter, EditorialMeta } from '../primitives/Chapter'
 import { EventsCarousel, type CarouselEvent } from './EventsCarousel'
 import { ArrowUpRight } from 'lucide-react'
 
-// Upcoming events teaser. Server component — fetches from
-// public.events, falls back to placeholders so the layout is visible
-// before real events are entered. The actual rotating display is
-// handled by <EventsCarousel /> (client).
+// "05 On the calendar" — the next three PUBLIC upcoming events from
+// public.events, rotated by <EventsCarousel /> (client). Visibility is
+// filtered explicitly as well as by RLS, so a signed-in member's session
+// never surfaces a members-only event here. No placeholders: the section is
+// hidden when nothing public is coming up.
 
-// PLACEHOLDER events for layout preview. Replace by publishing real
-// events via /dashboard/events.
-const PLACEHOLDER_EVENTS: CarouselEvent[] = [
-  {
-    id: 'placeholder-1',
-    slug: '#',
-    title: 'A Spring Members Supper',
-    start_date: '2026-04-12T19:00:00Z',
-    venue_name: 'The Club Manchester',
-    venue_city: 'Manchester',
-    event_type: 'members_dinner',
-    cover_image_url: '/gallery/bigland.png',
-    description:
-      'A placeholder for an upcoming members evening. Add real events via the dashboard and these auto-replace.',
-  },
-  {
-    id: 'placeholder-2',
-    slug: '#',
-    title: 'Summer Garden Reception',
-    start_date: '2026-06-21T18:30:00Z',
-    venue_name: 'The Club London',
-    venue_city: 'London',
-    event_type: 'reception',
-    cover_image_url: '/gallery/land1.png',
-    description:
-      'Another placeholder event so the carousel has more than one entry to rotate through.',
-  },
-  {
-    id: 'placeholder-3',
-    slug: '#',
-    title: 'An Autumn Long Lunch',
-    start_date: '2026-09-14T13:00:00Z',
-    venue_name: 'The Club Leeds',
-    venue_city: 'Leeds',
-    event_type: 'lunch',
-    cover_image_url: '/gallery/land2.png',
-    description:
-      'Final placeholder. The carousel will show real upcoming events once published from the dashboard.',
-  },
-]
+const PROGRAMME_LABELS: Record<string, string> = {
+  member_event: 'Member Event',
+  round_table: 'Round Table',
+  pitch: 'PITCH',
+  curated_experience: 'Curated Experience',
+  london_series: 'London Series',
+  partner_event: 'Partner Event',
+}
 
 export async function EventsTeaser() {
   const supabase = await createClient()
@@ -56,17 +25,30 @@ export async function EventsTeaser() {
 
   const { data: events } = await supabase
     .from('events')
-    .select('id, slug, title, start_date, venue_name, venue_city, event_type, cover_image_url, description')
+    .select('id, slug, title, start_date, venue_name, venue_city, event_type, programme, cover_image_url, short_description, description')
     .in('status', ['published', 'live'])
+    .eq('visibility', 'public')
     .gte('start_date', now)
     .order('start_date', { ascending: true })
+    .limit(3)
 
   // .gte('start_date', now) already drops rows with no date; the filter just
   // tells TypeScript that.
   const dated = (events ?? []).filter(
     (e): e is typeof e & { start_date: string } => e.start_date != null,
   )
-  const list: CarouselEvent[] = dated.length > 0 ? dated : PLACEHOLDER_EVENTS
+  const list: CarouselEvent[] = dated.map((e) => ({
+    id: e.id,
+    slug: e.slug,
+    title: e.title,
+    start_date: e.start_date,
+    venue_name: e.venue_name,
+    venue_city: e.venue_city,
+    event_type: PROGRAMME_LABELS[e.programme ?? ''] ?? e.event_type,
+    cover_image_url: e.cover_image_url,
+    description: e.short_description || e.description,
+  }))
+  if (list.length === 0) return null
 
   return (
     <Chapter density="tight" bg="ink">

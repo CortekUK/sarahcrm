@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     const { data: event, error: eventErr } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, sponsor_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence, vat_mode, vat_rate',
+        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, sponsor_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence, vat_mode, vat_rate, visibility, booking_status',
       )
       .eq('id', body.event_id)
       .maybeSingle()
@@ -101,6 +101,20 @@ export async function POST(req: NextRequest) {
 
     if (!['published', 'live'].includes(event.status)) {
       return NextResponse.json({ error: 'This event is not open for bookings.' }, { status: 400 })
+    }
+    // Guests can only buy public, open events directly; members-only and
+    // invitation/waitlist/sold-out events go through a request (a sponsor's
+    // personal link is the one exception).
+    if (!body.sponsor_token) {
+      if ((event.visibility ?? 'public') !== 'public') {
+        return NextResponse.json({ error: 'Event not found.' }, { status: 404 })
+      }
+      if ((event.booking_status ?? 'open') !== 'open') {
+        return NextResponse.json(
+          { error: 'This event isn’t open for direct booking — please request an invitation instead.' },
+          { status: 409 },
+        )
+      }
     }
 
     if (!event.start_date || new Date(event.start_date) < new Date()) {

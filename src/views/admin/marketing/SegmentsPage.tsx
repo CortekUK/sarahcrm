@@ -16,9 +16,9 @@ import { Filter, Plus, Edit, Trash2, Users, Loader2 } from 'lucide-react'
 
 // ── Rule vocabulary (mirrors the DB enums) ──────────────────────────
 const TIERS = [
-  { value: 'tier_1', label: 'Tier 1' },
-  { value: 'tier_2', label: 'Tier 2' },
-  { value: 'tier_3', label: 'Tier 3' },
+  { value: 'tier_1', label: 'Access' },
+  { value: 'tier_2', label: 'The Club Membership' },
+  { value: 'tier_3', label: 'The Club Business Membership' },
 ]
 const STATUSES = [
   { value: 'active', label: 'Active' },

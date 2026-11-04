@@ -1,16 +1,34 @@
 'use client'
 
-import { vatSuffix } from '@/lib/events/vat'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ArrowUpRight, Calendar, Clock, MapPin, Tag } from 'lucide-react'
-import { cn, UK_TIME_ZONE } from '@/lib/utils'
+import { ArrowUpRight, Calendar, Clock, Lock, MapPin, Tag } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  BOOKING_STATUS_LABELS,
+  CURATED_INTRO,
+  LOCKED_LINE,
+  PROGRAMME_FILTERS,
+  PROGRAMME_SUMMARIES,
+  PROGRAMME_TAG,
+  isProgramme,
+  type Programme,
+} from '@/components/website/events/programmes'
+import { eventPriceLine, formatDateRange, formatTimeUk as formatTime, ukDay } from '@/components/website/events/format'
 
-// Client-side filter for the events listing — pill chips for "all",
-// "members events", "curated luxury", "retreats" pulled from the
-// `event_type` enum. Filtering happens in-memory on the array passed
-// from the server so the page doesn't refresh on filter change.
+// ─────────────────────────────────────────────────────────────────────
+// /events browser — programme filter chips (All · Member Events · Round
+// Tables · PITCH · Curated Experiences · London Series at Harrods), a
+// programme summary band when filtered, and the cards.
+//
+// Only PUBLIC events are ever passed in (the page queries visibility =
+// 'public'; RLS also hides members-only rows from signed-out visitors), so
+// the Curated Experiences filter shows the programme + highlights and one
+// locked card — never members-only dates, venues or prices.
+// The active filter is mirrored in ?programme= so the homepage tiles can
+// deep-link to a filtered view.
+// ─────────────────────────────────────────────────────────────────────
 
 export interface EventListItem {
   id: string
@@ -20,6 +38,9 @@ export interface EventListItem {
   end_date: string | null
   doors_open: string | null
   event_type: string
+  programme: string | null
+  booking_status: string | null
+  short_description: string | null
   venue_name: string | null
   venue_city: string | null
   cover_image_url: string | null
@@ -30,93 +51,67 @@ export interface EventListItem {
   vat_rate?: number | null
 }
 
-const FILTERS = [
-  { value: 'all', label: 'All' },
-  { value: 'member_event', label: "Members' Events" },
-  { value: 'curated_luxury', label: 'Curated Luxury' },
-  { value: 'retreat', label: 'Retreats' },
-] as const
+type FilterValue = 'all' | Programme
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
-    timeZone: UK_TIME_ZONE,
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-}
-
-function formatGBP(pence: number | null | undefined) {
-  if (pence == null) return null
-  if (pence === 0) return 'Complimentary'
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency: 'GBP',
-    // Whole pounds stay clean (£80); odd pence are shown exactly (£80.50)
-    // so the page never rounds away from what Stripe charges.
-    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(pence / 100)
-}
-
-function formatPriceShown(pence: number | null | undefined) {
-  if (pence == null) return null
-  if (pence === 0) return 'Complimentary'
-  // Exactly what checkout charges — event prices are flat (no VAT is
-  // added at checkout), so no "+ VAT" suffix.
-  return formatGBP(pence)
-}
-
-// "Complimentary for Members · £500 Guests" / "£1,500 Members · £2,500
-// Guests" — the amounts are exactly what checkout charges. Returns null if neither rate is set.
-function formatPriceLine(member: number | null | undefined, guest: number | null | undefined) {
-  const m = formatPriceShown(member)
-  const g = formatPriceShown(guest)
-  if (m && g) {
-    if (member === guest) return g
-    return `${m} Members · ${g} Guests`
-  }
-  return m || g || null
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', {
-    timeZone: UK_TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatEventType(t: string) {
-  return t.replace(/_/g, ' ').toLowerCase()
+function timeLine(ev: EventListItem) {
+  if (ev.end_date && ukDay(ev.start_date) !== ukDay(ev.end_date)) return null
+  const from = formatTime(ev.start_date)
+  const to = ev.end_date ? ` – ${formatTime(ev.end_date)}` : ''
+  return ev.doors_open
+    ? `Doors ${formatTime(ev.doors_open)} · From ${from}${to} UK time`
+    : `${from}${to} UK time`
 }
 
 export function EventsBrowser({
   upcoming,
   past,
+  initialProgramme,
 }: {
   upcoming: EventListItem[]
   past: EventListItem[]
+  initialProgramme?: string | null
 }) {
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]['value']>('all')
+  const [filter, setFilter] = useState<FilterValue>(
+    isProgramme(initialProgramme) && initialProgramme !== 'partner_event' ? initialProgramme : 'all',
+  )
 
-  const filteredUpcoming =
-    filter === 'all' ? upcoming : upcoming.filter((e) => e.event_type === filter)
-  const filteredPast = filter === 'all' ? past : past.filter((e) => e.event_type === filter)
+  // Keep ?programme= in the address bar in step with the chips (no reload).
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      if (filter === 'all') url.searchParams.delete('programme')
+      else url.searchParams.set('programme', filter)
+      window.history.replaceState(window.history.state, '', url.toString())
+    } catch {
+      /* non-browser / sandboxed — the filter still works in memory */
+    }
+  }, [filter])
+
+  const match = (e: EventListItem) => filter === 'all' || e.programme === filter
+  const filteredUpcoming = upcoming.filter(match)
+  const filteredPast = past.filter(match)
+  const summary = filter === 'all' ? null : PROGRAMME_SUMMARIES[filter]
+  const isCurated = filter === 'curated_experience'
 
   return (
     <>
       {/* ── Filter chips ───────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-3 justify-center mb-14 lg:mb-16">
-        {FILTERS.map((f) => {
+      <div
+        role="tablist"
+        aria-label="Filter events by programme"
+        className="flex flex-wrap gap-2.5 sm:gap-3 justify-center mb-12 lg:mb-14"
+      >
+        {PROGRAMME_FILTERS.map((f) => {
           const active = filter === f.value
           return (
             <button
               key={f.value}
               type="button"
+              role="tab"
+              aria-selected={active}
               onClick={() => setFilter(f.value)}
               className={cn(
-                'px-5 py-2.5 rounded-full border font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.28em] transition-all duration-300',
+                'px-4 sm:px-5 py-2.5 rounded-full border font-[family-name:var(--font-meta)] text-[10.5px] sm:text-[11px] uppercase tracking-[0.24em] sm:tracking-[0.28em] transition-all duration-300',
                 active
                   ? 'border-bronze bg-bronze/15 text-bronze-light shadow-[0_0_22px_-10px_rgba(192,152,112,0.65)]'
                   : 'border-graphite-line/70 text-ivory-soft hover:border-bronze/60 hover:text-ivory',
@@ -128,62 +123,211 @@ export function EventsBrowser({
         })}
       </div>
 
-      {/* ── Upcoming ──────────────────────────────────────────── */}
-      <section className="mb-24 lg:mb-32">
-        <div className="flex items-center gap-4 mb-10">
-          <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-            Forthcoming
-          </p>
-          <span className="flex-1 h-px bg-bronze/40" />
-          <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] tabular-nums text-slate-haze">
-            {String(filteredUpcoming.length).padStart(2, '0')}{' '}
-            {filteredUpcoming.length === 1 ? 'evening' : 'evenings'}
-          </p>
+      {/* ── Programme summary band ─────────────────────────────── */}
+      {summary && (
+        <div className="mb-14 lg:mb-16 border border-bronze/35 bg-graphite-2/60 px-6 py-7 sm:px-9 sm:py-9 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-start">
+          <div className="lg:col-span-4">
+            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-3">
+              The Programme
+            </p>
+            <h2 className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2.2vw,2.125rem)] leading-[1.15] text-ivory">
+              {summary.headline}
+            </h2>
+          </div>
+          <div className="lg:col-span-8 space-y-3">
+            {summary.lines.map((l) => (
+              <p
+                key={l}
+                className="font-[family-name:var(--font-editorial)] text-[clamp(1rem,1.2vw,1.125rem)] leading-[1.7] text-ivory"
+              >
+                {l}
+              </p>
+            ))}
+            {isCurated && (
+              <p className="font-[family-name:var(--font-editorial)] italic text-[16px] leading-[1.7] text-ivory-soft">
+                {CURATED_INTRO.body}
+              </p>
+            )}
+            {summary.terms && (
+              <p className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.26em] text-bronze-light leading-[1.9]">
+                {summary.terms}
+              </p>
+            )}
+            {summary.link && (
+              <Link
+                href={summary.link.href}
+                className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-ivory hover:text-bronze-light transition-colors"
+              >
+                {summary.link.label}
+                <ArrowUpRight size={13} strokeWidth={1.5} />
+              </Link>
+            )}
+          </div>
         </div>
+      )}
 
-        {filteredUpcoming.length === 0 ? (
-          <EmptyState message="No upcoming evenings in this category yet." />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
-            {filteredUpcoming.map((ev) => (
-              <UpcomingCard key={ev.id} ev={ev} />
-            ))}
-          </div>
-        )}
-      </section>
+      {isCurated ? (
+        <CuratedPublicView />
+      ) : (
+        <>
+          {/* ── Upcoming ──────────────────────────────────────────── */}
+          <section className="mb-24 lg:mb-32">
+            <SectionRule
+              label="Forthcoming"
+              count={`${String(filteredUpcoming.length).padStart(2, '0')} ${filteredUpcoming.length === 1 ? 'event' : 'events'}`}
+            />
+            {filteredUpcoming.length === 0 ? (
+              <EmptyState message="No upcoming events in this programme yet. New dates are added through the year." />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+                {filteredUpcoming.map((ev) => (
+                  <UpcomingCard key={ev.id} ev={ev} />
+                ))}
+              </div>
+            )}
+          </section>
 
-      {/* ── Past ───────────────────────────────────────────────── */}
-      {filteredPast.length > 0 && (
-        <section>
-          <div className="flex items-center gap-4 mb-10">
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-              From the Archive
-            </p>
-            <span className="flex-1 h-px bg-bronze/40" />
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] tabular-nums text-slate-haze">
-              {String(filteredPast.length).padStart(2, '0')} past
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
-            {filteredPast.slice(0, 12).map((ev) => (
-              <PastCard key={ev.id} ev={ev} />
-            ))}
-          </div>
-        </section>
+          {/* ── Past ───────────────────────────────────────────────── */}
+          {filteredPast.length > 0 && (
+            <section>
+              <SectionRule label="From the Archive" count={`${String(filteredPast.length).padStart(2, '0')} past`} />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
+                {filteredPast.slice(0, 12).map((ev) => (
+                  <PastCard key={ev.id} ev={ev} />
+                ))}
+              </div>
+              <p className="mt-10 text-center">
+                <Link
+                  href="/portfolio"
+                  className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors"
+                >
+                  See the Portfolio
+                  <ArrowUpRight size={13} strokeWidth={1.5} />
+                </Link>
+              </p>
+            </section>
+          )}
+        </>
       )}
     </>
   )
 }
 
-// ─── Upcoming card — bigger, with full particulars + CTA ───────────
+function SectionRule({ label, count }: { label: string; count: string }) {
+  return (
+    <div className="flex items-center gap-4 mb-10">
+      <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
+        {label}
+      </p>
+      <span className="flex-1 h-px bg-bronze/40" />
+      <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] tabular-nums text-slate-haze">
+        {count}
+      </p>
+    </div>
+  )
+}
+
+// ─── Curated Experiences — public view: programme + highlights + one
+// locked card. Dates, venues, pricing and booking are members-only. ──────
+
+function CuratedPublicView() {
+  return (
+    <section className="mb-24 lg:mb-32 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+      <div className="lg:col-span-7">
+        <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2.4vw,2.25rem)] leading-[1.15] text-ivory">
+          {CURATED_INTRO.title}
+        </h3>
+        <ul className="mt-7 flex flex-wrap gap-2.5">
+          {CURATED_INTRO.disciplines.map((d) => (
+            <li
+              key={d}
+              className="px-4 py-2 rounded-full border border-graphite-line/70 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.26em] text-ivory-soft"
+            >
+              {d}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-10 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-4">
+          Past highlights
+        </p>
+        <ul className="space-y-3 border-l border-bronze/30 pl-6">
+          {CURATED_INTRO.highlights.map((h) => (
+            <li
+              key={h}
+              className="font-[family-name:var(--font-editorial)] italic text-[17px] leading-[1.6] text-ivory"
+            >
+              {h}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-6 font-[family-name:var(--font-editorial)] italic text-[15px] text-ivory-soft">
+          By invitation · UHNW · Luxury brands · Members
+        </p>
+      </div>
+
+      <div className="lg:col-span-5">
+        <LockedCard />
+      </div>
+    </section>
+  )
+}
+
+export function LockedCard({ redirect = '/portal/events?programme=curated_experience' }: { redirect?: string }) {
+  return (
+    <div className="relative border border-bronze/45 bg-graphite-2 p-8 lg:p-10 overflow-hidden">
+      <div className="film-grain-night pointer-events-none" />
+      <span className="w-11 h-11 rounded-full bg-bronze/10 border border-bronze/45 flex items-center justify-center">
+        <Lock size={16} strokeWidth={1.5} className="text-bronze-light" />
+      </span>
+      <p className="mt-6 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
+        Members only
+      </p>
+      <p className="mt-3 font-[family-name:var(--font-display)] text-[clamp(1.375rem,2vw,1.75rem)] leading-[1.25] text-ivory">
+        {LOCKED_LINE}
+      </p>
+      <div className="mt-8 flex flex-wrap gap-3">
+        <Link
+          href={`/login?redirect=${encodeURIComponent(redirect)}`}
+          className="px-6 py-3 rounded-full border border-bronze bg-bronze text-ink font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.3em] hover:bg-bronze-light transition-colors"
+        >
+          Sign in
+        </Link>
+        <Link
+          href="/membership-application"
+          className="px-6 py-3 rounded-full border border-bronze/70 text-ivory font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.3em] hover:border-bronze hover:text-bronze-light transition-colors"
+        >
+          Apply
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ─── Upcoming card ─────────────────────────────────────────────────
+
+export function BookingStatusBadge({ status, className }: { status: string | null | undefined; className?: string }) {
+  const label = status ? BOOKING_STATUS_LABELS[status] : null
+  if (!label) return null
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center px-3 py-1.5 rounded-full border backdrop-blur font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.3em]',
+        status === 'sold_out'
+          ? 'bg-ink/80 border-accent-warm/60 text-accent-warm'
+          : 'bg-ink/75 border-ivory/35 text-ivory',
+        className,
+      )}
+    >
+      {label}
+    </span>
+  )
+}
 
 function UpcomingCard({ ev }: { ev: EventListItem }) {
-  const basePriceLine = formatPriceLine(ev.member_price_pence, ev.guest_price_pence)
-  const priceLine = basePriceLine && vatSuffix(ev) ? `${basePriceLine} ${vatSuffix(ev)}` : basePriceLine
-  const time = ev.doors_open
-    ? `Doors ${formatTime(ev.doors_open)} · From ${formatTime(ev.start_date)} UK time`
-    : `${formatTime(ev.start_date)} UK time`
+  const priceLine = eventPriceLine(ev)
+  const time = timeLine(ev)
+  const tag = isProgramme(ev.programme) ? PROGRAMME_TAG[ev.programme] : null
+  const teaser = ev.short_description || ev.description
 
   return (
     <Link
@@ -209,20 +353,19 @@ function UpcomingCard({ ev }: { ev: EventListItem }) {
         <div className="absolute inset-0 bg-gradient-to-t from-ink/90 via-ink/30 to-transparent" />
         <div className="film-grain-night pointer-events-none" />
 
-        {/* Event type tag, top-left */}
-        <span className="absolute top-5 left-5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-ink/75 border border-bronze/45 backdrop-blur font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light">
-          {formatEventType(ev.event_type)}
-        </span>
+        {tag && (
+          <span className="absolute top-5 left-5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-ink/75 border border-bronze/45 backdrop-blur font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light">
+            {tag}
+          </span>
+        )}
+        <BookingStatusBadge status={ev.booking_status} className="absolute top-5 right-5" />
       </div>
 
-      <div className="p-7 lg:p-9">
+      <div className="p-6 sm:p-7 lg:p-9">
         <h3 className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2vw,2rem)] leading-[1.15] text-ivory group-hover:text-bronze-light transition-colors duration-500">
           {ev.title}
         </h3>
 
-        {/* Particulars — 2-col grid. Venue / Date / Starting share
-           the grid; Price spans the full width at the bottom because
-           the member/guest line is long. */}
         <dl className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
           {(ev.venue_name || ev.venue_city) && (
             <DetailRow
@@ -231,8 +374,8 @@ function UpcomingCard({ ev }: { ev: EventListItem }) {
               value={[ev.venue_name, ev.venue_city].filter(Boolean).join(', ')}
             />
           )}
-          <DetailRow icon={Calendar} label="Date" value={formatDate(ev.start_date)} />
-          <DetailRow icon={Clock} label="Starting" value={time} />
+          <DetailRow icon={Calendar} label="Date" value={formatDateRange(ev.start_date, ev.end_date)} />
+          {time && <DetailRow icon={Clock} label="Time" value={time} />}
           {priceLine && (
             <div className="sm:col-span-2">
               <DetailRow icon={Tag} label="Price" value={priceLine} />
@@ -240,9 +383,9 @@ function UpcomingCard({ ev }: { ev: EventListItem }) {
           )}
         </dl>
 
-        {ev.description && (
+        {teaser && (
           <p className="mt-7 font-[family-name:var(--font-editorial)] italic text-[17px] leading-[1.7] text-ivory line-clamp-3">
-            {ev.description}
+            {teaser}
           </p>
         )}
 
@@ -259,9 +402,6 @@ function UpcomingCard({ ev }: { ev: EventListItem }) {
   )
 }
 
-// Particulars row used inside the upcoming card. Bronze icon circle +
-// label + value, enlarged from the previous 9.5/14.5 sizes — was too
-// small to read on the card.
 function DetailRow({
   icon: Icon,
   label,
@@ -317,7 +457,7 @@ function PastCard({ ev }: { ev: EventListItem }) {
       </div>
       <div className="p-5">
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light/85">
-          {formatDate(ev.start_date)}
+          {formatDateRange(ev.start_date, ev.end_date)}
         </p>
         <h3 className="mt-3 font-[family-name:var(--font-display)] text-[clamp(1.125rem,1.4vw,1.375rem)] leading-tight text-ivory-soft group-hover:text-ivory transition-colors duration-500">
           {ev.title}
@@ -334,7 +474,7 @@ function PastCard({ ev }: { ev: EventListItem }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="border border-graphite-line/40 rounded-2xl p-16 text-center">
+    <div className="border border-graphite-line/40 rounded-2xl p-10 sm:p-16 text-center">
       <p className="font-[family-name:var(--font-editorial)] italic text-[17px] text-ivory-soft/85">
         {message}
       </p>

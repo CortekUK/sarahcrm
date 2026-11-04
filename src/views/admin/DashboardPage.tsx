@@ -97,9 +97,9 @@ const statusVariant: Record<EventStatus, 'active' | 'upcoming' | 'draft' | 'urge
 }
 
 const tierLabels: Record<string, string> = {
-  tier_1: 'Tier 1',
-  tier_2: 'Tier 2',
-  tier_3: 'Tier 3',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 function memberName(p: { first_name: string | null; last_name: string | null } | null): string {

@@ -52,6 +52,7 @@ import { MemberRecommendationsPanel } from '@/components/admin/MemberRecommendat
 import {
   PLAN_OPTIONS,
   planForTier,
+  resolvePlan,
   introQuotaForTier,
   type MemberTier as PlanTier,
 } from '@/lib/membership/plans'
@@ -329,9 +330,9 @@ const paymentStatusBadge: Record<PaymentStatus, 'active' | 'upcoming' | 'draft' 
 }
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier 1',
-  tier_2: 'Tier 2',
-  tier_3: 'Tier 3',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -1669,7 +1670,10 @@ export function MemberDetailPage() {
               <Section title="At application time" icon={<CreditCard size={11} />}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
                   {application.preferred_tier && (
-                    <DetailRow label="Preferred tier" value={application.preferred_tier} />
+                    <DetailRow
+                      label="Preferred tier"
+                      value={resolvePlan(application.preferred_tier).name}
+                    />
                   )}
                   {application.payment_preference && (
                     <DetailRow label="Payment cadence" value={application.payment_preference} />

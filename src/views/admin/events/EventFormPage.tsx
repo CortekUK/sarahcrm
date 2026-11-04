@@ -20,6 +20,7 @@ import { Plus, Trash2, Save, Send } from 'lucide-react'
 import { PlanningChecklist, PlanningNotes } from './EventPlanningPanel'
 import { slugify } from '@/lib/utils'
 import { eventErrorMessage, isoToUkLocal, ukLocalToIso } from './eventErrors'
+import { PROGRAMMES, PROGRAMME_TAG } from '@/components/website/events/programmes'
 
 // ─────────────────────────────────────────────────────────────────────
 // Event create / edit form
@@ -31,7 +32,10 @@ import { eventErrorMessage, isoToUkLocal, ukLocalToIso } from './eventErrors'
 //   ────────────────────────────   ─────────────────────────────────
 //   /events card hero            ← cover_image_url
 //   /events card title           ← title (always required)
-//   /events card type tag        ← event_type
+//   /events card programme tag   ← programme (+ ?programme= filters)
+//   /events card status badge    ← booking_status (open shows nothing)
+//   /events card teaser          ← short_description (else description)
+//   who sees it                  ← visibility (members = portal only)
 //   /events card date/time       ← start_date (+ optional doors_open)
 //   /events card venue line      ← venue_name + venue_city
 //   /events card price line      ← member_price / guest_price
@@ -124,6 +128,13 @@ const eventSchema = z
       .regex(SLUG_RE, 'Use lower-case letters, numbers and single hyphens only, e.g. summer-party-2026'),
     description: optText(20000, 'Description'),
     event_type: z.enum(['member_event', 'curated_luxury', 'retreat']),
+    programme: z.union([z.enum(PROGRAMMES), z.literal('')]),
+    visibility: z.enum(['public', 'members']),
+    booking_status: z.enum(['open', 'waitlist', 'invitation_only', 'sold_out']),
+    short_description: optText(300, 'Short description'),
+    who_youll_meet: optText(2000, 'Who you’ll meet'),
+    sponsorship_available: z.boolean(),
+    is_portfolio: z.boolean(),
     venue_name: optText(200, 'Venue name'),
     venue_address: optText(300, 'Address'),
     venue_city: optText(100, 'City'),
@@ -191,8 +202,25 @@ type EventFormData = z.output<typeof eventSchema>
 
 const eventTypeOptions = [
   { value: 'member_event', label: 'Member Event' },
-  { value: 'curated_luxury', label: 'Curated Luxury' },
+  { value: 'curated_luxury', label: 'Curated Experience' },
   { value: 'retreat', label: 'Retreat' },
+]
+
+const programmeOptions = [
+  { value: '', label: 'No programme (not filterable)' },
+  ...PROGRAMMES.map((p) => ({ value: p, label: PROGRAMME_TAG[p] })),
+]
+
+const visibilityOptions = [
+  { value: 'public', label: 'Public — website + portal' },
+  { value: 'members', label: 'Members only — portal only' },
+]
+
+const bookingStatusOptions = [
+  { value: 'open', label: 'Open' },
+  { value: 'waitlist', label: 'Waitlist' },
+  { value: 'invitation_only', label: 'Invitation only' },
+  { value: 'sold_out', label: 'Sold out' },
 ]
 
 export function EventFormPage() {
@@ -213,6 +241,13 @@ export function EventFormPage() {
     resolver: zodResolver(eventSchema) as any,
     defaultValues: {
       event_type: 'member_event',
+      programme: '',
+      visibility: 'public',
+      booking_status: 'open',
+      short_description: '',
+      who_youll_meet: '',
+      sponsorship_available: false,
+      is_portfolio: false,
       // Blank, not "0": typing into a pre-filled 0 produced "020" / "0-20".
       // Blank prices save as 0 (complimentary).
       capacity: '',
@@ -224,7 +259,8 @@ export function EventFormPage() {
       accommodation_available: false,
       guest_list_visible: false,
       auto_confirm: true,
-      vat_mode: 'included',
+      // All event prices are quoted + VAT (brief) — new events add VAT on top.
+      vat_mode: 'added',
       vat_rate: '20',
       gallery_urls: [],
       speakers: [],
@@ -261,6 +297,19 @@ export function EventFormPage() {
               slug: data.slug,
               description: data.description ?? '',
               event_type: data.event_type,
+              programme: (PROGRAMMES as readonly string[]).includes(data.programme ?? '')
+                ? (data.programme as (typeof PROGRAMMES)[number])
+                : '',
+              visibility: data.visibility === 'members' ? 'members' : 'public',
+              booking_status: (['open', 'waitlist', 'invitation_only', 'sold_out'] as const).includes(
+                data.booking_status as 'open',
+              )
+                ? (data.booking_status as 'open' | 'waitlist' | 'invitation_only' | 'sold_out')
+                : 'open',
+              short_description: data.short_description ?? '',
+              who_youll_meet: data.who_youll_meet ?? '',
+              sponsorship_available: data.sponsorship_available ?? false,
+              is_portfolio: data.is_portfolio ?? false,
               venue_name: data.venue_name ?? '',
               venue_address: data.venue_address ?? '',
               venue_city: data.venue_city ?? '',
@@ -322,6 +371,13 @@ export function EventFormPage() {
       slug: data.slug.trim(),
       description: data.description || null,
       event_type: data.event_type,
+      programme: data.programme || null,
+      visibility: data.visibility,
+      booking_status: data.booking_status,
+      short_description: data.short_description?.trim() || null,
+      who_youll_meet: data.who_youll_meet?.trim() || null,
+      sponsorship_available: data.sponsorship_available,
+      is_portfolio: data.is_portfolio,
       status: publish ? ('published' as const) : isEdit ? undefined : ('draft' as const),
       venue_name: data.venue_name || null,
       venue_address: data.venue_address || null,
@@ -395,6 +451,8 @@ export function EventFormPage() {
       title: 'title',
       slug: 'slug',
       description: 'description',
+      short_description: 'short description',
+      who_youll_meet: 'who you’ll meet',
       venue_name: 'venue name',
       venue_address: 'address',
       venue_city: 'city',
@@ -511,7 +569,37 @@ export function EventFormPage() {
                 {...form.register('slug')}
               />
             </div>
-            <Select label="Event type" options={eventTypeOptions} {...form.register('event_type')} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select
+                label="Programme"
+                options={programmeOptions}
+                hint="Drives the /events filter chips, the homepage calendar and the PITCH / London Series pages."
+                {...form.register('programme')}
+              />
+              <Select label="Event type" options={eventTypeOptions} {...form.register('event_type')} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select
+                label="Visibility"
+                options={visibilityOptions}
+                hint="Members only: never shown to signed-out visitors (Curated Experiences)."
+                {...form.register('visibility')}
+              />
+              <Select
+                label="Booking status"
+                options={bookingStatusOptions}
+                hint="Invitation only / waitlist / sold out replace checkout with a request form."
+                {...form.register('booking_status')}
+              />
+            </div>
+            <Textarea
+              label="Short description"
+              rows={2}
+              error={form.formState.errors.short_description?.message}
+              placeholder="One line for event cards, e.g. “Performance, longevity and sustainable success.”"
+              hint="Event cards and search snippets. Falls back to the description if blank."
+              {...form.register('short_description')}
+            />
             <Textarea
               label="Description"
               rows={6}
@@ -519,6 +607,14 @@ export function EventFormPage() {
               placeholder="What is the evening about? Separate paragraphs with a blank line — they'll render as separate paragraphs on the event page."
               hint="Shown on the public event card (line-clamped) and as the editorial body on the detail page. Hidden if empty."
               {...form.register('description')}
+            />
+            <Textarea
+              label="Who you’ll meet"
+              rows={3}
+              error={form.formState.errors.who_youll_meet?.message}
+              placeholder="e.g. Founders, VCs and angel investors, business leaders and The Club Members."
+              hint="Its own section on the event page. Hidden if empty."
+              {...form.register('who_youll_meet')}
             />
             <ImageUpload
               label="Cover image"
@@ -719,6 +815,8 @@ export function EventFormPage() {
                 { name: 'accommodation_available' as const, label: 'Accommodation available' },
                 { name: 'guest_list_visible' as const, label: 'Guest list visible to members' },
                 { name: 'auto_confirm' as const, label: 'Auto-confirm bookings' },
+                { name: 'sponsorship_available' as const, label: 'Sponsorship available (shows “Sponsor this event”)' },
+                { name: 'is_portfolio' as const, label: 'Portfolio case study' },
               ].map(({ name, label }) => (
                 <label key={name} className="flex items-center gap-3 cursor-pointer">
                   <input
@@ -743,7 +841,7 @@ export function EventFormPage() {
               </div>
             )}
             <p className="mt-4 text-[11.5px] text-text-dim">
-              These flags are internal (used by the booking widget + portal). They aren't rendered as labels on the public detail page.
+              Most flags are internal (booking widget + portal). “Sponsorship available” adds a “Sponsor this event” link to the event page; “Portfolio case study” marks it for the Portfolio.
             </p>
           </CardContent>
         </Card>

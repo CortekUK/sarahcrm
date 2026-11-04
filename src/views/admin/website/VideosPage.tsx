@@ -23,7 +23,7 @@ type Video = Database['public']['Tables']['video_gallery']['Row']
 
 const PAGE_SLUGS: { value: string; label: string }[] = [
   { value: 'about', label: 'About Sarah' },
-  { value: 'private-event-services', label: 'Private Event Services' },
+  { value: 'private-event-services', label: 'Portfolio films' },
 ]
 
 const schema = z.object({

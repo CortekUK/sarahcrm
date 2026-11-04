@@ -1,8 +1,7 @@
 import type { Metadata } from 'next'
-import { vatSuffix } from '@/lib/events/vat'
 import Link from 'next/link'
 import Image from 'next/image'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
@@ -10,7 +9,11 @@ import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { BookingWidget } from '@/components/website/night/events/BookingWidget'
-import { ArrowLeft, Calendar, Clock, MapPin, Plane, Tag, Users } from 'lucide-react'
+import { RequestInvitationForm } from '@/components/website/night/events/RequestInvitationForm'
+import { BookingStatusBadge } from '@/components/website/night/events/EventsBrowser'
+import { eventPriceLine, formatDateRange, ukDay } from '@/components/website/events/format'
+import { PROGRAMME_TAG, isProgramme } from '@/components/website/events/programmes'
+import { ArrowLeft, ArrowUpRight, Calendar, Clock, MapPin, Plane, Tag, Users } from 'lucide-react'
 import { UK_TIME_ZONE } from '@/lib/utils'
 
 export const revalidate = 60
@@ -18,13 +21,22 @@ export const revalidate = 60
 const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://theclubgroup.co').replace(/\/+$/, '')
 
 // ─────────────────────────────────────────────────────────────────────
-// /events/[slug] — editorial spread for a single event + guest booking.
+// /events/[slug] — editorial spread for a single event + booking.
 //
-//   01 Hero          — cover image, type tag, title, italic date/venue
-//   02 Detail spread — description left, sticky booking widget right
-//   03 Agenda        — itinerary block if event.agenda exists
-//   04 Past message  — for past events, skip booking and show archive
-//                       note instead
+//   01 Hero          — cover image, programme tag, title, date/venue
+//   02 Key facts     — venue · date · UK time · price (+ VAT)
+//   03 Detail spread — description, who you'll meet, running order,
+//                      speakers; sticky action card right:
+//                        open            → BookingWidget (guests) +
+//                                          member sign-in to reserve
+//                        invitation_only → Request an invitation form
+//                        waitlist / sold_out → waitlist form
+//                      plus "Sponsor this event" when sponsorship_available
+//   04 Past          — archive note + gallery
+//
+// PUBLIC events only. A members-only event (visibility 'members') is
+// never rendered here: signed-out visitors can't read it (RLS) → 404;
+// signed-in users are sent to the portal page for it.
 // ─────────────────────────────────────────────────────────────────────
 
 interface AgendaItem {
@@ -76,41 +88,6 @@ function formatTime(iso: string) {
   })
 }
 
-function formatGBP(pence: number) {
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency: 'GBP',
-    // Whole pounds stay clean (£80); odd pence are shown exactly (£80.50)
-    // so the page never rounds away from what Stripe charges.
-    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(pence / 100)
-}
-
-function formatPriceShown(pence: number | null | undefined) {
-  if (pence == null) return null
-  if (pence === 0) return 'Complimentary'
-  // Exactly what checkout charges — event prices are flat (no VAT is
-  // added at checkout), so no "+ VAT" suffix.
-  return formatGBP(pence)
-}
-
-// "Complimentary Members · £500 Guests" — same helper as on the
-// events listing card, kept duplicated here so the detail page stays
-// self-contained.
-function formatPriceLine(
-  member: number | null | undefined,
-  guest: number | null | undefined,
-) {
-  const m = formatPriceShown(member)
-  const g = formatPriceShown(guest)
-  if (m && g) {
-    if (member === guest) return g
-    return `${m} Members · ${g} Guests`
-  }
-  return m || g || null
-}
-
 // Per-event title / description / Open Graph image so each event page can
 // rank and share under its own name.
 export async function generateMetadata({
@@ -122,15 +99,16 @@ export async function generateMetadata({
   const supabase = await createClient()
   const { data: event } = await supabase
     .from('events')
-    .select('title, description, cover_image_url, start_date, venue_name, venue_city')
+    .select('title, description, short_description, cover_image_url, start_date, venue_name, venue_city')
     .eq('slug', slug)
     .in('status', ['published', 'live', 'completed'])
+    .eq('visibility', 'public')
     .maybeSingle()
   if (!event) return { title: 'Event not found | The Club by Sarah Restrick' }
   const when = event.start_date ? formatDateLong(event.start_date) : null
   const where = [event.venue_name, event.venue_city].filter(Boolean).join(', ')
   const fallback = [when, where].filter(Boolean).join(' · ')
-  const raw = (event.description ?? '').replace(/\s+/g, ' ').trim()
+  const raw = (event.short_description || event.description || '').replace(/\s+/g, ' ').trim()
   const description =
     (raw.length > 160 ? `${raw.slice(0, 157).trimEnd()}…` : raw) ||
     (fallback ? `${event.title} — ${fallback}.` : `${event.title} at The Club.`)
@@ -170,14 +148,32 @@ export default async function EventDetailPage({
     .select('*')
     .eq('slug', slug)
     .in('status', ['published', 'live', 'completed'])
-    .single()
+    .maybeSingle()
 
   if (!event) notFound()
+  // Members-only rows only come back for signed-in users (RLS). Never render
+  // them on the public site — the portal has the full detail + booking.
+  if (event.visibility !== 'public') redirect(`/portal/events/${event.id}`)
 
   // A published event always has a date (planning rows never get here), but
   // the column is nullable for planning, so narrow once and reuse.
   const startDate = event.start_date
-  const isPast = startDate != null && new Date(startDate) < new Date()
+  const finishAt = event.end_date ?? startDate
+  const isPast = finishAt != null && new Date(finishAt) < new Date()
+  const multiDay = !!(startDate && event.end_date && ukDay(startDate) !== ukDay(event.end_date))
+  const dateLabel = startDate ? formatDateRange(startDate, event.end_date) : 'Date to be confirmed'
+  const timeLabel = !startDate
+    ? 'To be confirmed'
+    : multiDay
+      ? `From ${formatTime(startDate)} UK time`
+      : `${event.doors_open ? `Doors ${formatTime(event.doors_open)} · ` : ''}${formatTime(startDate)}${
+          event.end_date ? ` – ${formatTime(event.end_date)}` : ''
+        } UK time`
+  const priceLine = eventPriceLine(event)
+  const programmeTag = isProgramme(event.programme)
+    ? PROGRAMME_TAG[event.programme]
+    : formatEventType(event.event_type)
+  const venueLine = [event.venue_name, event.venue_city].filter(Boolean).join(', ')
 
   // ── Sponsor invite link (optional) ──────────────────────────────
   // When the URL carries ?s=<token>, resolve it to the sponsorship so the
@@ -258,7 +254,7 @@ export default async function EventDetailPage({
           </Reveal>
           <Reveal type="up" delay={150}>
             <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              {formatEventType(event.event_type)}
+              {programmeTag}
               {isPast && <span className="text-slate-haze ml-3">· Archive</span>}
             </p>
           </Reveal>
@@ -273,18 +269,31 @@ export default async function EventDetailPage({
           </Reveal>
           <Reveal type="up" delay={500}>
             <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.25vw,1.25rem)] text-ivory-soft mt-6 max-w-xl">
-              {startDate ? formatDateLong(startDate) : 'Date to be confirmed'}
-              {(event.venue_name || event.venue_city) && (
+              {dateLabel}
+              {venueLine && (
                 <>
                   {' · '}
-                  <em className="not-italic text-bronze-light">
-                    {[event.venue_name, event.venue_city].filter(Boolean).join(', ')}
-                  </em>
+                  <em className="not-italic text-bronze-light">{venueLine}</em>
                 </>
               )}
             </p>
           </Reveal>
+          {!isPast && (
+            <Reveal type="up" delay={600}>
+              <BookingStatusBadge status={event.booking_status} className="mt-6 self-start" />
+            </Reveal>
+          )}
         </div>
+      </section>
+
+      {/* ── 02 · Key facts ─────────────────────────────────────── */}
+      <section className="bg-graphite-2 border-y border-graphite-line/40">
+        <dl className="max-w-[1400px] mx-auto px-6 lg:px-10 py-8 lg:py-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-10">
+          <Detail icon={MapPin} label="Venue" value={venueLine || 'To be confirmed'} />
+          <Detail icon={Calendar} label="Date" value={dateLabel} />
+          <Detail icon={Clock} label="Time" value={timeLabel} />
+          <Detail icon={Tag} label="Price" value={priceLine} />
+        </dl>
       </section>
 
       {/* ── 02 · Detail + Booking widget ──────────────────────── */}
@@ -312,87 +321,52 @@ export default async function EventDetailPage({
               </Reveal>
             )}
 
-            {/* Particulars sheet */}
-            <Reveal type="up" delay={200}>
-              <div>
-                <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
-                  Particulars
-                </p>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-7 gap-x-10 border-t border-graphite-line/50 pt-8">
-                  <Detail
-                    icon={Calendar}
-                    label="Date"
-                    value={startDate ? formatDateLong(startDate) : 'To be confirmed'}
-                  />
-                  <Detail
-                    icon={Clock}
-                    label="Time"
-                    value={
-                      event.doors_open
-                        ? `Doors ${formatTime(event.doors_open)}${
-                            event.start_date ? ` · From ${formatTime(event.start_date)}` : ''
-                          } UK time`
-                        : startDate
-                          ? `${formatTime(startDate)} UK time`
-                          : 'To be confirmed'
-                    }
-                  />
-                  {(event.venue_name || event.venue_address) && (
-                    <Detail
-                      icon={MapPin}
-                      label="Venue"
-                      value={
-                        [
-                          event.venue_name,
-                          event.venue_address,
-                          event.venue_city,
-                          event.venue_postcode,
-                        ]
-                          .filter(Boolean)
-                          .join(', ') || '—'
-                      }
-                    />
-                  )}
-                  {event.capacity != null && (
-                    <Detail
-                      icon={Users}
-                      label="Capacity"
-                      value={`${event.capacity} seats`}
-                    />
-                  )}
-                  {event.travel_included && (
-                    <Detail icon={Plane} label="Travel" value="Included" />
-                  )}
-                  {/* Price spans both columns at the bottom — the
-                     "Complimentary Members · £X Guests" line is
-                     too long for a single column. */}
-                  {formatPriceLine(
-                    event.member_price_pence,
-                    event.guest_price_pence,
-                  ) && (
-                    <div className="sm:col-span-2">
+            {/* Who you'll meet */}
+            {event.who_youll_meet && (
+              <Reveal type="up" delay={150}>
+                <div>
+                  <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
+                    Who you&apos;ll meet
+                  </p>
+                  <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.0625rem,1.3vw,1.25rem)] leading-[1.8] text-ivory max-w-prose whitespace-pre-line">
+                    {event.who_youll_meet}
+                  </p>
+                </div>
+              </Reveal>
+            )}
+
+            {/* Particulars — full address, capacity, travel */}
+            {(event.venue_address || event.capacity != null || event.travel_included) && (
+              <Reveal type="up" delay={200}>
+                <div>
+                  <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
+                    Particulars
+                  </p>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-7 gap-x-10 border-t border-graphite-line/50 pt-8">
+                    {event.venue_address && (
                       <Detail
-                        icon={Tag}
-                        label="Price"
-                        value={[
-                          formatPriceLine(event.member_price_pence, event.guest_price_pence),
-                          vatSuffix(event),
-                        ]
+                        icon={MapPin}
+                        label="Address"
+                        value={[event.venue_name, event.venue_address, event.venue_city, event.venue_postcode]
                           .filter(Boolean)
-                          .join(' ')}
+                          .join(', ')}
                       />
-                    </div>
-                  )}
-                </dl>
-              </div>
-            </Reveal>
+                    )}
+                    {event.capacity != null && (
+                      <Detail icon={Users} label="Capacity" value={`${event.capacity} guests`} />
+                    )}
+                    {event.travel_included && <Detail icon={Plane} label="Travel" value="Included" />}
+                  </dl>
+                </div>
+              </Reveal>
+            )}
 
             {/* Agenda */}
             {agenda.length > 0 && (
               <Reveal type="up" delay={300}>
                 <div>
                   <p className="font-[family-name:var(--font-meta)] text-[11.5px] uppercase tracking-[0.42em] text-bronze-light mb-7">
-                    Agenda
+                    Running order
                   </p>
                   <ol className="space-y-7 border-l border-bronze/25 pl-7">
                     {agenda.map((item, i) => (
@@ -455,6 +429,17 @@ export default async function EventDetailPage({
             <div className="lg:sticky lg:top-32">
               {isPast ? (
                 <PastNotice slug={event.slug} />
+              ) : event.booking_status === 'invitation_only' && !sponsor ? (
+                <RequestInvitationForm
+                  event={{ id: event.id, slug: event.slug, title: event.title, dateLabel }}
+                  mode="invitation"
+                />
+              ) : (event.booking_status === 'waitlist' || event.booking_status === 'sold_out') && !sponsor ? (
+                <RequestInvitationForm
+                  event={{ id: event.id, slug: event.slug, title: event.title, dateLabel }}
+                  mode="waitlist"
+                  heading={event.booking_status === 'sold_out' ? 'Sold out' : 'Waitlist'}
+                />
               ) : (
                 <Reveal type="up" delay={0}>
                   <BookingWidget
@@ -477,6 +462,22 @@ export default async function EventDetailPage({
                     paymentCancelled={cancelled === '1'}
                   />
                 </Reveal>
+              )}
+              {!isPast && event.sponsorship_available && (
+                <Link
+                  href={`/partner/sponsorship?event=${encodeURIComponent(event.slug)}`}
+                  className="mt-5 flex items-center justify-between gap-4 border border-graphite-line/50 rounded-2xl px-7 py-5 hover:border-bronze/55 transition-colors duration-500 group"
+                >
+                  <span>
+                    <span className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.36em] text-bronze-light">
+                      Partner With Us
+                    </span>
+                    <span className="mt-1.5 block font-[family-name:var(--font-display)] text-[1.25rem] text-ivory group-hover:text-bronze-light transition-colors">
+                      Sponsor this event
+                    </span>
+                  </span>
+                  <ArrowUpRight size={16} strokeWidth={1.5} className="text-bronze-light shrink-0" />
+                </Link>
               )}
             </div>
           </aside>

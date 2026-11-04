@@ -797,13 +797,13 @@ Business meaning: the single source of truth mapping a member's subscription pla
 
 | Plan | slug | tier | membership_type | default intro quota |
 |---|---|---|---|---|
-| Individual | `individual` | `tier_1` | `individual` | 3 |
-| Business | `business` | `tier_2` | `business` | 5 |
-| Corporate | `corporate` | `tier_3` | `business` | 10 |
+| Access (£2,500 + VAT) | `access` | `tier_1` | `individual` | 3 |
+| The Club Membership (£6,000 + VAT) | `the-club-membership` | `tier_2` | `business` | 5 |
+| The Club Business Membership (£15,000 + VAT) | `business` | `tier_3` | `business` | 10 |
 
-Note: "Corporate" shares `membership_type='business'` with "Business" (same payee model) but gets a bigger seat count/sponsorship slot and larger intro quota. The LIVE admin-editable intro quota lives in `membership_plans.intro_quota` in the DB — the table above is only the fallback default.
+Renamed Nov 2026 (migration `20261106_b_memberships.sql`); the £30,000 Corporate tier was removed. Legacy slugs still resolve via `canonicalPlanSlug()`: `individual`→`access`, `corporate`→`business` (old `business` was the £15k tier and now names the £15k Business Membership). Prices on `membership_plans` are net of VAT; membership is sold annually only (`monthly_price_pence` = annual ÷ 12 for legacy paths). Display names per tier: `TIER_LABELS` / `tierLabel(tier)`. The LIVE admin-editable intro quota lives in `membership_plans.intro_quota` in the DB — the table above is only the fallback default.
 
-Exports: `MemberTier='tier_1'|'tier_2'|'tier_3'`, `MembershipType='individual'|'business'`, `PlanSlug`, `PlanDef{slug,tier,name,membershipType,defaultIntroQuota}`, `PLANS` (the 3-row table), `planForTier(tier)` (falls back to tier_1 if unrecognised, never throws), `planForSlug(slug?)`, `membershipTypeForTier(tier)` (membership_type is NEVER stored independently of tier), `resolvePlan(input?)` (fuzzy free-text matcher: strips non-alphanumerics+lowercases, then `tier3`/`three`/`platinum`/`corporate`→tier_3, `tier2`/`two`/`gold`/`business`→tier_2, else→tier_1), `resolvePlanFromDb(db, input?)` (looks up `membership_plans.tier_classification` by slug first, falls back to fuzzy match), `PLAN_OPTIONS` (Select options keyed by tier), `introQuotaForTier(db, tier)` (reads live `membership_plans.intro_quota` ordered by `display_order`, falls back to `defaultIntroQuota`).
+Exports: `MemberTier='tier_1'|'tier_2'|'tier_3'`, `MembershipType='individual'|'business'`, `PlanSlug`, `PlanDef{slug,tier,name,membershipType,defaultIntroQuota}`, `PLANS` (the 3-row table), `planForTier(tier)` (falls back to tier_1 if unrecognised, never throws), `planForSlug(slug?)`, `membershipTypeForTier(tier)` (membership_type is NEVER stored independently of tier), `resolvePlan(input?)` (exact/legacy slug first, then fuzzy free-text matcher: `tier3`/`three`/`platinum`/`corporate`/`business`→tier_3, `tier2`/`two`/`gold`/`clubmembership`→tier_2, else→tier_1), `canonicalPlanSlug(slug)`, `TIER_LABELS`, `tierLabel(tier)`, `resolvePlanFromDb(db, input?)` (looks up `membership_plans.tier_classification` by slug first, falls back to fuzzy match), `PLAN_OPTIONS` (Select options keyed by tier), `introQuotaForTier(db, tier)` (reads live `membership_plans.intro_quota` ordered by `display_order`, falls back to `defaultIntroQuota`).
 
 ---
 

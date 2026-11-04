@@ -88,8 +88,8 @@ Deno.serve(async (req) => {
     }
 
     // Cadence: the member record first (set on approval), then their approved
-    // application's preference, else monthly. Annual members must not be put
-    // on a monthly subscription.
+    // application's preference, else annual (membership is "paid annually"
+    // per the 2026–27 pricing). Members already on monthly stay monthly.
     const toCadence = (v: string | null | undefined): 'annual' | 'monthly' | null => {
       const t = (v ?? '').toLowerCase()
       if (/annual|year/.test(t)) return 'annual'
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         .maybeSingle()
       cadence = toCadence(app?.payment_preference)
     }
-    cadence = cadence ?? 'monthly'
+    cadence = cadence ?? 'annual'
 
     const netPence = cadence === 'annual' ? plan.annual_price_pence : plan.monthly_price_pence
     if (!netPence || netPence <= 0) {

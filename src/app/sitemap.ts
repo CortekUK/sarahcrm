@@ -1,9 +1,9 @@
 import type { MetadataRoute } from 'next'
+import { HARRODS_APPROVED } from '@/components/website/night/london/content'
 import { createClient } from '@supabase/supabase-js'
-import { listPublishedBlogPosts } from '@/lib/cms/blog'
 
-// /sitemap.xml — static public pages plus every published event and
-// published gallery (and Journal posts). Reads as an anonymous visitor (no
+// /sitemap.xml — static public pages plus every published PUBLIC event,
+// published Portfolio case study and public Journal post. Reads as an anonymous visitor (no
 // cookies, so it can be built statically and revalidated hourly) — RLS
 // decides what is public.
 // Fail-soft: if a query errors, the static pages are still listed.
@@ -18,14 +18,18 @@ const STATIC_PAGES: { path: string; priority: number; changeFrequency: 'daily' |
   { path: '/memberships', priority: 0.9, changeFrequency: 'monthly' },
   { path: '/membership-application', priority: 0.8, changeFrequency: 'monthly' },
   { path: '/events', priority: 0.9, changeFrequency: 'daily' },
-  { path: '/gallery', priority: 0.7, changeFrequency: 'weekly' },
-  { path: '/private-event-services', priority: 0.7, changeFrequency: 'monthly' },
-  { path: '/one-london-road', priority: 0.6, changeFrequency: 'monthly' },
-  { path: '/concierge', priority: 0.6, changeFrequency: 'monthly' },
+  { path: '/pitch', priority: 0.8, changeFrequency: 'weekly' },
+  ...(HARRODS_APPROVED ? [{ path: '/london-series', priority: 0.8, changeFrequency: 'monthly' as const }] : []),
+  { path: '/concierge', priority: 0.7, changeFrequency: 'monthly' },
+  { path: '/partner', priority: 0.8, changeFrequency: 'monthly' },
+  { path: '/partner/sponsorship', priority: 0.7, changeFrequency: 'monthly' },
+  { path: '/partner/venues', priority: 0.6, changeFrequency: 'monthly' },
+  { path: '/partner/corporate-events', priority: 0.6, changeFrequency: 'monthly' },
+  { path: '/portfolio', priority: 0.7, changeFrequency: 'weekly' },
   { path: '/rewards', priority: 0.6, changeFrequency: 'weekly' },
-  { path: '/reviews', priority: 0.6, changeFrequency: 'weekly' },
+  { path: '/success-stories', priority: 0.6, changeFrequency: 'weekly' },
+  { path: '/journal', priority: 0.6, changeFrequency: 'weekly' },
   { path: '/share-your-experience', priority: 0.4, changeFrequency: 'yearly' },
-  { path: '/blog', priority: 0.6, changeFrequency: 'weekly' },
   { path: '/contact-us', priority: 0.6, changeFrequency: 'yearly' },
   { path: '/club-rules', priority: 0.4, changeFrequency: 'yearly' },
   { path: '/privacy-policy', priority: 0.3, changeFrequency: 'yearly' },
@@ -46,19 +50,27 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } },
     )
-    const [{ data: events }, { data: galleries }] = await Promise.all([
+    const [{ data: events }, { data: cases }, { data: posts }] = await Promise.all([
       supabase
         .from('events')
         .select('slug, updated_at, start_date')
         .in('status', ['published', 'live', 'completed'])
+        .eq('visibility', 'public')
         .not('slug', 'is', null)
         .order('start_date', { ascending: false })
         .limit(1000),
       supabase
-        .from('galleries')
+        .from('portfolio_case_studies')
         .select('slug, updated_at')
         .eq('is_published', true)
         .limit(1000),
+      supabase
+        .from('blog_posts')
+        .select('slug, published_at')
+        .eq('status', 'published')
+        .eq('visibility', 'public')
+        .order('published_at', { ascending: false })
+        .limit(500),
     ])
     for (const e of events ?? []) {
       if (!e.slug) continue
@@ -70,27 +82,26 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: upcoming ? 0.8 : 0.4,
       })
     }
-    for (const g of galleries ?? []) {
-      if (!g.slug) continue
+    for (const c of cases ?? []) {
+      if (!c.slug) continue
       entries.push({
-        url: `${SITE_URL}/gallery/${g.slug}`,
-        lastModified: g.updated_at ? new Date(g.updated_at) : now,
+        url: `${SITE_URL}/portfolio/${c.slug}`,
+        lastModified: c.updated_at ? new Date(c.updated_at) : now,
+        changeFrequency: 'monthly',
+        priority: 0.6,
+      })
+    }
+    for (const post of posts ?? []) {
+      if (!post.slug) continue
+      entries.push({
+        url: `${SITE_URL}/journal/${post.slug}`,
+        lastModified: post.published_at ? new Date(post.published_at) : now,
         changeFrequency: 'monthly',
         priority: 0.5,
       })
     }
   } catch (e) {
-    console.error('[sitemap] event/gallery lookup failed', e)
-  }
-
-  const posts = await listPublishedBlogPosts(500)
-  for (const post of posts) {
-    entries.push({
-      url: `${SITE_URL}/blog/${post.slug}`,
-      lastModified: post.published_at ? new Date(post.published_at) : now,
-      changeFrequency: 'monthly',
-      priority: 0.5,
-    })
+    console.error('[sitemap] event/portfolio/journal lookup failed', e)
   }
 
   return entries

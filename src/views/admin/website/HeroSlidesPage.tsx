@@ -47,13 +47,6 @@ const PAGES: {
     path: '/memberships',
   },
   { value: 'events', label: 'Events', description: 'The calendar at /events', path: '/events' },
-  { value: 'gallery', label: 'Gallery', description: 'Past gatherings at /gallery', path: '/gallery' },
-  {
-    value: 'private-event-services',
-    label: 'Private Events',
-    description: 'Bespoke commissions at /private-event-services',
-    path: '/private-event-services',
-  },
   {
     value: 'contact-us',
     label: 'Contact',

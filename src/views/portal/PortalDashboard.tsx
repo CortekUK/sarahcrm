@@ -103,21 +103,21 @@ interface NextPayment {
 }
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier I — Individual',
-  tier_2: 'Tier II — Business',
-  tier_3: 'Tier III — Business Premium',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 const tierShortLabel: Record<MemberTier, string> = {
-  tier_1: 'Tier I',
-  tier_2: 'Tier II',
-  tier_3: 'Tier III',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'Business Membership',
 }
 
 const tierDescriptions: Record<MemberTier, string> = {
-  tier_1: 'Access to all core member events and 3 qualified introductions per month.',
-  tier_2: 'Access to all events including curated luxury, 5 introductions per month, and priority booking.',
-  tier_3: 'Full access including retreats, 10 introductions per month, priority booking, and sponsor alignment.',
+  tier_1: 'Introductions, on demand. Advertise on the platform with full database access; one event included.',
+  tier_2: 'The room, all year. Two places at every Round Table, Member Event, Harrods Series and PITCH event, with full platform and CRM access.',
+  tier_3: 'Your category, exclusively. Four places at every event, priority introductions and a bespoke event we fill with your prospects.',
 }
 
 const introVariant: Record<IntroStatus, PortalBadgeVariant> = {

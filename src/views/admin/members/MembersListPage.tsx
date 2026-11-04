@@ -78,9 +78,9 @@ const STATUS_OPTIONS: { value: MemberStatus | 'all'; label: string }[] = [
 
 const TIER_OPTIONS: { value: MemberTier | 'all'; label: string }[] = [
   { value: 'all', label: 'All Tiers' },
-  { value: 'tier_1', label: 'Tier 1' },
-  { value: 'tier_2', label: 'Tier 2' },
-  { value: 'tier_3', label: 'Tier 3' },
+  { value: 'tier_1', label: 'Access' },
+  { value: 'tier_2', label: 'The Club Membership' },
+  { value: 'tier_3', label: 'The Club Business Membership' },
 ]
 
 const statusVariant: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urgent' | 'info'> = {
@@ -92,9 +92,9 @@ const statusVariant: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urg
 }
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier 1',
-  tier_2: 'Tier 2',
-  tier_3: 'Tier 3',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 export function MembersListPage() {

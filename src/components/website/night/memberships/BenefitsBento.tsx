@@ -2,29 +2,25 @@
 
 import Image from 'next/image'
 import {
-  Award,
   Calendar,
-  Coffee,
-  Crown,
-  KeyRound,
+  ConciergeBell,
+  CreditCard,
+  Handshake,
   Megaphone,
-  Ticket,
   Users,
-  Wine,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────
-// BenefitsBento — Aceternity-style glowing-border bento for the 9
-// membership benefits.
+// BenefitsBento — Aceternity-style glowing-border bento for the six
+// membership benefits (brief, Nov 2026).
 //
-// 12-col asymmetric grid (4 rows) so the layout reads as an editorial
-// bento rather than a 3×3 catalogue:
+// 12-col asymmetric grid (3 rows) so the layout reads as an editorial
+// bento rather than a catalogue:
 //   Row 1: [4 ][8       ]
 //   Row 2: [6     ][6     ]
-//   Row 3: [4 ][4 ][4    ]
-//   Row 4: [8       ][4 ]
+//   Row 3: [8       ][4 ]
 //
 // Each tile:
 //   - bronze lucide icon, top-left in a small bordered square
@@ -42,17 +38,14 @@ export interface BenefitItem {
   image: string
 }
 
-// Icons matched thematically to each benefit (verbatim source order).
+// Icons matched thematically to each benefit (brief order).
 const ICONS: LucideIcon[] = [
-  Users, // Access to The Club Network
-  KeyRound, // Choose Your Membership
-  Megaphone, // Advertise Your Business
-  Calendar, // Access to The Club Events
-  Coffee, // Monthly Members "Work In"
-  Wine, // Private Dining Experiences
-  Ticket, // Bespoke & Ticketed Events
-  Award, // Curated Sponsored Events
-  Crown, // Corporate Luxury Concierge
+  Users, // Access to The Club network
+  Handshake, // Professional Matchmaking
+  Calendar, // The events calendar
+  Megaphone, // Advertise on the platform
+  CreditCard, // Member Rewards & Members Card
+  ConciergeBell, // Private Concierge
 ]
 
 // 12-col bento spans, one per benefit (index = item position).
@@ -62,9 +55,6 @@ const SPANS = [
   'col-span-12 md:col-span-8',
   'col-span-12 md:col-span-6',
   'col-span-12 md:col-span-6',
-  'col-span-12 md:col-span-4',
-  'col-span-12 md:col-span-4',
-  'col-span-12 md:col-span-4',
   'col-span-12 md:col-span-8',
   'col-span-12 md:col-span-4',
 ]
@@ -73,7 +63,7 @@ const SPANS = [
 // Used to be the "show image / no image" switch, but the image now
 // renders on every tile since admins upload one per card in the CMS.
 // `wide` here only controls type scale.
-const WIDE_TILES = new Set([1, 2, 3, 7])
+const WIDE_TILES = new Set([1, 2, 3, 4])
 
 export function BenefitsBento({ items }: { items: readonly BenefitItem[] }) {
   return (

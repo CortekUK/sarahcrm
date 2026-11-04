@@ -28,14 +28,16 @@ import { ArrowUpRight } from 'lucide-react'
 // ─────────────────────────────────────────────────────────────────────
 
 export const metadata = {
-  title: 'Privacy Policy — The Club by Sarah Restrick',
+  title: 'Privacy Policy | The Club by Sarah Restrick',
+  description:
+    'How The Club by Sarah Restrick collects, uses and protects your personal information.',
 }
 
-const HERO_IMAGE =
-  'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=2400&q=85'
+// Fallback only — the live hero is managed in /dashboard/website/hero-slides.
+const HERO_IMAGE = 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/dinner-long-table.jpg'
 
 const LAST_UPDATED = '13 September 2022'
-const CONTACT_EMAIL = 'sarah@theclubbysarahrestrick.com'
+const CONTACT_EMAIL = 'sarah@theclubgroup.co'
 
 // Shared external-link styling
 const linkClass =
@@ -464,7 +466,7 @@ export default async function PrivacyPolicyPage() {
     page_slug: 'privacy-policy',
     media_type: 'image',
     image_url: HERO_IMAGE,
-    alt_text: 'A quiet desk with a sealed letter',
+    alt_text: 'A long table dressed for dinner at The Club',
     eyebrow: 'The Standard · Privacy',
     headline: 'Privacy Policy.',
     lede: 'How and why we collect, store, use, and share your information.',
@@ -527,8 +529,8 @@ export default async function PrivacyPolicyPage() {
               &lsquo;we&rsquo;, &lsquo;us&rsquo;, or &lsquo;our&rsquo;) describes how and why we
               might collect, store, use, and/or share (&lsquo;process&rsquo;) your information when
               you use our Services, such as when you visit our website at{' '}
-              <Ext href="https://theclubbysarahrestrick.com">
-                https://theclubbysarahrestrick.com
+              <Ext href="https://www.theclubgroup.co">
+                https://www.theclubgroup.co
               </Ext>{' '}
               or engage with us in other related ways — including any sales, marketing, or events.
             </p>

@@ -1,544 +1,236 @@
-'use client'
-
-import { forwardRef, useEffect, useId, useState } from 'react'
-import Link from 'next/link'
-import { Controller, useForm } from 'react-hook-form'
-import { z } from 'zod'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { supabase } from '@/lib/supabase/client'
-import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
+import Image from 'next/image'
+import { createClient } from '@/lib/supabase/server'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import { ArrowUpRight, Check } from 'lucide-react'
+import { MetaLink, PillLink } from '@/components/website/forms/SiteButton'
+import {
+  CardGrid,
+  FormPanel,
+  NightHero,
+  bodyClass,
+  eyebrowClass,
+} from '@/components/website/night/partner/blocks'
+import { EventServicesForm, MemberRequestForm } from '@/components/website/night/concierge/ConciergeForms'
+import type { MemberRequestType } from '@/components/website/night/concierge/requestTypes'
 import { cn } from '@/lib/utils'
-import { fireBronzeConfetti } from '@/lib/effects/confetti'
 
 // ─────────────────────────────────────────────────────────────────────
-// /concierge — public concierge enquiry form for non-logged-in visitors.
-//
-// Doc requirement (Lead Automation): "Public concierge enquiry form
-// available on website" — a website concierge enquiry creates a CRM
-// record. It does exactly that by inserting into the SAME `enquiries`
-// table the contact form uses (public-insert RLS lets anonymous visitors
-// submit; `concierge_requests` requires a member and cannot). The
-// enquiry then shows up on the admin Enquiries page with intent
-// ['concierge'].
-//
-// Built on the exact contact-us pattern: react-hook-form + zodResolver,
-// underline Fields, the bronze PremiumPillButton, the same hero + Aurora
-// chapter vocabulary. Concierge specifics (request type, budget, dates,
-// guests, details) are composed into the enquiry `message` — no new
-// columns, no migration.
+// /concierge — Private Concierge (brief: "Concierge"). Four areas, each
+// with its own section + request form:
+//   #event-services  public  → /api/enquiries/intake ('Web – Event Request (Private|Corporate)')
+//   #access          The Club Members → concierge_requests 'Access Request'
+//   #travel          The Club Members → concierge_requests 'Travel Services'
+//   #bookings        The Club Members → concierge_requests 'Retail & Hospitality Bookings'
+// Signed-out visitors (or non-active members) see "Sign in or apply"
+// instead of the three member forms. Replaces /private-event-services.
 // ─────────────────────────────────────────────────────────────────────
 
-interface HeroData {
-  media_type: 'image' | 'video'
-  image_url: string | null
-  alt_text: string
-  video_url: string | null
-  video_poster_url: string | null
-  eyebrow: string | null
-  headline: string | null
-  lede: string | null
+export const dynamic = 'force-dynamic'
+
+/** "Recent requests we've delivered" — Sarah to supply three anonymised examples. Empty → hidden. */
+const RECENT_REQUESTS: { title: string; body: string }[] = []
+
+interface Area {
+  id: string
+  label: string
+  title: string
+  covers: string
+  who: string
+  image: string
+  imageAlt: string
+  memberType?: MemberRequestType
 }
 
-const HERO_FALLBACK: HeroData = {
-  media_type: 'image',
-  image_url: '/theclub-section.png',
-  alt_text: 'The Club',
-  video_url: null,
-  video_poster_url: null,
-  eyebrow: 'Concierge',
-  headline: 'Tell us what you’re after.',
-  lede: 'F1 and Wimbledon to private aviation and the impossible dinner reservation — send the details and the team takes it from there.',
-}
+const AREAS: Area[] = [
+  {
+    id: 'event-services',
+    label: '01 · Event Services',
+    title: 'Private and corporate events.',
+    covers:
+      'Private: celebrations, birthdays, anniversaries, private dinners, retreats. Corporate: corporate parties, client hospitality, product and venue launches, awards and galas, away days, overseas and sporting events. Venue, guest list from our database if required, production, hospitality, content and follow-up.',
+    who: 'Anyone · priced per brief',
+    image: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/concierge/event-services-dinner.jpg',
+    imageAlt: 'A long dinner table under a chandelier, set by The Club',
+  },
+  {
+    id: 'access',
+    label: '02 · Access Requests',
+    title: 'The hard-to-get, arranged.',
+    covers: 'Hard-to-get tables, sporting and cultural events, private viewings, members’ clubs, introductions.',
+    who: 'The Club Members',
+    image: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/concierge/access-evening.jpg',
+    imageAlt: 'An evening event hosted by The Club',
+    memberType: 'Access Request',
+  },
+  {
+    id: 'travel',
+    label: '03 · Travel Services',
+    title: 'Private aviation and travel.',
+    covers:
+      'Private aviation (JET365) and travel with Rhythm & Routes, The Club’s travel partner: villas, yachts, hotels, chauffeur and bespoke itineraries.',
+    who: 'The Club Members; UHNW guests by referral',
+    image: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/concierge/travel-chauffeur.jpg',
+    imageAlt: 'A chauffeured car waiting outside a country house hotel',
+    memberType: 'Travel Services',
+  },
+  {
+    id: 'bookings',
+    label: '04 · Retail & Hospitality Bookings',
+    title: 'Shopping, sourcing and the best tables.',
+    covers:
+      'Personal shopping and private appointments, sourced goods (watches, jewellery, art, cars), restaurant and hotel bookings at member rates.',
+    who: 'The Club Members',
+    image: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/concierge/bookings-retail.jpg',
+    imageAlt: 'A supercar outside a festive luxury store front',
+    memberType: 'Retail & Hospitality Bookings',
+  },
+]
 
-const REQUEST_TYPES = [
-  'F1',
-  'Wimbledon',
-  'Royal Ascot',
-  'Monaco GP',
-  'Henley',
-  'Hotels',
-  'Restaurants',
-  'Private Aviation',
-  'Fashion Weeks',
-  'International Travel',
-  'Travel',
-  'Luxury Goods',
-  'Private Events',
-  'Other',
-] as const
-
-const enquirySchema = z.object({
-  first_name: z.string().min(1, 'Required'),
-  last_name: z.string().min(1, 'Required'),
-  email: z.string().email('Please enter a valid email'),
-  phone: z.string().optional(),
-  company: z.string().optional(),
-  request_type: z.enum(REQUEST_TYPES, { error: 'Please choose what you need' }),
-  budget: z.string().optional(),
-  dates: z.string().optional(),
-  guests: z.string().optional(),
-  details: z.string().min(10, 'Please share a few more lines'),
-})
-type EnquiryData = z.infer<typeof enquirySchema>
-
-// Compose the concierge specifics into the enquiry message. The
-// `enquiries` table has no request_type/budget/dates columns, so we fold
-// them into `message` in a readable, staff-friendly format.
-function composeMessage(data: EnquiryData): string {
-  const lines = [`Request type: ${data.request_type}`]
-  if (data.budget?.trim()) lines.push(`Budget: ${data.budget.trim()}`)
-  if (data.dates?.trim()) lines.push(`Dates: ${data.dates.trim()}`)
-  if (data.guests?.trim()) lines.push(`Guests: ${data.guests.trim()}`)
-  lines.push('', 'Details:', data.details.trim())
-  return lines.join('\n')
-}
-
-export default function ConciergePage() {
-  const [submitted, setSubmitted] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [website, setWebsite] = useState('') // honeypot — hidden from humans
-  const [hero, setHero] = useState<HeroData>(HERO_FALLBACK)
-
-  useEffect(() => {
-    let cancelled = false
-    supabase
-      .from('hero_slides')
-      .select(
-        'media_type, image_url, alt_text, video_url, video_poster_url, eyebrow, headline, lede',
-      )
-      .eq('page_slug', 'concierge')
-      .eq('is_active', true)
-      .order('display_order', { ascending: true })
-      .limit(1)
+async function activeMemberId(): Promise<string | null> {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return null
+    const { data } = await supabase
+      .from('members')
+      .select('id, membership_status')
+      .eq('profile_id', user.id)
+      .is('deleted_at', null)
       .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled || !data) return
-        setHero({
-          media_type: (data.media_type as 'image' | 'video') ?? 'image',
-          image_url: data.image_url ?? HERO_FALLBACK.image_url,
-          alt_text: data.alt_text ?? HERO_FALLBACK.alt_text,
-          video_url: data.video_url,
-          video_poster_url: data.video_poster_url,
-          eyebrow: data.eyebrow ?? HERO_FALLBACK.eyebrow,
-          headline: data.headline ?? HERO_FALLBACK.headline,
-          lede: data.lede ?? HERO_FALLBACK.lede,
-        })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const {
-    register,
-    handleSubmit,
-    control,
-    formState: { errors, isSubmitting },
-  } = useForm<EnquiryData>({
-    resolver: zodResolver(enquirySchema),
-    mode: 'onChange',
-  })
-
-  async function onSubmit(data: EnquiryData) {
-    setError(null)
-    // Route through the server intake (scoring + owner routing + ack email +
-    // sales task) rather than a bare browser insert into `enquiries`.
-    try {
-      const res = await fetch('/api/enquiries/intake', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: data.first_name,
-          last_name: data.last_name,
-          email: data.email,
-          phone: data.phone?.trim() || null,
-          company: data.company?.trim() || null,
-          message: composeMessage(data),
-          intent: ['concierge'],
-          source: 'concierge_form',
-          website,
-        }),
-      })
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
-      if (res.status === 429) {
-        setError(
-          'We’ve received a lot of messages from you in a short time — please wait a few minutes and try again, or email us directly.',
-        )
-        return
-      }
-      if (!res.ok || !json.ok) {
-        setError(json.error || 'Something went wrong. Please try again, or email us directly.')
-        return
-      }
-    } catch {
-      setError('Something went wrong. Please try again, or email us directly.')
-      return
-    }
-    setSubmitted(true)
-    void fireBronzeConfetti()
+    return data && data.membership_status === 'active' ? data.id : null
+  } catch {
+    return null
   }
-
-  return (
-    <>
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="relative h-[60vh] min-h-[440px] w-full always-night overflow-hidden bg-ink">
-        <PageHeroMedia
-          mediaType={hero.media_type}
-          imageUrl={hero.image_url}
-          alt={hero.alt_text}
-          videoUrl={hero.video_url}
-          videoPosterUrl={hero.video_poster_url}
-          overlay={0.55}
-          priority
-        />
-        <div className="absolute inset-x-0 bottom-0 h-[45%] hero-fade-bottom pointer-events-none" />
-        <div className="relative z-10 h-full max-w-[1600px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-20">
-          {hero.eyebrow && (
-            <Reveal type="up" delay={0}>
-              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-                {hero.eyebrow}
-              </p>
-            </Reveal>
-          )}
-          {hero.headline && (
-            <Reveal type="clip" delay={150}>
-              <h1 className="display-xl max-w-4xl">{hero.headline}</h1>
-            </Reveal>
-          )}
-          {hero.lede && (
-            <Reveal type="up" delay={400}>
-              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.7] text-ivory-soft mt-6 max-w-2xl">
-                {hero.lede}
-              </p>
-            </Reveal>
-          )}
-        </div>
-      </section>
-
-      {/* ── Form + meta ─────────────────────────────────────────────── */}
-      <Chapter density="tight" bg="ink" className="relative">
-        <Aurora variant="soft" />
-
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 max-w-6xl mx-auto">
-          {/* ── Form column ───────────────────────────────────────── */}
-          <div className="lg:col-span-7">
-            {submitted ? (
-              <SuccessPanel />
-            ) : (
-              <>
-                <Reveal type="clip" delay={0}>
-                  <h2 className="display-md">The details.</h2>
-                </Reveal>
-                <Reveal type="up" delay={200}>
-                  <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft mt-5 mb-12">
-                    A few lines is enough to start — the team will follow up personally.
-                  </p>
-                </Reveal>
-
-                <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-7">
-                  {/* Honeypot — visually hidden, skipped by keyboard + autofill. */}
-                  <div aria-hidden="true" className="absolute -left-[10000px] top-auto w-px h-px overflow-hidden">
-                    <label>
-                      Website
-                      <input
-                        type="text"
-                        name="website"
-                        tabIndex={-1}
-                        autoComplete="off"
-                        value={website}
-                        onChange={(e) => setWebsite(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <Reveal type="up" delay={0}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      <Field
-                        label="First name"
-                        error={errors.first_name?.message}
-                        {...register('first_name')}
-                      />
-                      <Field
-                        label="Last name"
-                        error={errors.last_name?.message}
-                        {...register('last_name')}
-                      />
-                    </div>
-                  </Reveal>
-
-                  <Reveal type="up" delay={80}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      <Field
-                        label="Email"
-                        type="email"
-                        error={errors.email?.message}
-                        {...register('email')}
-                      />
-                      <Field label="Phone (optional)" {...register('phone')} />
-                    </div>
-                  </Reveal>
-
-                  <Reveal type="up" delay={160}>
-                    <Field label="Company (optional)" {...register('company')} />
-                  </Reveal>
-
-                  {/* Request type — single-select tiles, matching the
-                      contact form's subject vocabulary. */}
-                  <Reveal type="up" delay={240}>
-                    <Controller
-                      name="request_type"
-                      control={control}
-                      render={({ field }) => (
-                        <RequestTiles value={field.value} onChange={field.onChange} />
-                      )}
-                    />
-                    {errors.request_type?.message && (
-                      <p className="mt-3 text-[12px] text-bronze-light italic">
-                        {errors.request_type.message}
-                      </p>
-                    )}
-                  </Reveal>
-
-                  <Reveal type="up" delay={300}>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                      <Field label="Budget (optional)" placeholder="e.g. £10,000" {...register('budget')} />
-                      <Field label="Dates (optional)" placeholder="e.g. 5–7 July" {...register('dates')} />
-                      <Field label="Guests (optional)" placeholder="e.g. 4" {...register('guests')} />
-                    </div>
-                  </Reveal>
-
-                  <Reveal type="up" delay={360}>
-                    <Field
-                      label="What you’re after"
-                      as="textarea"
-                      rows={6}
-                      placeholder="The details that matter — what you’re looking for, any preferences."
-                      error={errors.details?.message}
-                      {...register('details')}
-                    />
-                  </Reveal>
-
-                  {error && (
-                    <div className="px-4 py-3 border border-plum-light/40 bg-plum/30 text-[13px] text-ivory">
-                      {error}
-                    </div>
-                  )}
-
-                  <Reveal type="up" delay={440} className="pt-4">
-                    <PremiumPillButton type="submit" disabled={isSubmitting}>
-                      {isSubmitting ? 'Sending…' : 'Send the enquiry'}
-                    </PremiumPillButton>
-                  </Reveal>
-                </form>
-              </>
-            )}
-          </div>
-
-          {/* ── Meta column ────────────────────────────────────────── */}
-          <aside className="lg:col-span-5 space-y-12">
-            <Reveal type="up" delay={200}>
-              <div>
-                <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-7">
-                  What we handle
-                </p>
-                <p className="font-[family-name:var(--font-editorial)] italic text-[17px] text-ivory-soft leading-relaxed">
-                  Sporting occasions, hotels and restaurants, private aviation, fashion weeks,
-                  international travel, luxury goods and private events — if it can be arranged, we
-                  will arrange it.
-                </p>
-              </div>
-            </Reveal>
-
-            <Reveal type="up" delay={350}>
-              <div className="border-t border-graphite-line/60 pt-10">
-                <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
-                  Already a Member?
-                </p>
-                <p className="font-[family-name:var(--font-editorial)] italic text-[17px] text-ivory-soft leading-relaxed">
-                  Members raise concierge requests inside the portal — you&apos;ll find a faster
-                  reply there.
-                </p>
-                <Link
-                  href="/login"
-                  className="mt-7 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
-                >
-                  Open the member portal
-                  <ArrowUpRight size={13} strokeWidth={1.5} />
-                </Link>
-              </div>
-            </Reveal>
-          </aside>
-        </div>
-      </Chapter>
-    </>
-  )
 }
 
-// ─── Components ──────────────────────────────────────────────────────
-
-function SuccessPanel() {
+function SignInPrompt({ area }: { area: Area }) {
   return (
-    <Reveal type="up" delay={0}>
-      <div className="border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-14 text-center day:bg-white day:shadow-lg">
-        <div className="w-14 h-14 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-6">
-          <Check size={24} strokeWidth={1.5} className="text-bronze-light" />
-        </div>
-        <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
-          Received
-        </p>
-        <h2 className="display-md mb-6">Your enquiry has reached us.</h2>
-        <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-relaxed max-w-md mx-auto">
-          The concierge team will be in touch personally to take the next steps.
-        </p>
-      </div>
-    </Reveal>
-  )
-}
-
-// ─── Request-type tiles — single-select checklist ────────────────────
-
-function RequestTiles({
-  value,
-  onChange,
-}: {
-  value: EnquiryData['request_type'] | undefined
-  onChange: (v: EnquiryData['request_type']) => void
-}) {
-  return (
-    <div>
-      <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-4">
-        What do you need
-      </label>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {REQUEST_TYPES.map((opt) => {
-          const on = value === opt
-          return (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => onChange(opt)}
-              aria-pressed={on}
-              className={cn(
-                'group relative flex items-center gap-3 px-4 py-3 border text-left transition-all duration-300',
-                on
-                  ? 'border-bronze bg-bronze/10 shadow-[0_0_22px_-10px_rgba(192,152,112,0.6)]'
-                  : 'border-graphite-line/70 bg-graphite/30 hover:border-bronze/55 hover:bg-bronze/5 day:bg-white day:border-graphite-line/55 day:shadow-sm day:hover:border-bronze/55 day:hover:bg-bronze/5',
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  'shrink-0 w-4 h-4 flex items-center justify-center border transition-all duration-300',
-                  on ? 'bg-bronze border-bronze' : 'border-graphite-line/80 group-hover:border-bronze/60',
-                )}
-              >
-                {on && <Check size={10} strokeWidth={3} className="text-ink" />}
-              </span>
-              <span
-                className={cn(
-                  'font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.16em] transition-colors duration-300',
-                  on ? 'text-bronze-light' : 'text-ivory-soft group-hover:text-ivory',
-                )}
-              >
-                {opt}
-              </span>
-            </button>
-          )
-        })}
+    <div className="border border-graphite-line/60 bg-graphite/30 day:bg-white day:shadow-sm p-8 sm:p-10">
+      <p className={cn(eyebrowClass, 'mb-4')}>For The Club Members</p>
+      <p className="font-[family-name:var(--font-display)] text-[1.5rem] leading-snug text-ivory">
+        {area.label.replace(/^\d+ · /, '')} are part of The Club Membership.
+      </p>
+      <p className={cn(bodyClass, 'mt-4')}>
+        Sign in to send a request, or apply to join. Concierge access is included in every membership tier.
+      </p>
+      <div className="mt-8 flex flex-wrap gap-3">
+        <PillLink href={`/login?redirect=${encodeURIComponent(`/concierge#${area.id}`)}`} small>
+          Sign in
+        </PillLink>
+        <PillLink href="/membership-application" small>
+          Apply
+        </PillLink>
       </div>
     </div>
   )
 }
 
-// ─── PremiumPillButton ──────────────────────────────────────────────
+export default async function ConciergePage() {
+  const memberId = await activeMemberId()
 
-interface PremiumPillButtonProps {
-  children: React.ReactNode
-  type?: 'button' | 'submit'
-  disabled?: boolean
-  onClick?: () => void
-}
-
-function PremiumPillButton({ children, type = 'button', disabled, onClick }: PremiumPillButtonProps) {
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'group relative inline-block transition-opacity duration-500',
-        disabled && 'opacity-60 cursor-wait',
+    <>
+      <NightHero
+        image="https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/concierge/concierge-hero-st-moritz.jpg"
+        alt="Supercars lined up in the snow at St Moritz on a curated experience"
+        eyebrow="Private Concierge"
+        title="Private Concierge. Ask for anything; we deliver it."
+        lede="Collection, private travel, transfers and access for The Club Members and UHNW guests, handled end to end, so the experience begins at the front door."
+      >
+        <PillLink href="#event-services">Plan an event</PillLink>
+        <PillLink href={memberId ? '#access' : '/login?redirect=%2Fconcierge'}>
+          {memberId ? 'Make a request' : 'Member sign in'}
+        </PillLink>
+      </NightHero>
+
+      {/* ── Four areas ───────────────────────────────────────── */}
+      <Chapter density="tight" bg="ink">
+        <CardGrid
+          cols={4}
+          items={AREAS.map((a) => ({
+            n: a.label.split(' · ')[0],
+            title: a.label.split(' · ')[1],
+            body: a.who,
+            href: `#${a.id}`,
+          }))}
+        />
+      </Chapter>
+
+      {AREAS.map((area, i) => (
+        <Chapter
+          key={area.id}
+          id={area.id}
+          density="default"
+          bg={i % 2 === 0 ? 'graphite' : 'ink'}
+          className="relative scroll-mt-20"
+        >
+          {i === 0 && <Aurora variant="soft" />}
+          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16">
+            <div className="lg:col-span-5">
+              <Reveal type="up" delay={0}>
+                <p className={cn(eyebrowClass, 'mb-5')}>{area.label}</p>
+              </Reveal>
+              <Reveal type="clip" delay={120}>
+                <h2 className="display-md">{area.title}</h2>
+              </Reveal>
+              <Reveal type="up" delay={240}>
+                <p className={cn(bodyClass, 'mt-6')}>{area.covers}</p>
+                <p className="mt-6 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.3em] text-slate-haze">
+                  Who can request · <span className="text-ivory-soft">{area.who}</span>
+                </p>
+              </Reveal>
+              <Reveal type="scale" delay={300}>
+                <div className="relative mt-10 aspect-[4/3] overflow-hidden border border-graphite-line/60">
+                  <Image src={area.image} alt={area.imageAlt} fill sizes="(min-width: 1024px) 40vw, 100vw" className="object-cover" />
+                </div>
+              </Reveal>
+            </div>
+            <div className="lg:col-span-7">
+              {area.memberType ? (
+                memberId ? (
+                  <FormPanel id={`${area.id}-form`} eyebrow="Your request" title={`${area.label.replace(/^\d+ · /, '')}.`}>
+                    <MemberRequestForm type={area.memberType} memberId={memberId} />
+                  </FormPanel>
+                ) : (
+                  <SignInPrompt area={area} />
+                )
+              ) : (
+                <FormPanel
+                  id="event-services-form"
+                  eyebrow="Event Services"
+                  title="Tell us about your event."
+                  lede="Private or corporate — the events team will call to talk through your brief."
+                >
+                  <EventServicesForm />
+                </FormPanel>
+              )}
+            </div>
+          </div>
+        </Chapter>
+      ))}
+
+      {/* ── Recent requests (Sarah to supply) ───────────────── */}
+      {RECENT_REQUESTS.length > 0 && (
+        <Chapter density="tight" bg="ink">
+          <p className={cn(eyebrowClass, 'mb-8')}>Recent requests we’ve delivered</p>
+          <CardGrid items={RECENT_REQUESTS} cols={3} />
+        </Chapter>
       )}
-    >
-      <span className="block relative px-9 py-4 border border-bronze rounded-full overflow-hidden transition-colors duration-700">
-        <span
-          aria-hidden
-          className="absolute inset-[5px] border border-bronze/40 rounded-full pointer-events-none transition-colors duration-700 group-hover:border-ink/20"
-        />
-        <span
-          aria-hidden
-          className="absolute inset-[5px] bg-bronze rounded-full scale-x-0 group-hover:scale-x-100 origin-center transition-transform duration-700 ease-out"
-        />
-        <span className="relative z-10 flex items-center gap-3 font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.32em] text-ivory group-hover:text-ink transition-colors duration-700">
-          {children}
-          <ArrowUpRight
-            size={14}
-            strokeWidth={1.5}
-            className="transition-transform duration-700 group-hover:translate-x-1 group-hover:-translate-y-1"
-          />
-        </span>
-      </span>
-    </button>
+
+      <section className="bg-graphite border-t border-graphite-line/40">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-10 py-14 flex flex-col md:flex-row md:items-center gap-6 md:justify-between">
+          <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.05rem,1.4vw,1.3rem)] text-ivory-soft">
+            Concierge access is included in every membership tier.
+          </p>
+          <div className="flex flex-wrap gap-6">
+            {memberId && <MetaLink href="/portal/concierge">My requests</MetaLink>}
+            <MetaLink href="/memberships">Memberships</MetaLink>
+          </div>
+        </div>
+      </section>
+    </>
   )
 }
-
-// ─── Field — underline input / textarea ─────────────────────────────
-
-interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement | HTMLTextAreaElement> {
-  label: string
-  error?: string
-  as?: 'input' | 'textarea'
-  rows?: number
-}
-
-const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
-  ({ label, error, as = 'input', rows, id, ...rest }, ref) => {
-    const autoId = useId()
-    const fieldId = id ?? autoId
-    const inputClass =
-      'w-full px-0 py-3 bg-transparent border-b border-graphite-line/80 focus:border-bronze focus:outline-none text-[15px] text-ivory placeholder:text-slate-dim transition-colors'
-    return (
-      <div>
-        <label
-          htmlFor={fieldId}
-          className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3"
-        >
-          {label}
-        </label>
-        {as === 'textarea' ? (
-          <textarea
-            ref={ref as React.Ref<HTMLTextAreaElement>}
-            id={fieldId}
-            aria-invalid={error ? true : undefined}
-            rows={rows ?? 5}
-            className={inputClass + ' resize-none'}
-            {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
-          />
-        ) : (
-          <input
-            ref={ref as React.Ref<HTMLInputElement>}
-            id={fieldId}
-            aria-invalid={error ? true : undefined}
-            className={inputClass}
-            {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
-          />
-        )}
-        {error && <p className="mt-2 text-[12px] text-bronze-light italic">{error}</p>}
-      </div>
-    )
-  },
-)
-Field.displayName = 'Field'

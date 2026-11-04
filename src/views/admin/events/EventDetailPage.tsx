@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { BOOKING_STATUS_LABELS, PROGRAMME_TAG, isProgramme } from '@/components/website/events/programmes'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
@@ -83,7 +84,7 @@ const bookingVariant: Record<BookingStatus, 'active' | 'upcoming' | 'draft' | 'u
 }
 const typeLabels: Record<string, string> = {
   member_event: 'Member Event',
-  curated_luxury: 'Curated Luxury',
+  curated_luxury: 'Curated Experience',
   retreat: 'Retreat',
 }
 
@@ -399,10 +400,29 @@ export function EventDetailPage() {
                 </Badge>
               </div>
               <p className="text-sm text-text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span>
+                  {isProgramme(event.programme) ? PROGRAMME_TAG[event.programme] : 'No programme'}
+                </span>
+                <span className="text-text-dim">·</span>
                 <span>{typeLabels[event.event_type]}</span>
                 <span className="text-text-dim">·</span>
                 <span className="font-mono text-xs text-text-dim">/{event.slug}</span>
               </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge variant={event.visibility === 'members' ? 'draft' : 'info'}>
+                  {event.visibility === 'members' ? 'Members only' : 'Public'}
+                </Badge>
+                {event.booking_status !== 'open' && (
+                  <Badge variant={event.booking_status === 'sold_out' ? 'urgent' : 'upcoming'}>
+                    {BOOKING_STATUS_LABELS[event.booking_status] ?? event.booking_status}
+                  </Badge>
+                )}
+                {event.sponsorship_available && <Badge variant="active">Sponsorship available</Badge>}
+                {event.is_portfolio && <Badge variant="info">Portfolio case study</Badge>}
+              </div>
+              {event.short_description && (
+                <p className="mt-2 text-sm text-text-muted max-w-2xl">{event.short_description}</p>
+              )}
             </div>
             {event.cover_image_url && (
               <div className="hidden md:block w-40 aspect-[16/10] rounded-md overflow-hidden bg-surface-2 border border-border flex-shrink-0">

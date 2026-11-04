@@ -7,18 +7,18 @@ import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 import { getPageHero } from '@/lib/cms/heroes'
 
 export const metadata: Metadata = {
-  title: 'Club Rules | The Club by Sarah Restrick',
+  title: 'The Club Rules | The Club by Sarah Restrick',
   description:
-    'The house rules and etiquette that keep The Club a considered, private space for members and their guests.',
+    'The Club Rules: the house rules and etiquette that keep The Club a considered, private space for The Club Members and their guests.',
   openGraph: {
-    title: 'Club Rules | The Club by Sarah Restrick',
+    title: 'The Club Rules | The Club by Sarah Restrick',
     description:
-      'The house rules and etiquette that keep The Club a considered, private space for members and their guests.',
+      'The Club Rules: the house rules and etiquette that keep The Club a considered, private space for The Club Members and their guests.',
   },
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Club Rules — the official member guidelines, set as an editorial
+// The Club Rules — the official member guidelines, set as an editorial
 // spread. All rule copy, the intro paragraph, the closing thank-you
 // and the "last updated" date are VERBATIM from Sarah's source
 // (provided 2026-05-25, originally published 15 January 2024). Only
@@ -32,8 +32,8 @@ export const metadata: Metadata = {
 // /memberships so the page sits with its peers.
 // ─────────────────────────────────────────────────────────────────────
 
-const HERO_IMAGE =
-  'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=2400&q=85'
+// Fallback only — the live hero is managed in /dashboard/website/hero-slides.
+const HERO_IMAGE = 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/candlelit-table.jpg'
 
 const LAST_UPDATED = '15 January 2024'
 
@@ -90,7 +90,7 @@ export default async function ClubRulesPage() {
     page_slug: 'club-rules',
     media_type: 'image',
     image_url: HERO_IMAGE,
-    alt_text: 'A handwritten letter on a wooden desk',
+    alt_text: 'A candlelit table set for an evening at The Club',
     eyebrow: 'The Standard · Nine Articles',
     headline: 'The Club Rules.',
     lede: 'Guidelines for a harmonious and enriching experience for all.',

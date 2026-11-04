@@ -147,6 +147,23 @@ function SuccessInner() {
           </p>
         )}
 
+        {/* Next step (brief: suggest "Book a one-to-one with Sarah"). */}
+        <div className="mt-10 pt-8 border-t border-bronze/25">
+          <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-3">
+            Next step
+          </p>
+          <p className="font-[family-name:var(--font-editorial)] text-[16px] text-ivory leading-[1.6]">
+            Book a one-to-one with Sarah to set your objectives.
+          </p>
+          <a
+            href="mailto:sarah@theclubgroup.co?subject=One-to-one%20with%20Sarah%20%E2%80%94%20membership%20application"
+            className="mt-4 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
+          >
+            sarah@theclubgroup.co
+            <ArrowUpRight size={13} strokeWidth={1.5} />
+          </a>
+        </div>
+
         <Link
           href="/"
           className="mt-10 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"

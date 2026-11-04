@@ -278,11 +278,13 @@ async function approveClaimed({
 
       // Recurring price line — name it after the plan so the Stripe
       // invoice + customer portal read sensibly.
-      let tierLabel = `${plan.name} Membership`
+      let tierLabel = `${plan.name.replace(/\s*membership$/i, '')} Membership`
       const { data: planRow } = await admin
         .from('membership_plans')
         .select('name')
-        .eq('slug', plan.slug)
+        .eq('tier_classification', tier)
+        .order('display_order', { ascending: true })
+        .limit(1)
         .maybeSingle()
       if (planRow?.name) tierLabel = `${planRow.name.replace(/\s*membership$/i, '')} Membership`
 

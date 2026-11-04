@@ -10,6 +10,7 @@ import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, MapPin, Train } from 'lucide-react'
 
 export const metadata: Metadata = {
+  robots: { index: false },
   title: 'One London Road | The Club by Sarah Restrick',
   description:
     "One London Road — The Club's home venue for members' dining and private events.",
@@ -27,27 +28,29 @@ export const metadata: Metadata = {
 // the foot.
 // ─────────────────────────────────────────────────────────────────────
 
-const HERO_IMAGE =
-  'https://images.unsplash.com/photo-1551269901-5c5e14c25df7?auto=format&fit=crop&w=2400&q=85'
+// Stock imagery replaced with The Club's own photography (brief: no
+// Unsplash/stock). NOTE for Sarah: this unlinked page's venue copy is
+// unconfirmed — it is noindexed and out of the sitemap pending review.
+const HERO_IMAGE = 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/private-dining-room.jpg'
 
 const ROOMS = [
   {
-    src: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=2400&q=85',
-    alt: 'A long dining room with a marble table and warm candlelight',
+    src: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/dinner-long-table.jpg',
+    alt: 'A long dining table set with candles and flowers',
     name: 'The Long Room',
     capacity: 'Up to 32 for dining · 60 for standing receptions',
     detail: 'The room we open most often. A nine-metre marble table, an open kitchen at one end, a small bar at the other.',
   },
   {
-    src: 'https://images.unsplash.com/photo-1582719188393-bb71ca45dbb9?auto=format&fit=crop&w=2400&q=85',
-    alt: 'A small library with leather chairs and tall shelves',
+    src: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/table-florals.jpg',
+    alt: 'A round table set with white flowers and candles',
     name: 'The Library',
     capacity: 'Up to 14 seated · 24 standing',
     detail: 'A quieter room behind the kitchen. Used for salons, smaller dinners, and the occasional book launch.',
   },
   {
-    src: 'https://images.unsplash.com/photo-1525268323446-0505b6fe7778?auto=format&fit=crop&w=2400&q=85',
-    alt: 'A vaulted basement bar with copper detailing',
+    src: 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/evening-bar.jpg',
+    alt: 'A bar in full swing on an evening at The Club',
     name: 'The Cellar',
     capacity: 'Up to 40 for drinks',
     detail: "A vaulted basement bar. Drops in temperature, drops in tempo. Where the evening usually ends.",
@@ -59,7 +62,7 @@ export default async function OneLondonRoadPage() {
     page_slug: 'one-london-road',
     media_type: 'image',
     image_url: HERO_IMAGE,
-    alt_text: 'One London Road by night',
+    alt_text: 'A private dining room set for dinner',
     eyebrow: 'The Address · London · Marylebone',
     headline: 'One London Road.',
     lede:
@@ -197,7 +200,7 @@ export default async function OneLondonRoadPage() {
 
         <div className="mt-16 flex items-center gap-5">
           <Link
-            href="/private-event-services"
+            href="/concierge#event-services"
             className="group inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
           >
             Host an event here

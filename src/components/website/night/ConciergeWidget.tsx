@@ -32,6 +32,7 @@ import axios from 'axios'
 import { MessageCircle, X, ArrowUp, ArrowUpRight, CalendarDays, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiClient } from '@/lib/http'
+import { supabase } from '@/lib/supabase/client'
 
 // Hide on the same flows JoinBadge hides on, plus the authenticated app.
 const HIDDEN_ON: string[] = [
@@ -93,12 +94,29 @@ export function ConciergeWidget() {
   const [done, setDone] = useState(false)
   const [honeypot, setHoneypot] = useState('')
 
+  // Signed-in members get a link to the member concierge request flow;
+  // everyone else to the public Concierge page.
+  const [signedIn, setSignedIn] = useState(false)
+
   const sessionRef = useRef<string>('')
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     sessionRef.current = getSessionToken()
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (alive) setSignedIn(!!data.session)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
   }, [])
 
   // Keep the latest message in view.
@@ -172,11 +190,28 @@ export function ConciergeWidget() {
   return (
     <>
       {/* ── Launcher — bottom-LEFT (JoinBadge owns the right edge) ─── */}
-      {!open && (
+      {/* Signed-in members: the launcher goes straight to the member
+          concierge request flow (the chat is a prospect-facing concierge). */}
+      {signedIn && (
+        <Link
+          href="/portal/concierge"
+          aria-label="Make a concierge request"
+          className="always-night group fixed bottom-5 left-5 z-40 flex items-center gap-3 rounded-full border border-bronze/45 bg-graphite/85 backdrop-blur-md pl-4 pr-5 py-3 shadow-[var(--shadow-lg)] transition-[background-color,border-color] duration-500 hover:bg-graphite hover:border-bronze/70"
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-bronze/15 border border-bronze/40">
+            <MessageCircle size={16} strokeWidth={1.5} className="text-bronze-light" />
+          </span>
+          <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-ivory-soft group-hover:text-ivory transition-colors duration-500">
+            Concierge
+          </span>
+        </Link>
+      )}
+
+      {!signedIn && !open && (
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label="Open the Club concierge chat"
+          aria-label="Open The Club concierge chat"
           className="always-night group fixed bottom-5 left-5 z-40 flex items-center gap-3 rounded-full border border-bronze/45 bg-graphite/85 backdrop-blur-md pl-4 pr-5 py-3 shadow-[var(--shadow-lg)] transition-[background-color,border-color] duration-500 hover:bg-graphite hover:border-bronze/70 motion-safe:hover:-translate-y-0.5 motion-safe:transition-transform"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-bronze/15 border border-bronze/40">
@@ -189,7 +224,7 @@ export function ConciergeWidget() {
       )}
 
       {/* ── Chat panel ────────────────────────────────────────────── */}
-      {open && (
+      {!signedIn && open && (
         <div
           role="dialog"
           aria-modal="false"
@@ -216,6 +251,19 @@ export function ConciergeWidget() {
               <X size={15} strokeWidth={1.5} />
             </button>
           </div>
+
+          {/* Concierge services link — the public Concierge page */}
+          <Link
+            href="/concierge"
+            className="group flex items-center justify-between gap-3 px-5 py-2.5 border-b border-graphite-line/70 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.3em] text-bronze-light hover:text-ivory transition-colors duration-300"
+          >
+            Explore our concierge services
+            <ArrowUpRight
+              size={13}
+              strokeWidth={1.5}
+              className="shrink-0 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+            />
+          </Link>
 
           {/* Messages — data-lenis-prevent stops the site-wide Lenis smooth-scroll
               from hijacking wheel/touch events so this panel scrolls on its own. */}

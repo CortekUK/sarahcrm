@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
+import { Select } from '@/components/ui/Select'
+import { Badge } from '@/components/ui/Badge'
+import { ImageUpload } from '@/components/ui/ImageUpload'
+import { Thumbnail } from '@/components/admin/Thumbnail'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
@@ -21,16 +25,31 @@ import { dbErrorMessage } from '@/lib/form-validation'
 
 type Testimonial = Database['public']['Tables']['testimonials']['Row']
 
-// Public surface that displays testimonials — the homepage's
-// VoicesChapter reads from this table. Flushing `/` after any change
-// makes the new/edited/removed quote appear immediately instead of
-// waiting for the 60s ISR window.
+// Public surfaces that display testimonials — the homepage carousel and
+// the Success Stories page read from this table. Flushing both after any
+// change makes the new/edited/removed quote appear immediately instead of
+// waiting for the ISR window.
 function flushHomepageCache() {
   void fetch('/api/admin/revalidate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ paths: ['/'] }),
+    body: JSON.stringify({ paths: ['/', '/success-stories'] }),
   }).catch(() => {})
+}
+
+const TESTIMONIAL_TYPES = ['member', 'partner', 'venue'] as const
+type TestimonialType = (typeof TESTIMONIAL_TYPES)[number]
+
+const typeLabels: Record<TestimonialType, string> = {
+  member: 'Member',
+  partner: 'Partner',
+  venue: 'Venue',
+}
+
+const typeOptions = TESTIMONIAL_TYPES.map((t) => ({ value: t, label: typeLabels[t] }))
+
+function asType(v: string | null | undefined): TestimonialType {
+  return (TESTIMONIAL_TYPES as readonly string[]).includes(v ?? '') ? (v as TestimonialType) : 'member'
 }
 
 const schema = z.object({
@@ -38,6 +57,8 @@ const schema = z.object({
   person_title: z.string().optional(),
   company_name: z.string().optional(),
   quote_text: z.string().min(1, 'Quote is required'),
+  testimonial_type: z.enum(TESTIMONIAL_TYPES, { message: 'Choose a type' }),
+  photo_url: z.string().optional(),
   display_order: z.coerce.number().int().min(0),
   is_active: z.boolean(),
 })
@@ -74,6 +95,8 @@ export function TestimonialsPage() {
       person_title: '',
       company_name: '',
       quote_text: '',
+      testimonial_type: 'member',
+      photo_url: '',
       display_order: 0,
       is_active: true,
     },
@@ -91,6 +114,8 @@ export function TestimonialsPage() {
           person_title: editingItem.person_title ?? '',
           company_name: editingItem.company_name ?? '',
           quote_text: editingItem.quote_text,
+          testimonial_type: asType(editingItem.testimonial_type),
+          photo_url: editingItem.photo_url ?? '',
           display_order: editingItem.display_order,
           is_active: editingItem.is_active,
         })
@@ -100,6 +125,8 @@ export function TestimonialsPage() {
           person_title: '',
           company_name: '',
           quote_text: '',
+          testimonial_type: 'member',
+          photo_url: '',
           display_order: items.length,
           is_active: true,
         })
@@ -125,6 +152,8 @@ export function TestimonialsPage() {
       person_title: data.person_title || null,
       company_name: data.company_name || null,
       quote_text: data.quote_text,
+      testimonial_type: data.testimonial_type,
+      photo_url: data.photo_url || null,
       display_order: data.display_order,
       is_active: data.is_active,
     }
@@ -201,7 +230,7 @@ export function TestimonialsPage() {
     <div className="p-8">
       <AdminPageHeader
         title="Testimonials"
-        description="Member quotes shown on the homepage In Their Own Words carousel. Drag to reorder; toggle inactive to hide without deleting. When all testimonials are removed or inactive, the homepage section is hidden entirely — no placeholder quotes are ever shown to the public."
+        description="Quotes from The Club Members, partners and venues. They feed the homepage carousel and the Success Stories page — member quotes in the members section, partner and venue quotes in the partners & venues section. Drag to reorder; toggle inactive to hide without deleting. When none are active, the section is hidden entirely — no placeholder quotes are ever shown to the public."
         meta={
           <span className="text-xs text-text-dim">
             {items.length} testimonial{items.length !== 1 ? 's' : ''}
@@ -249,10 +278,25 @@ export function TestimonialsPage() {
                 <div className="flex items-start gap-4 px-5 py-4 border-b border-border last:border-b-0 group hover:bg-surface-2/50 transition-colors">
                   <div className="flex items-center gap-3 pt-1">
                     <DragHandle dragHandleProps={dragHandleProps} />
-                    <Initials name={item.person_name} />
+                    {item.photo_url ? (
+                      <Thumbnail
+                        src={item.photo_url}
+                        alt={item.person_name}
+                        aspect="1 / 1"
+                        width={40}
+                        className="rounded-full ring-1 ring-gold/20"
+                      />
+                    ) : (
+                      <Initials name={item.person_name} />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text">{item.person_name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-text">{item.person_name}</p>
+                      <Badge variant={asType(item.testimonial_type) === 'member' ? 'upcoming' : 'info'}>
+                        {typeLabels[asType(item.testimonial_type)]}
+                      </Badge>
+                    </div>
                     <p className="text-[11px] text-text-dim mt-0.5">
                       {[item.person_title, item.company_name].filter(Boolean).join(' · ') || '—'}
                     </p>
@@ -321,7 +365,24 @@ export function TestimonialsPage() {
             />
             <Input label="Title / role" {...form.register('person_title')} />
           </div>
-          <Input label="Company name" {...form.register('company_name')} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Company name" {...form.register('company_name')} />
+            <Select
+              label="Type"
+              options={typeOptions}
+              error={form.formState.errors.testimonial_type?.message}
+              {...form.register('testimonial_type')}
+            />
+          </div>
+          <ImageUpload
+            label="Photo or logo"
+            value={form.watch('photo_url')}
+            onChange={(url) => form.setValue('photo_url', url ?? '', { shouldDirty: true })}
+            bucket="gallery"
+            folder="testimonials"
+            aspect="1 / 1"
+            hint="Optional. A headshot for members; a logo works well for partners and venues."
+          />
           <Textarea
             label="Quote"
             rows={4}
@@ -334,7 +395,7 @@ export function TestimonialsPage() {
               className="w-4 h-4 rounded border-border text-gold accent-gold"
               {...form.register('is_active')}
             />
-            <span className="text-sm text-text">Active on the homepage</span>
+            <span className="text-sm text-text">Active on the website</span>
           </label>
           <div className="flex justify-between pt-5 border-t border-border mt-5 -mx-6 px-6">
             <div>

@@ -1,5 +1,6 @@
 'use client'
 
+import { canonicalPlanSlug } from '@/lib/membership/plans'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
@@ -89,9 +90,9 @@ interface PaymentRow {
 }
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier I',
-  tier_2: 'Tier II',
-  tier_3: 'Tier III',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 // Direct Debit (Stripe Bacs) — read separately from the main member query
@@ -215,7 +216,10 @@ export function PortalBillingPage() {
     // approved application. Never assume monthly — an annual member was
     // shown "Monthly £250/month".
     const cadence = toCadence(memberData.payment_frequency) ?? toCadence(appRes.data?.payment_preference)
-    const planSlug = appRes.data?.preferred_tier ?? null
+    // Legacy slugs ('individual' / 'corporate') map onto the renamed plans.
+    const planSlug = appRes.data?.preferred_tier
+      ? canonicalPlanSlug(appRes.data.preferred_tier)
+      : null
 
     let plan: PlanDisplay | null = null
 
@@ -225,6 +229,9 @@ export function PortalBillingPage() {
         .from('membership_plans')
         .select('name, annual_price_pence, monthly_price_pence')
         .eq('slug', planSlug)
+        // The member's tier is the source of truth — ignore an application
+        // slug that now names a different tier.
+        .eq('tier_classification', memberData.membership_tier)
         .eq('is_active', true)
         .maybeSingle()
       if (planRow) {

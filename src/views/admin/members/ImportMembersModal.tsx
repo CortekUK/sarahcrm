@@ -121,9 +121,9 @@ function mapHeaders(headerRow: string[]): Record<number, keyof ParsedRow> {
 }
 
 const TIER_OPTIONS = [
-  { value: 'tier_1', label: 'Tier 1' },
-  { value: 'tier_2', label: 'Tier 2' },
-  { value: 'tier_3', label: 'Tier 3' },
+  { value: 'tier_1', label: 'Access' },
+  { value: 'tier_2', label: 'The Club Membership' },
+  { value: 'tier_3', label: 'The Club Business Membership' },
 ]
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending — no portal access yet' },

@@ -56,7 +56,7 @@ const SAMPLE_DATA = {
   last_name: 'Hayes',
   email: 'charlotte@example.com',
   phone: '+44 7700 900123',
-  membership_tier: 'Tier 1',
+  membership_tier: 'Access',
   company_name: 'Hayes & Co.',
   sender_name: 'Sarah Restrick',
   sender_title: 'Founder, The Club',

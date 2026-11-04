@@ -1,366 +1,526 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
-import { createClient } from '@supabase/supabase-js'
-import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
-import { Chapter } from '@/components/website/night/primitives/Chapter'
-import { Aurora } from '@/components/website/night/effects/Aurora'
+import Link from 'next/link'
+import { ArrowUpRight } from 'lucide-react'
+import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import { TracingBeam } from '@/components/website/night/effects/TracingBeam'
-import { ApplyClose } from '@/components/website/night/home/ApplyClose'
-import { InstagramChapter } from '@/components/website/night/home/InstagramChapter'
-import { VideoGallery, type VideoEntry } from '@/components/website/night/VideoGallery'
-import { StoryCarousel } from '@/components/website/night/StoryCarousel'
-import { getPageHero } from '@/lib/cms/heroes'
+import { ClubNumbers } from '@/components/website/night/about/ClubNumbers'
+import { BarList } from '@/components/website/night/about/BarList'
+import { EcosystemGraphic } from '@/components/website/night/about/EcosystemGraphic'
+import { getClubStats } from '@/lib/cms/club-stats'
+
+const DESCRIPTION =
+  "A private members' club for founders, owners, senior executives and high-net-worth individuals, meeting through a calendar of luxury events at five-star venues across the UK and beyond."
 
 export const metadata: Metadata = {
-  title: 'About | The Club by Sarah Restrick',
-  description:
-    "The story behind The Club by Sarah Restrick — a private members' community for business owners across Manchester, Leeds and London.",
+  title: 'The Club | The Club by Sarah Restrick',
+  description: DESCRIPTION,
   openGraph: {
-    title: 'About | The Club by Sarah Restrick',
-    description:
-      "The story behind The Club by Sarah Restrick — a private members' community for business owners across Manchester, Leeds and London.",
+    title: 'The Club | The Club by Sarah Restrick',
+    description: DESCRIPTION,
+    images: ['https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/sarah-restrick-portrait.jpg'],
   },
 }
 
+// Figures are edited in the CMS (app_settings 'club_stats'); the admin save
+// flushes this path, the window below is just the safety net.
+export const revalidate = 300
+
 // ─────────────────────────────────────────────────────────────────────
-// /about — "The Club" page.
-//
-// All voice copy on this page is VERBATIM from Sarah's live site
-// (theclubbysarahrestrick.com). No fabricated principles, quotes or
-// press marquee. Placeholder images use existing /public assets until
-// the real portrait + Clique 100 event photographs are dropped in.
-//
-// Composition:
-//   01 Hero               — portrait + headline, restrained typography
-//   02 Story (TracingBeam) — three editorial chapters down one column:
-//                            Intro · Beyond Fashion · The Turning Point
-//   03 Video Gallery      — fed by public.video_gallery (page_slug='about')
-//   04 Closing reflection — editorial italic close
-//   05 Apply close        — shared homepage CTA
+// /about — "The Club". Carries the brochure's Section I (The Club) and
+// Section II (Reach), in the brief's order:
+//   Welcome · The Club in numbers · The ecosystem · Personas ·
+//   Database by sector · Regions + company size · Beyond the room ·
+//   Brands we work with · The Club platform · CTA band
+// Every figure / chart reads from getClubStats() (one editable source).
+// Copy is the brochure's, verbatim.
 // ─────────────────────────────────────────────────────────────────────
 
-const HERO_PORTRAIT = '/gallery/potrait.png' // PLACEHOLDER — Sarah's real portrait
-const STORY_IMAGE_1 = '/gallery/land2.png'   // PLACEHOLDER — Clique 100 / on-stage photo
-const STORY_IMAGE_2 = '/gallery/land3.png'   // PLACEHOLDER — networking B&W photo
+const PERSONAS: { title: string; body: string }[] = [
+  {
+    title: 'Ultra-high-net-worth',
+    body: 'Individuals, families and family offices with private travel, collections and property',
+  },
+  {
+    title: 'High-net-worth',
+    body: 'Private clients and their families, entrepreneurs, talent and influencers',
+  },
+  {
+    title: 'Founders & owners',
+    body: '£1m–£100m+ businesses across corporate, luxury, lifestyle and hospitality',
+  },
+  { title: 'C-suite', body: 'Board-level decision makers across every sector' },
+  {
+    title: 'Investors',
+    body: 'Angels, VCs, private investors, hedge funds and family offices',
+  },
+  {
+    title: 'Luxury brands',
+    body: 'Prestige retailers of cars, watches, art, jewellery and property',
+  },
+  {
+    title: 'Venues',
+    body: 'Five-star hotels, restaurants and nightlife in the UK, Europe and worldwide',
+  },
+]
 
-async function getVideos(): Promise<VideoEntry[]> {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
-  const { data } = await supabase
-    .from('video_gallery')
-    .select('id, youtube_url, title')
-    .eq('page_slug', 'about')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-  return (data as VideoEntry[]) ?? []
-}
+const BRAND_ROWS: { category: string; brands: string[] }[] = [
+  {
+    category: 'Retail & Fashion',
+    brands: ['Harrods', 'Selfridges', 'Harvey Nichols', 'Louis Vuitton', 'Ralph Lauren', 'Elite Pre Loved'],
+  },
+  { category: 'Watches & Jewellery', brands: ['Tiffany', 'Boodles', 'Mappin & Webb', 'AP Watches'] },
+  {
+    category: 'Automotive & Aviation',
+    brands: ['HR Owen', 'Sytner', 'Stratstone', 'Atlas Helicopters', 'JET365', 'The Needs Group', 'Levare Aviation'],
+  },
+  {
+    category: 'Finance & Professional',
+    brands: [
+      'Brown Shipley',
+      'UBS',
+      'Gallagher Insurance',
+      'Together Money',
+      'Ramsey Crookall',
+      'TL Dallas',
+      'JMW',
+      'Myerson',
+      'Sedulo',
+      'Sinclair Law',
+    ],
+  },
+  {
+    category: 'Property & Lifestyle',
+    brands: ['The Property Buying Co.', 'Mistoria Group', 'Black Label Supply', 'SGR Construction', 'ThinkUP'],
+  },
+  { category: 'Technology & Services', brands: ['Cloud Geeks', 'zally AI', 'DMR Training', 'Precursor'] },
+]
+
+const PLATFORM: { title: string; body: string }[] = [
+  {
+    title: 'Automated introductions',
+    body: 'Members matched by client type, sector, assets and location, then tracked through to revenue',
+  },
+  {
+    title: 'Events',
+    body: 'Invitations to profiled guest lists, with booking, guest data and follow-up in one place',
+  },
+  {
+    title: 'Qualified marketing',
+    body: 'Campaigns to the segments that match your ideal client, with no competitor in your category',
+  },
+  {
+    title: 'Benefits & access',
+    body: 'Member profile, loyalty card, partner rates and event access in one app',
+  },
+  {
+    title: "Members' Forum",
+    body: 'A private feed and groups for requests, offers and referrals between members',
+  },
+  { title: 'Reporting', body: 'Introductions, conversions and commission tracked for ROI' },
+]
+
+const eyebrowClass =
+  'font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.36em] text-bronze-light'
 
 export default async function AboutPage() {
-  const [videos, hero] = await Promise.all([
-    getVideos(),
-    getPageHero('about', {
-      page_slug: 'about',
-      media_type: 'image',
-      image_url: HERO_PORTRAIT,
-      alt_text: 'Sarah Restrick',
-      eyebrow: 'The Club · Founder',
-      headline: 'A visionary in luxury and connections.',
-      lede: 'Sarah Restrick’s journey.',
-    }),
-  ])
+  const stats = await getClubStats()
 
   return (
     <>
-      {/* ── 01 · Hero ────────────────────────────────────────────────
-         Eyebrow + headline + lede are CMS-driven (hero_slides table,
-         page_slug='about'). The hardcoded fallback above keeps the
-         page looking right if the DB row is removed or fails to load. */}
-      <section className="relative h-[78vh] min-h-[560px] w-full always-night overflow-hidden bg-ink">
-        <PageHeroMedia
-          mediaType={hero.media_type}
-          imageUrl={hero.image_url}
-          alt={hero.alt_text}
-          videoUrl={hero.video_url}
-          videoPosterUrl={hero.video_poster_url}
-          overlay={0.62}
-          priority
-        />
-        <div className="absolute inset-x-0 bottom-0 h-[55%] hero-fade-bottom pointer-events-none" />
-        <div className="relative z-10 h-full max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col justify-end pb-24">
-          {hero.eyebrow && (
-            <Reveal type="up" delay={0}>
-              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-                {hero.eyebrow}
-              </p>
-            </Reveal>
-          )}
-          {hero.headline && (
-            <Reveal type="clip" delay={150}>
-              <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,4.4vw,4.25rem)] leading-[1.1] tracking-[-0.01em] text-ivory max-w-3xl">
-                {hero.headline}
-              </h1>
-            </Reveal>
-          )}
-          {hero.lede && (
-            <Reveal type="up" delay={400}>
-              <p className="font-[family-name:var(--font-editorial)] italic text-[clamp(1.25rem,1.8vw,1.75rem)] text-bronze-light mt-5">
-                {hero.lede}
-              </p>
-            </Reveal>
-          )}
+      {/* ── Welcome to The Club ─────────────────────────────────── */}
+      <section className="bg-ink pt-32 pb-20 lg:pt-44 lg:pb-28">
+        <div className="max-w-[1600px] mx-auto px-6 lg:px-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+            <div className="lg:col-span-7">
+              <Reveal type="up" delay={0}>
+                <EditorialMeta label="Welcome to The Club" />
+              </Reveal>
+              <Reveal type="clip" delay={150}>
+                <h1 className="display-lg mt-10 mb-10 text-ivory">
+                  Connecting leaders in business through{' '}
+                  <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                    luxury experience.
+                  </em>
+                </h1>
+              </Reveal>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-10 max-w-2xl">
+                <Reveal type="up" delay={350}>
+                  <p className="body-prose">
+                    A private members&apos; club for founders, owners, senior executives and
+                    high-net-worth individuals, meeting through a calendar of luxury events at
+                    five-star venues across the UK and beyond.
+                  </p>
+                </Reveal>
+                <Reveal type="up" delay={500}>
+                  <p className="body-prose">
+                    Value comes from strategy and direct introductions. Membership is capped and by
+                    referral, and every applicant is vetted to protect the quality of the room.
+                  </p>
+                </Reveal>
+              </div>
+            </div>
+            <div className="lg:col-span-5">
+              <Reveal type="scale" delay={200}>
+                <div className="relative aspect-[594/844] max-w-[460px] mx-auto lg:ml-auto overflow-hidden border border-graphite-line/40">
+                  <Image
+                    src="https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/sarah-restrick-portrait.jpg"
+                    alt="Sarah Restrick, founder of The Club"
+                    fill
+                    priority
+                    sizes="(min-width: 1024px) 34vw, 100vw"
+                    className="object-cover"
+                  />
+                </div>
+                <div className="mt-5 flex items-center gap-3 max-w-[460px] mx-auto lg:ml-auto">
+                  <span className="h-px w-8 bg-bronze/55" />
+                  <p className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light">
+                    Sarah Restrick
+                  </p>
+                  <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.24em] text-slate-haze">
+                    Founder
+                  </p>
+                </div>
+              </Reveal>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* ── 02 · Story (TracingBeam) ─────────────────────────────────
-         All three editorial chapters live inside a single TracingBeam
-         so the bronze hairline runs uninterrupted down the side of
-         the page as Sarah's story unfolds. Each chapter follows the
-         same shape: eyebrow → headline OR italic lead → image. Image
-         sizes are deliberately modest so they don't overpower the
-         copy. */}
-      <section className="bg-ink py-24 lg:py-32">
-        <TracingBeam className="max-w-5xl mx-auto px-6 lg:px-10">
-          <div className="space-y-28 lg:space-y-36">
-            {/* Chapter 1 — Introduction
-               Headline pulled from the paragraph: "exclusive luxury
-               events" is verbatim in the body below. items-center on
-               the grid balances the empty space above and below the
-               (shorter) text against the portrait. */}
-            <article>
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-10 lg:gap-14 items-center">
-                <div className="md:col-span-7">
-                  <Reveal type="up" delay={0}>
-                    <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-                      A private members club
+      {/* ── The Club in numbers (shared with the homepage) ───────── */}
+      <ClubNumbers tiles={stats.numbers} bg="graphite" />
+
+      {/* ── The ecosystem ────────────────────────────────────────── */}
+      <Chapter density="default" bg="ink">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-14 lg:gap-16 items-center">
+          <div className="lg:col-span-6">
+            <Reveal type="up" delay={0}>
+              <EditorialMeta label="The ecosystem" />
+            </Reveal>
+            <Reveal type="clip" delay={150}>
+              <h2 className="display-md mt-8 mb-8 text-ivory">
+                One room.{' '}
+                <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                  Every network in it.
+                </em>
+              </h2>
+            </Reveal>
+            <Reveal type="up" delay={300}>
+              <p className="body-prose max-w-xl">
+                Membership opens more than our own network. Every member brings their connections,
+                and every brand partner opens doors to its private clients. One introduction leads to
+                the next.
+              </p>
+            </Reveal>
+            {stats.ecosystem.length > 0 && (
+              <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 max-w-xl">
+                {stats.ecosystem.map((t, i) => (
+                  <Reveal key={`${t.value}-${i}`} type="up" delay={400 + i * 100} className="min-w-0">
+                    <p className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2.2vw,2.25rem)] leading-none text-ivory">
+                      {t.value}
+                    </p>
+                    <p className="mt-3 font-[family-name:var(--font-meta)] text-[9.5px] sm:text-[10px] uppercase tracking-[0.24em] text-slate-haze leading-relaxed">
+                      {t.label}
                     </p>
                   </Reveal>
-                  <Reveal type="clip" delay={150}>
-                    <h2 className="display-md mt-7 max-w-xl">
-                      Exclusive luxury events.
-                    </h2>
-                  </Reveal>
-                  <div className="mt-10 space-y-7">
-                    <Reveal type="up" delay={300}>
-                      <p className="font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
-                        The Club by Sarah Restrick is a private members club, curating invaluable
-                        networking opportunities through exclusive luxury events.
-                      </p>
-                    </Reveal>
-                    <Reveal type="up" delay={450}>
-                      <p className="font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
-                        More than just networking, connecting business leaders, owners, high level
-                        executives and HNWIs through a calendar of luxury events at{' '}
-                        <em className="italic text-bronze-light">five star venues across the UK and beyond</em>.
-                      </p>
-                    </Reveal>
-                  </div>
-                </div>
-
-                <div className="md:col-span-5">
-                  <Reveal type="scale" delay={300}>
-                    {/* aspect-[3/4] is shorter than the prior 4/5 — keeps
-                       the portrait portrait-shaped without towering
-                       over the (relatively short) two-paragraph body. */}
-                    <div className="relative aspect-[3/4] overflow-hidden border border-graphite-line/40">
-                      <Image
-                        src={HERO_PORTRAIT}
-                        alt="Sarah Restrick"
-                        fill
-                        sizes="(min-width: 768px) 40vw, 100vw"
-                        className="object-cover"
-                      />
-                      <div className="film-grain-night" />
-                    </div>
-                    <div className="mt-5 flex items-center gap-3">
-                      <span className="h-px w-8 bg-bronze/55" />
-                      <p className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light">
-                        Sarah Restrick
-                      </p>
-                      <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.24em] text-slate-haze">
-                        Founder
-                      </p>
-                    </div>
-                  </Reveal>
-                </div>
+                ))}
               </div>
-            </article>
+            )}
+            <Reveal type="up" delay={700}>
+              <p className="mt-10 font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft max-w-xl">
+                Founders, owners, investors, C-suite, HNW and UHNW individuals, and local to global
+                brands.
+              </p>
+            </Reveal>
+          </div>
+          <div className="lg:col-span-6">
+            <Reveal type="scale" delay={200}>
+              <EcosystemGraphic />
+            </Reveal>
+          </div>
+        </div>
+      </Chapter>
 
-            {/* Chapter 2 — Beyond Fashion
-               Headline "Beyond the fashion scene." is verbatim from
-               the paragraph's opening clause — clear textual anchor. */}
-            <article>
+      {/* ── Who The Club puts in the room ───────────────────────── */}
+      <Chapter density="tight" bg="graphite">
+        <div className="max-w-3xl mb-12">
+          <Reveal type="up" delay={0}>
+            <EditorialMeta label="Reach · Our personas" />
+          </Reveal>
+          <Reveal type="clip" delay={150}>
+            <h2 className="display-md mt-8 text-ivory">
+              Who The Club puts{' '}
+              <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                in the room
+              </em>
+              .
+            </h2>
+          </Reveal>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {PERSONAS.map((p, i) => (
+            <Reveal
+              key={p.title}
+              type="up"
+              delay={i * 80}
+              className="border border-graphite-line/60 bg-ink/40 p-7 lg:p-8"
+            >
+              <p className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-ivory">
+                {p.title}
+              </p>
+              <span aria-hidden className="block h-px w-8 bg-bronze/60 my-4" />
+              <p className="text-[14px] font-light leading-relaxed text-ivory-soft">{p.body}</p>
+            </Reveal>
+          ))}
+        </div>
+      </Chapter>
+
+      {/* ── The database by sector ──────────────────────────────── */}
+      {stats.sectors.length > 0 && (
+        <Chapter density="tight" bg="ink">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16">
+            <div className="lg:col-span-4">
               <Reveal type="up" delay={0}>
-                <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-                  Beyond Fashion
-                </p>
+                <EditorialMeta label="Reach · Demographics" />
               </Reveal>
               <Reveal type="clip" delay={150}>
-                <h2 className="display-md mt-7 max-w-2xl">
-                  Beyond the fashion scene.
+                <h2 className="display-md mt-8 text-ivory">
+                  The database{' '}
+                  <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                    by sector
+                  </em>
+                  .
                 </h2>
               </Reveal>
-
-              <Reveal type="up" delay={300}>
-                <p className="mt-10 max-w-3xl font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.8] text-ivory-soft">
-                  Her influence extended beyond the fashion scene as she spearheaded external
-                  events for <em className="italic text-bronze-light">Flannels</em>, including
-                  prestigious gatherings such as the{' '}
-                  <em className="italic text-bronze-light">Boodles and Berry&apos;s tennis events</em>
-                  . These experiences not only showcased her prowess in event management but also
-                  provided a fertile ground for cultivating a network of influential connections.
+              {stats.sectors_source && (
+                <p className="mt-8 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze">
+                  Source: {stats.sectors_source}
                 </p>
-              </Reveal>
-            </article>
-
-            {/* Chapter 3 — The Turning Point
-               Two-column composition: image carousel on the left,
-               eyebrow + headline + paragraph on the right, both
-               columns aligned to the same top so the text reads at
-               the same height as the carousel rather than stacking
-               above it. Auto-rotating crossfade carousel feeds from
-               existing /public/gallery assets. */}
-            <article>
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16 items-start">
-                {/* Carousel — left */}
-                <div className="lg:col-span-7 order-2 lg:order-1">
-                  <Reveal type="scale" delay={250}>
-                    <StoryCarousel
-                      images={[
-                        { src: STORY_IMAGE_1, alt: 'A Clique 100 evening' },
-                        { src: STORY_IMAGE_2, alt: "Sarah at a members' evening" },
-                        { src: '/gallery/bigland.png', alt: 'A panel discussion at The Club' },
-                        { src: '/gallery/land1.png', alt: 'Networking at The Club' },
-                        { src: '/gallery/potrait.png', alt: 'A dining moment' },
-                      ]}
-                      aspect="4/5"
-                    />
-                  </Reveal>
-                </div>
-
-                {/* Text — right, aligned to image top. Headline
-                   "A defining moment." is verbatim from the
-                   paragraph's opening — clear textual anchor. */}
-                <div className="lg:col-span-5 order-1 lg:order-2">
-                  <Reveal type="up" delay={0}>
-                    <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-                      The Turning Point
-                    </p>
-                  </Reveal>
-                  <Reveal type="clip" delay={150}>
-                    <h2 className="display-md mt-7">
-                      A defining moment.
-                    </h2>
-                  </Reveal>
-                  <Reveal type="up" delay={300}>
-                    <p className="mt-10 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.8] text-ivory-soft">
-                      In a defining moment, Sarah assumed the role of running the{' '}
-                      <em className="italic text-bronze-light">Clique 100 Club</em> in Manchester
-                      and Leeds, marking a pivotal shift in her career.
-                    </p>
-                  </Reveal>
-                  <Reveal type="up" delay={450}>
-                    <p className="mt-6 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.8] text-ivory-soft">
-                      As her leadership flourished, the members club underwent a transformation,
-                      evolving into{' '}
-                      <em className="italic text-bronze-light">The Club by Sarah Restrick</em> under
-                      her sole guidance.
-                    </p>
-                  </Reveal>
-                </div>
-              </div>
-            </article>
-          </div>
-        </TracingBeam>
-      </section>
-
-      {/* ── Instagram banner — sits between the story and the
-           video gallery so the live brand presence is the next
-           beat after the founder narrative. */}
-      <InstagramChapter />
-
-      {/* ── 03 · Video Gallery ──────────────────────────────────────
-         Only renders if Sarah has rows in video_gallery for the
-         'about' page slug. The empty state hides the whole section so
-         the page never looks half-built. */}
-      {videos.length > 0 && (
-        <Chapter density="tight" bg="graphite" className="relative">
-          <Aurora variant="dusk" />
-          <div className="relative z-10 max-w-[1400px] mx-auto">
-            {/* Section header — title left, YouTube CTA right. Inline
-               composition kills the wasted vertical gap the centred
-               footer button created. */}
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-8 mb-14">
-              <div>
-                <Reveal type="up" delay={0}>
-                  <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
-                    In Their Own Words
-                  </p>
-                </Reveal>
-                <Reveal type="clip" delay={150}>
-                  <h2 className="display-md">Video gallery.</h2>
-                </Reveal>
-              </div>
-              <Reveal type="up" delay={250}>
-                <a
-                  href="https://www.youtube.com/@theclubbysarahrestrick"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group inline-flex items-center gap-3 px-7 py-3.5 border border-bronze hover:bg-bronze rounded-full font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ink transition-all duration-500 self-start md:self-end"
-                  aria-label="Open The Club by Sarah Restrick on YouTube"
-                >
-                  <svg
-                    aria-hidden
-                    viewBox="0 0 24 24"
-                    width="15"
-                    height="15"
-                    fill="currentColor"
-                    className="text-bronze-light group-hover:text-ink transition-colors duration-500"
-                  >
-                    <path d="M23.498 6.186a2.999 2.999 0 0 0-2.112-2.122C19.612 3.5 12 3.5 12 3.5s-7.612 0-9.386.564A2.999 2.999 0 0 0 .502 6.186C0 7.962 0 12 0 12s0 4.038.502 5.814a2.999 2.999 0 0 0 2.112 2.122C4.388 20.5 12 20.5 12 20.5s7.612 0 9.386-.564a2.999 2.999 0 0 0 2.112-2.122C24 16.038 24 12 24 12s0-4.038-.502-5.814zM9.546 15.568V8.432L15.818 12l-6.272 3.568z" />
-                  </svg>
-                  Watch on YouTube
-                </a>
-              </Reveal>
+              )}
             </div>
-
-            <VideoGallery videos={videos} />
+            <div className="lg:col-span-8">
+              <BarList bars={stats.sectors} dense />
+            </div>
           </div>
         </Chapter>
       )}
 
-      {/* ── 04 · Closing reflection ─────────────────────────────────
-         The four phrases in italic bronze are the same ones the live
-         site highlights — preserved verbatim, only the styling is
-         editorial. */}
-      <Chapter density="tight" bg="ink">
-        <div className="max-w-3xl mx-auto text-center">
-          <Reveal type="up" delay={0}>
-            <span className="block h-px w-12 bg-bronze/55 mx-auto mb-10" />
-          </Reveal>
-          <Reveal type="up" delay={150}>
-            <p className="font-[family-name:var(--font-editorial)] text-[clamp(1.25rem,1.55vw,1.625rem)] leading-[1.8] text-ivory-soft">
-              Sarah&apos;s journey is defined by a profound{' '}
-              <em className="italic text-bronze-light">passion for luxury experiences</em> and a
-              commitment to <em className="italic text-bronze-light">connecting people</em>. Her
-              vision has shaped The Club into an exclusive platform where like-minded individuals
-              converge, creating a space where{' '}
-              <em className="italic text-bronze-light">luxury meets meaningful connections</em>.
-              Join us as we celebrate Sarah Restrick&apos;s vision, a story woven with threads of
-              fashion, client relations, and{' '}
-              <em className="italic text-bronze-light">
-                the art of bringing people together in the lap of luxury
-              </em>
-              .
+      {/* ── Where they are, and the businesses they run ─────────── */}
+      {(stats.regions.length > 0 || stats.company_size.length > 0) && (
+        <Chapter density="tight" bg="graphite">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-12">
+            <Reveal type="clip" delay={0}>
+              <h2 className="display-md text-ivory max-w-3xl">
+                Where they are, and the businesses{' '}
+                <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                  they run
+                </em>
+                .
+              </h2>
+            </Reveal>
+            {stats.demographics_stamp && (
+              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze shrink-0">
+                {stats.demographics_stamp}
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20">
+            <BarList bars={stats.regions} caption="By region" />
+            <BarList bars={stats.company_size} caption="By company size (employees)" />
+          </div>
+          {stats.company_size_note && (
+            <p className="mt-14 font-[family-name:var(--font-editorial)] italic text-[clamp(1.1rem,1.6vw,1.4rem)] leading-relaxed text-ivory max-w-3xl">
+              {stats.company_size_note}
             </p>
-          </Reveal>
+          )}
+        </Chapter>
+      )}
+
+      {/* ── Beyond the room ─────────────────────────────────────── */}
+      {(stats.beyond.length > 0 || stats.channels.length > 0) && (
+        <Chapter density="tight" bg="ink">
+          <div className="max-w-3xl mb-12">
+            <Reveal type="up" delay={0}>
+              <EditorialMeta label="Reach · Digital" />
+            </Reveal>
+            <Reveal type="clip" delay={150}>
+              <h2 className="display-md mt-8 text-ivory">
+                Beyond the room:{' '}
+                <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                  CRM, social and content
+                </em>
+                .
+              </h2>
+            </Reveal>
+          </div>
+          {stats.beyond.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
+              {stats.beyond.map((t, i) => (
+                <Reveal key={`${t.value}-${i}`} type="up" delay={i * 90} className="border-t border-bronze/40 pt-6">
+                  <p className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.4vw,3rem)] leading-none text-ivory">
+                    {t.value}
+                  </p>
+                  <p className="mt-4 text-[14px] font-light leading-relaxed text-ivory-soft">{t.label}</p>
+                </Reveal>
+              ))}
+            </div>
+          )}
+          {stats.channels.length > 0 && (
+            <div className="mt-14 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 border-t border-graphite-line/60 pt-10">
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-12">
+                {stats.channels.map((c, i) => (
+                  <div key={`${c.label}-${i}`}>
+                    <dt className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.3em] text-bronze-light">
+                      {c.label}
+                    </dt>
+                    <dd className="mt-2 font-[family-name:var(--font-display)] text-[clamp(1.6rem,2.4vw,2.1rem)] text-ivory tabular-nums">
+                      {c.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {stats.audience_notes.length > 0 && (
+                <div className="space-y-1">
+                  {stats.audience_notes.map((n) => (
+                    <p key={n} className="text-[13px] font-light text-slate-haze">
+                      {n}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Chapter>
+      )}
+
+      {/* ── The brands we work with ─────────────────────────────── */}
+      <Chapter density="tight" bg="graphite">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16">
+          <div className="lg:col-span-4">
+            <Reveal type="up" delay={0}>
+              <EditorialMeta label="Reach · Brand partners" />
+            </Reveal>
+            <Reveal type="clip" delay={150}>
+              <h2 className="display-md mt-8 text-ivory">
+                The brands{' '}
+                <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                  we work with
+                </em>
+                .
+              </h2>
+            </Reveal>
+          </div>
+          <dl className="lg:col-span-8 divide-y divide-graphite-line/60 border-y border-graphite-line/60">
+            {BRAND_ROWS.map((row) => (
+              <div key={row.category} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-6 py-5">
+                <dt className="sm:col-span-4 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.3em] text-bronze-light pt-1">
+                  {row.category}
+                </dt>
+                <dd className="sm:col-span-8 text-[15px] font-light leading-relaxed text-ivory-soft">
+                  {row.brands.join(' · ')}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </Chapter>
 
-      {/* ── 05 · Apply close (shared) ────────────────────────────── */}
-      <ApplyClose />
+      {/* ── The Club platform ───────────────────────────────────── */}
+      <Chapter density="tight" bg="ink">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16">
+          <div className="lg:col-span-4">
+            <Reveal type="up" delay={0}>
+              <EditorialMeta label="The Club platform" />
+            </Reveal>
+            <Reveal type="clip" delay={150}>
+              <h2 className="display-md mt-8 text-ivory">
+                Our own CRM{' '}
+                <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                  and member web app
+                </em>
+                .
+              </h2>
+            </Reveal>
+            <Reveal type="up" delay={300}>
+              <p className="body-prose mt-8">
+                Launching with the new membership. Every contact is profiled by sector, role,
+                turnover, assets and location, so introductions, invitations and campaigns reach the
+                right people.
+              </p>
+            </Reveal>
+          </div>
+          <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {PLATFORM.map((t, i) => (
+              <Reveal
+                key={t.title}
+                type="up"
+                delay={i * 80}
+                className="border border-graphite-line/60 p-7"
+              >
+                <p className="font-[family-name:var(--font-display)] text-[20px] text-ivory">{t.title}</p>
+                <p className="mt-3 text-[14px] font-light leading-relaxed text-ivory-soft">{t.body}</p>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+        <Reveal type="up" delay={200}>
+          <p className="mt-16 text-center font-[family-name:var(--font-editorial)] italic text-[clamp(1.35rem,2.4vw,2rem)] leading-snug text-ivory max-w-3xl mx-auto">
+            Partners can now reach our full profiled database of{' '}
+            <span className="text-bronze-light not-italic font-[family-name:var(--font-display)]">7,000+</span>.
+          </p>
+        </Reveal>
+      </Chapter>
+
+      {/* ── CTA band ────────────────────────────────────────────── */}
+      <section className="always-night bg-plum py-20 md:py-24">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col md:flex-row md:items-center md:justify-between gap-10">
+          <div>
+            <p className={eyebrowClass}>Working with us</p>
+            <h2 className="display-md mt-5 text-ivory max-w-2xl">
+              Membership, sponsorship and{' '}
+              <em className="font-[family-name:var(--font-editorial)] italic text-bronze-light">
+                hospitality partnership
+              </em>
+              .
+            </h2>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <CtaLink href="/membership-application" primary>
+              Apply for Membership
+            </CtaLink>
+            <CtaLink href="/partner">Partner With Us</CtaLink>
+          </div>
+        </div>
+      </section>
     </>
+  )
+}
+
+function CtaLink({
+  href,
+  primary = false,
+  children,
+}: {
+  href: string
+  primary?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        'group inline-flex items-center justify-center gap-3 min-h-[48px] px-8 py-3.5 rounded-full border font-[family-name:var(--font-meta)] text-[11px] font-medium uppercase tracking-[0.3em] transition-colors duration-500 ' +
+        (primary
+          ? 'border-bronze bg-bronze text-ink hover:bg-bronze-light'
+          : 'border-bronze/60 text-bronze-light hover:border-bronze hover:text-ivory')
+      }
+    >
+      {children}
+      <ArrowUpRight
+        size={14}
+        strokeWidth={1.5}
+        className="transition-transform duration-500 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+      />
+    </Link>
   )
 }

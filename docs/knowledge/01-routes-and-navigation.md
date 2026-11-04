@@ -133,6 +133,10 @@ Login routes: `/login` = member login (also default landing link from the public
 | ↳ Instagram | `/dashboard/website/instagram` | | |
 | ↳ Past Highlights | `/dashboard/website/experiences` | | past-highlight showcase tiles for the Private Events page (real bookable "curated luxury" events live under Events, not here) |
 | ↳ Videos | `/dashboard/website/videos` | | |
+| ↳ Club numbers | `/dashboard/website/club-numbers` | | `ClubNumbersPage` — structured editor for app_settings `club_stats` (homepage numbers + every About-page figure/chart); saves then revalidates `/` and `/about` |
+| ↳ Business categories | `/dashboard/website/business-categories` | | |
+| ↳ Portfolio | `/dashboard/website/portfolio` | | |
+| ↳ Journal | `/dashboard/website/journal` | | |
 
 Two Website sub-routes are commented out of the nav but still live at their URLs (accessible by direct link only): `/dashboard/website/partners` (Partners) and `/dashboard/website/documents` (Documents).
 
@@ -292,28 +296,24 @@ Note: to *initiate* an introduction between two people, the admin does this from
 
 ### 7.1 Public header nav (`src/components/website/night/NightHeader.tsx`)
 
-Full link set (shown in the fullscreen mobile/menu overlay):
-| Label | Href |
-|---|---|
-| The Club | `/about` |
-| Memberships | `/memberships` |
-| Events | `/events` |
-| Concierge | `/concierge` |
-| Rewards | `/rewards` |
-| Gallery | `/gallery` |
-| Journal | `/blog` |
-| Testimonials | `/reviews` |
-| Private Events | `/private-event-services` |
+Top nav (desktop, xl+): The Club (`/about`) · Memberships (`/memberships`) · Events (`/events`) · PITCH (`/pitch`) · Concierge (`/concierge`) · Partner With Us (`/partner`), with "Member login" (→ `/login`) and an "Apply" pill (→ `/membership-application`) on the right.
 
-Desktop inline subset (`PRIMARY_HREFS`): Memberships, Events, Testimonials — the rest are one click away behind the Menu button. Plus a persistent "Sign in" link (→ `/login`) and an "Apply" pill (→ `/membership-application`).
+The Menu overlay (every breakpoint) lists those six plus: London Series at Harrods (`/london-series`), Portfolio (`/portfolio`), Rewards & Benefits (`/rewards`), Success Stories (`/success-stories`), Journal (`/journal`), Contact (`/contact-us`).
+
+Floating widgets: `JoinBadge` ("Become a Member" side tab → `/membership-application`); `ConciergeWidget` — signed-out visitors get the AI concierge chat (with a link to `/concierge` at the top of the panel); signed-in members get a launcher that goes straight to `/portal/concierge`.
 
 ### 7.2 Public footer nav (`src/components/website/night/NightFooter.tsx`)
 
 | Column | Links |
 |---|---|
-| Discover | The Club (`/about`), Memberships (`/memberships`), Events (`/events`), Gallery (`/gallery`), Journal (`/blog`), Testimonials (`/reviews`) |
-| The Standard | Club Rules (`/club-rules`), Private Events (`/private-event-services`), Privacy Policy (`/privacy-policy`) |
-| Connect | Contact (`/contact-us`), Concierge (`/concierge`), Share Your Experience (`/share-your-experience`), Apply for Membership (`/membership-application`), `mailto:hello@theclubbysarahrestrick.com` |
+| Discover | The Club, Memberships, Events, PITCH, London Series at Harrods, Concierge, Portfolio |
+| Work With Us | Partner With Us, Rewards & Benefits, Success Stories, Journal, Share Your Experience, Apply for Membership |
+| The Standard | The Club Rules (`/club-rules`), Privacy Policy, Contact |
+| Contact | membership@ / events@ / sarah@theclubgroup.co, +44 (0)7921 507 442, Instagram @theclubsarahrestrick (Facebook + LinkedIn to be supplied) |
+
+Baseline: "© <year> The Club by Sarah Restrick" + company line (Sarah Restrick Ltd, Company No. 13170374, registered office Booths Hall, Booths Park, Chelford Road, Knutsford, Cheshire WA16 8GS).
+
+**Redirects (`next.config.ts`, 301):** `/private-event-services` → `/concierge#event-services`; `/gallery` and `/gallery/:slug` → `/portfolio`.
 
 ### 7.3 Public route inventory
 
@@ -321,8 +321,8 @@ Server components by default unless noted `'use client'`. Data-fetching pages us
 
 | URL | File | Type | What it shows |
 |---|---|---|---|
-| `/` | `src/app/(public)/page.tsx` | server | Homepage — `NightHero`, `HeroPartnersMarquee`, `IntroChapter`, and further sections (composed from `components/website/night/home/*`). |
-| `/about` | `.../about/page.tsx` | server | "The Club" brand story page (`Chapter`/`PageHeroMedia`/`Aurora` editorial primitives), fetches hero image via Supabase. |
+| `/` | `src/app/(public)/page.tsx` | server | Homepage — `NightHero` (video), `HeroPartnersMarquee` (`partner_logos`), 01 `IntroChapter`, 02 `ApproachChapter`, 03 `ClubNumbers` (app_settings `club_stats`), `WhatWeDo` (nine service tiles), `FiveProgrammes`, `VoicesChapter` (active testimonials), 04 `RecentNights` (featured `portfolio_case_studies`, hidden if none), 05 `EventsTeaser` (next three public events), `ProgrammeBanners` (PITCH / London Series), `ApplyClose` (newsletter → source "Website newsletter"). |
+| `/about` | `.../about/page.tsx` | server | "The Club" — brochure Sections I–II: Welcome + Sarah's portrait, The Club in numbers, ecosystem graphic, seven personas, sector bars, region + company-size bars, beyond the room, brands, The Club platform, CTA band. All figures from `getClubStats()` (`src/lib/cms/club-stats.ts`, app_settings `club_stats`, edited at `/dashboard/website/club-numbers`). |
 | `/memberships` | `.../memberships/page.tsx` | server | Membership tiers/pricing, expandable tier rows (`TierExpandRow`). |
 | `/events` | `.../events/page.tsx` | server | Public events listing — upcoming events plus a past-events archive — fetched from Supabase via `createClient` (server); shows `published`, `live` and `completed` events, including to signed-out visitors. |
 | `/blog` | `.../blog/page.tsx` | server | **The Journal** — public blog listing (newest first) of marketing blog posts approved with "Approve & publish to website" (`blog_posts`, status published). Revalidates every 60 s. |
@@ -331,17 +331,14 @@ Server components by default unless noted `'use client'`. Data-fetching pages us
 | `/events/[slug]/success` | `.../events/[slug]/success/page.tsx` | `'use client'` | Post-booking success/confirmation page for a public event booking; reads `useSearchParams` in `Suspense`. |
 | `/concierge` | `.../concierge/page.tsx` | `'use client'` | Public concierge request form (react-hook-form + zod). |
 | `/rewards` | `.../rewards/page.tsx` | server | Public partner/rewards directory (revalidate 60s), showcases partner network to prospects. |
-| `/gallery` | `.../gallery/page.tsx` | server | Photo gallery index. |
-| `/gallery/[slug]` | `.../gallery/[slug]/page.tsx` | server | Single gallery detail by slug; `notFound()` if missing. |
 | `/reviews` | `.../reviews/page.tsx` | server | Public testimonials/review gallery (revalidate 60s). |
-| `/private-event-services` | `.../private-event-services/page.tsx` | server | Private/curated luxury events service page with video gallery. |
 | `/contact-us` | `.../contact-us/page.tsx` | `'use client'` | Public contact form (react-hook-form). |
-| `/club-rules` | `.../club-rules/page.tsx` | server | Club rules/terms editorial page. |
+| `/club-rules` | `.../club-rules/page.tsx` | server | "The Club Rules" editorial page. |
 | `/privacy-policy` | `.../privacy-policy/page.tsx` | server | Verbatim privacy notice content. |
 | `/membership-application` | `.../membership-application/page.tsx` | `'use client'` | Full membership application form (react-hook-form, file uploads via `ChangeEvent`/refs). |
 | `/membership-application/success` | `.../membership-application/success/page.tsx` | `'use client'` | Application-submitted confirmation; reads `useSearchParams` in `Suspense`. |
 | `/share-your-experience` | `.../share-your-experience/page.tsx` | `'use client'` | Public testimonial submission form (feeds into `/dashboard/reviews` moderation queue). |
-| `/one-london-road` | `.../one-london-road/page.tsx` | server | Venue/location-specific editorial page. |
+| `/one-london-road` | `.../one-london-road/page.tsx` | server | Unlinked venue page (noindex, not in the sitemap) — copy unconfirmed, pending Sarah's review. |
 | `/unsubscribe` | `.../unsubscribe/page.tsx` | server, `runtime = 'nodejs'`, `dynamic = 'force-dynamic'` | Mailing-list unsubscribe landing hit from campaign email footer links; token from `mailing_list.unsubscribe_token`; idempotent DB update inline, no client JS. |
 
 ---

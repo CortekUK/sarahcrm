@@ -31,13 +31,19 @@ import {
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
-type Plan = Database['public']['Tables']['membership_plans']['Row']
+// headline / audience were added in 20261106_b_memberships.sql and aren't
+// in the generated types yet.
+type Plan = Database['public']['Tables']['membership_plans']['Row'] & {
+  headline?: string | null
+  audience?: string | null
+}
+type PlanWrite = Database['public']['Tables']['membership_plans']['Insert']
 
 const TIER_OPTIONS = [
   { value: '', label: 'No internal classification' },
-  { value: 'tier_1', label: 'Tier 1 (basic benefits)' },
-  { value: 'tier_2', label: 'Tier 2 (mid benefits)' },
-  { value: 'tier_3', label: 'Tier 3 (full benefits)' },
+  { value: 'tier_1', label: 'Tier 1 — Access' },
+  { value: 'tier_2', label: 'Tier 2 — The Club Membership' },
+  { value: 'tier_3', label: 'Tier 3 — The Club Business Membership' },
 ]
 
 const schema = z.object({
@@ -46,6 +52,8 @@ const schema = z.object({
     .min(1, 'Slug is required')
     .regex(/^[a-z0-9-]+$/, 'Lowercase letters, numbers, hyphens only'),
   name: z.string().min(1, 'Name is required'),
+  headline: z.string().optional(),
+  audience: z.string().optional(),
   lede: z.string().optional(),
   contract_terms: z.string().optional(),
   annual_price_pounds: z.coerce
@@ -95,8 +103,10 @@ export function MembershipPlansPage() {
     defaultValues: {
       slug: '',
       name: '',
+      headline: '',
+      audience: '',
       lede: '',
-      contract_terms: '12 months · plus VAT',
+      contract_terms: 'a year + VAT',
       annual_price_pounds: 0,
       monthly_price_pounds: 0,
       features: [],
@@ -136,7 +146,7 @@ export function MembershipPlansPage() {
         variant: 'destructive',
       })
     } else if (data) {
-      setPlans(data)
+      setPlans(data as Plan[])
     }
     setLoading(false)
   }, [])
@@ -153,6 +163,8 @@ export function MembershipPlansPage() {
       form.reset({
         slug: editing.slug,
         name: editing.name,
+        headline: editing.headline ?? '',
+        audience: editing.audience ?? '',
         lede: editing.lede ?? '',
         contract_terms: editing.contract_terms ?? '',
         annual_price_pounds: poundsFromPence(editing.annual_price_pence),
@@ -169,8 +181,10 @@ export function MembershipPlansPage() {
       form.reset({
         slug: '',
         name: '',
+        headline: '',
+        audience: '',
         lede: '',
-        contract_terms: '12 months · plus VAT',
+        contract_terms: 'a year + VAT',
         annual_price_pounds: 0,
         monthly_price_pounds: 0,
         features: [],
@@ -198,6 +212,8 @@ export function MembershipPlansPage() {
     const payload = {
       slug: data.slug,
       name: data.name,
+      headline: data.headline || null,
+      audience: data.audience || null,
       lede: data.lede || null,
       contract_terms: data.contract_terms || null,
       annual_price_pence: Math.round(data.annual_price_pounds * 100),
@@ -214,11 +230,11 @@ export function MembershipPlansPage() {
       if (editing) {
         const { error: err } = await supabase
           .from('membership_plans')
-          .update(payload)
+          .update(payload as PlanWrite)
           .eq('id', editing.id)
         if (err) throw err
       } else {
-        const { error: err } = await supabase.from('membership_plans').insert(payload)
+        const { error: err } = await supabase.from('membership_plans').insert(payload as PlanWrite)
         if (err) throw err
       }
       setModalOpen(false)
@@ -463,31 +479,46 @@ export function MembershipPlansPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Name"
-              placeholder="Individual"
+              placeholder="The Club Membership"
               error={form.formState.errors.name?.message}
               {...form.register('name')}
             />
             <Input
               label="Slug"
-              placeholder="individual"
-              hint="Used in URLs (e.g. /membership-application?tier=individual) — lowercase, hyphenated."
+              placeholder="the-club-membership"
+              hint="Used in URLs (e.g. /membership-application?tier=access) — lowercase, hyphenated. Changing it breaks old links."
               error={form.formState.errors.slug?.message}
               {...form.register('slug')}
             />
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Headline"
+              placeholder="The room, all year"
+              hint="Short line under the name on the tier card. Hidden if blank."
+              {...form.register('headline')}
+            />
+            <Input
+              label="For"
+              placeholder="Owners and decision makers · £1m+ turnover"
+              hint="Who the tier is for. Hidden if blank."
+              {...form.register('audience')}
+            />
+          </div>
+
           <Textarea
-            label="Lede"
+            label="Card copy"
             rows={3}
-            placeholder="A single representation in the room. Quiet, considered, and built for the founder who keeps their own calendar."
-            hint="The marketing tagline shown under the name. Hidden on the public site if blank."
+            placeholder="Two places at every Round Table, Member Event, Harrods Series and PITCH event, for your team or a guest. Full platform and CRM access."
+            hint="The paragraph on the tier card and in the application form. Hidden on the public site if blank."
             {...form.register('lede')}
           />
 
           <Input
-            label="Contract terms"
-            placeholder="12 months · plus VAT"
-            hint="Shown under the price."
+            label="Price line"
+            placeholder="a year + VAT"
+            hint="Shown next to the price. All fees are + VAT, paid annually."
             {...form.register('contract_terms')}
           />
 
@@ -507,7 +538,7 @@ export function MembershipPlansPage() {
               type="number"
               step="0.01"
               prefix="£"
-              hint="What the applicant pays per month (ex-VAT). Fills in as annual ÷ 12 until you change it."
+              hint="Not offered on the website (membership is paid annually). Kept as annual ÷ 12 for older monthly members and reporting."
               min={0}
               error={form.formState.errors.monthly_price_pounds?.message}
               {...form.register('monthly_price_pounds', { valueAsNumber: true })}

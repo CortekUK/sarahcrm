@@ -935,6 +935,9 @@ function EnquiryDetailModal({
           </div>
         </div>
 
+        {/* Website form answers (enquiries.form_data) */}
+        <FormDetails formData={enquiry.form_data} />
+
         {/* Admin notes */}
         <div>
           <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">
@@ -1308,5 +1311,115 @@ function StatTile({
         </p>
       </CardContent>
     </Card>
+  )
+}
+
+// ── Form details (website forms) ───────────────────────────────────
+// Renders enquiries.form_data — the extra answers a website form files
+// (PITCH, event requests, sponsorship…). Uploaded files live in the
+// PRIVATE form-uploads bucket: each link asks the admin-only
+// /api/forms/file route for a short-lived signed URL.
+
+interface FormFileRef {
+  path: string
+  name?: string
+  slot?: string
+}
+
+function humanFormKey(k: string): string {
+  const t = k.replace(/_/g, ' ')
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}
+
+function isFileList(v: unknown): v is FormFileRef[] {
+  return Array.isArray(v) && v.every((x) => !!x && typeof x === 'object' && typeof (x as FormFileRef).path === 'string')
+}
+
+function formValueText(v: unknown): string {
+  if (v === true) return 'Yes'
+  if (v === false) return 'No'
+  if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '')).filter(Boolean).join(', ')
+  if (typeof v === 'string' || typeof v === 'number') return String(v)
+  return ''
+}
+
+function FormDetails({ formData }: { formData: EnquiryRow['form_data'] }) {
+  const [opening, setOpening] = useState<string | null>(null)
+  if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return null
+  const entries = Object.entries(formData as Record<string, unknown>)
+  if (entries.length === 0) return null
+  const files = entries.find(([k, v]) => k === 'files' && isFileList(v))?.[1] as FormFileRef[] | undefined
+  const consentAt = typeof (formData as Record<string, unknown>).consent_at === 'string'
+    ? ((formData as Record<string, unknown>).consent_at as string)
+    : null
+  const rows = entries.filter(([k]) => k !== 'files' && k !== 'consent_at')
+
+  async function openFile(path: string) {
+    setOpening(path)
+    // Open the tab synchronously (popup blockers), then point it at the URL.
+    // (no 'noopener' feature — that makes window.open return null; the
+    // opener link is cut by hand instead).
+    const win = window.open('', '_blank')
+    if (win) win.opener = null
+    try {
+      const res = await fetch(`/api/forms/file?path=${encodeURIComponent(path)}`)
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string }
+      if (!res.ok || !json.url) throw new Error(json.error || 'Could not open the file.')
+      if (win) win.location.href = json.url
+      else window.location.href = json.url
+    } catch (e) {
+      win?.close()
+      toast({
+        title: 'Could not open the file',
+        description: e instanceof Error ? e.message : 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setOpening(null)
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted mb-2">Form details</p>
+      <div className="bg-surface-2 border border-border rounded-md divide-y divide-border">
+        {rows.map(([k, v]) => {
+          const text = formValueText(v)
+          if (!text) return null
+          return (
+            <div key={k} className="grid grid-cols-1 sm:grid-cols-[11rem_1fr] gap-1 sm:gap-4 px-4 py-2.5">
+              <span className="text-xs text-text-dim">{humanFormKey(k)}</span>
+              <span className="text-sm text-text whitespace-pre-wrap break-words">{text}</span>
+            </div>
+          )
+        })}
+        {files && files.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-[11rem_1fr] gap-1 sm:gap-4 px-4 py-2.5">
+            <span className="text-xs text-text-dim">Files</span>
+            <div className="flex flex-col items-start gap-1.5">
+              {files.map((f) => (
+                <button
+                  key={f.path}
+                  type="button"
+                  onClick={() => openFile(f.path)}
+                  disabled={opening === f.path}
+                  className="inline-flex items-center gap-1.5 text-sm text-gold hover:text-gold/80 disabled:opacity-60"
+                >
+                  <ExternalLink size={12} />
+                  {f.slot ? `${humanFormKey(f.slot.replace(/-/g, '_'))}: ` : ''}
+                  {f.name || f.path.split('/').pop()}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {consentAt && (
+          <div className="grid grid-cols-1 sm:grid-cols-[11rem_1fr] gap-1 sm:gap-4 px-4 py-2.5">
+            <span className="text-xs text-text-dim">Privacy consent</span>
+            <span className="text-sm text-text">{formatDateTime(consentAt)}</span>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

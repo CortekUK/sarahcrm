@@ -82,9 +82,9 @@ interface SuccessResponse {
 }
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier 1',
-  tier_2: 'Tier 2',
-  tier_3: 'Tier 3',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 // Flag presentation — label, House-UI Badge variant, and tile icon.

@@ -6,15 +6,19 @@
 // `membership_type` is fully *derived* from the tier and must never be
 // edited independently of it.
 //
-//   Plan        slug         tier      membership_type   default intro quota
-//   ─────────── ──────────── ───────── ───────────────── ───────────────────
-//   Individual  individual   tier_1    individual        3
-//   Business    business     tier_2    business          5
-//   Corporate   corporate    tier_3    business          10
+//   Plan                          slug                 tier    membership_type  default intro quota
+//   ───────────────────────────── ──────────────────── ─────── ──────────────── ───────────────────
+//   Access                        access               tier_1  individual       3
+//   The Club Membership           the-club-membership  tier_2  business         5
+//   The Club Business Membership  business             tier_3  business         10
 //
-// "Corporate" is the public name for the top tier; it shares the
-// `business` membership_type (same payee model, larger seat count +
-// sponsorship slot). The live, editable intro quota lives on
+// (Renamed Nov 2026 per Sarah's brief. Old slugs still resolve:
+// 'individual' → Access, 'corporate' → Business Membership. The old
+// 'business' slug was the £15,000 tier and now names the £15,000
+// Business Membership, so legacy applications keep their price.)
+//
+// Prices on membership_plans are NET of VAT; VAT is added at charge time.
+// All fees are paid annually. The live, editable intro quota lives on
 // `membership_plans.intro_quota` — the defaults below are only a fallback
 // for when no matching plan row exists.
 //
@@ -27,7 +31,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type MemberTier = 'tier_1' | 'tier_2' | 'tier_3'
 export type MembershipType = 'individual' | 'business'
-export type PlanSlug = 'individual' | 'business' | 'corporate'
+export type PlanSlug = 'access' | 'the-club-membership' | 'business'
 
 export interface PlanDef {
   slug: PlanSlug
@@ -41,10 +45,23 @@ export interface PlanDef {
 }
 
 export const PLANS: readonly PlanDef[] = [
-  { slug: 'individual', tier: 'tier_1', name: 'Individual', membershipType: 'individual', defaultIntroQuota: 3 },
-  { slug: 'business', tier: 'tier_2', name: 'Business', membershipType: 'business', defaultIntroQuota: 5 },
-  { slug: 'corporate', tier: 'tier_3', name: 'Corporate', membershipType: 'business', defaultIntroQuota: 10 },
+  { slug: 'access', tier: 'tier_1', name: 'Access', membershipType: 'individual', defaultIntroQuota: 3 },
+  { slug: 'the-club-membership', tier: 'tier_2', name: 'The Club Membership', membershipType: 'business', defaultIntroQuota: 5 },
+  { slug: 'business', tier: 'tier_3', name: 'The Club Business Membership', membershipType: 'business', defaultIntroQuota: 10 },
 ] as const
+
+/** Display name per tier — use wherever a member's tier is shown. */
+export const TIER_LABELS: Record<MemberTier, string> = {
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
+}
+
+/** Display name for a tier value (tier_1…tier_3); falls back to the raw value. */
+export function tierLabel(tier: string | null | undefined): string {
+  if (!tier) return ''
+  return TIER_LABELS[tier as MemberTier] ?? tier
+}
 
 const BY_TIER = Object.fromEntries(PLANS.map((p) => [p.tier, p])) as Record<MemberTier, PlanDef>
 const BY_SLUG = Object.fromEntries(PLANS.map((p) => [p.slug, p])) as Record<PlanSlug, PlanDef>
@@ -54,8 +71,23 @@ export function planForTier(tier: MemberTier): PlanDef {
   return BY_TIER[tier] ?? BY_TIER.tier_1
 }
 
+// Legacy slugs / preferred_tier values from before the Nov 2026 rename.
+const SLUG_ALIASES: Record<string, PlanSlug> = {
+  individual: 'access',
+  corporate: 'business',
+  'club-membership': 'the-club-membership',
+  'the-club-business-membership': 'business',
+  'business-membership': 'business',
+}
+
+/** Canonical slug for any current or legacy slug (unknown slugs pass through). */
+export function canonicalPlanSlug(slug: string | null | undefined): string {
+  const v = (slug ?? '').trim().toLowerCase()
+  return SLUG_ALIASES[v] ?? v
+}
+
 export function planForSlug(slug: string | null | undefined): PlanDef | undefined {
-  return slug ? BY_SLUG[slug as PlanSlug] : undefined
+  return slug ? BY_SLUG[canonicalPlanSlug(slug) as PlanSlug] : undefined
 }
 
 /** membership_type is always derived from the tier — never stored independently. */
@@ -64,23 +96,28 @@ export function membershipTypeForTier(tier: MemberTier): MembershipType {
 }
 
 // Resolve a free-text plan/tier value (whatever an application form or CSV
-// submitted — 'individual', 'corporate', 'tier_2', plus legacy aliases) to
-// a canonical plan. Returns the full plan so callers get tier + type + name
-// together and can't mismatch them.
+// submitted — 'access', 'the-club-membership', 'business', 'tier_2', plus
+// legacy aliases 'individual' / 'corporate') to a canonical plan. Returns
+// the full plan so callers get tier + type + name together and can't
+// mismatch them.
 export function resolvePlan(input: string | null | undefined): PlanDef {
+  const exact = planForSlug(input)
+  if (exact) return exact
   const v = (input ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  // Order matters: "theclubbusinessmembership" also contains "membership".
   if (
     v.includes('tier3') ||
     v.includes('three') ||
     v.includes('platinum') ||
-    v.includes('corporate')
+    v.includes('corporate') ||
+    v.includes('business')
   )
     return BY_TIER.tier_3
   if (
     v.includes('tier2') ||
     v.includes('two') ||
     v.includes('gold') ||
-    v.includes('business')
+    v.includes('clubmembership')
   )
     return BY_TIER.tier_2
   return BY_TIER.tier_1
@@ -97,7 +134,7 @@ export async function resolvePlanFromDb(
   db: SupabaseClient,
   input: string | null | undefined,
 ): Promise<PlanDef> {
-  const slug = (input ?? '').trim()
+  const slug = canonicalPlanSlug(input)
   if (slug) {
     const { data } = await db
       .from('membership_plans')

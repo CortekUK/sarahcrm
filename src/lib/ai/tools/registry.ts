@@ -14,6 +14,7 @@
 
 import type { ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { tierLabel, resolvePlan } from '@/lib/membership/plans'
 
 // ─── Tool schemas — surface to OpenAI ───────────────────────────────
 //
@@ -92,7 +93,8 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
         properties: {
           tier: {
             type: 'string',
-            description: "Filter by membership tier. Omit (or 'all') for every active member.",
+            description:
+              "Filter by membership tier: tier_1 = Access, tier_2 = The Club Membership, tier_3 = The Club Business Membership. Omit (or 'all') for every active member.",
             enum: ['all', 'tier_1', 'tier_2', 'tier_3'],
           },
           limit: {
@@ -365,6 +367,7 @@ const HANDLERS: Record<string, Handler> = {
           name: `${p?.first_name ?? ''} ${p?.last_name ?? ''}`.trim() || null,
           email: p?.email ?? null,
           tier: m.membership_tier,
+          tier_name: tierLabel(m.membership_tier),
           type: m.membership_type,
           company: m.company_name ?? p?.company_name ?? null,
           title: p?.job_title ?? null,
@@ -397,6 +400,7 @@ const HANDLERS: Record<string, Handler> = {
         company: a.company,
         title: a.position,
         preferred_tier: a.preferred_tier,
+        preferred_plan: a.preferred_tier ? resolvePlan(a.preferred_tier).name : null,
         payment_preference: a.payment_preference,
         status: a.status,
         amount_paid: formatGBP(a.amount_paid_pence),

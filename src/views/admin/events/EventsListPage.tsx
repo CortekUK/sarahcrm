@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { PROGRAMMES, PROGRAMME_TAG, isProgramme, type Programme } from '@/components/website/events/programmes'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { ImageUpload } from '@/components/ui/ImageUpload'
@@ -60,6 +62,9 @@ interface EventRow {
   venue_name: string | null
   venue_city: string | null
   event_type: EventType
+  programme: string | null
+  visibility: string
+  booking_status: string
   status: EventStatus
   capacity: number | null
   member_price_pence: number
@@ -79,11 +84,13 @@ const statusVariant: Record<EventStatus, 'active' | 'upcoming' | 'draft' | 'urge
 
 const typeLabels: Record<EventType, string> = {
   member_event: 'Member Event',
-  curated_luxury: 'Curated Luxury',
+  curated_luxury: 'Curated Experience',
   retreat: 'Retreat',
 }
 
-// Six tabs. `private_events` is a different beast — it manages the
+// Tabs by date/state; the programme is a separate filter (brief: Member
+// Events · Round Tables · PITCH · Curated Experiences · London Series ·
+// Partner events) that applies inside every tab. `private_events` is a different beast — it manages the
 // curated_experiences table (showcase cards with external links) used
 // on /private-event-services, NOT bookable events. Everything else
 // filters the events table.
@@ -93,10 +100,7 @@ const typeLabels: Record<EventType, string> = {
 type TabKey = EventType | 'all' | 'past' | 'planning' | 'private_events'
 
 const tabs: { key: TabKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'member_event', label: 'Member Events' },
-  { key: 'curated_luxury', label: 'Curated Luxury' },
-  { key: 'retreat', label: 'Retreats' },
+  { key: 'all', label: 'Upcoming' },
   { key: 'past', label: 'Past' },
   { key: 'planning', label: 'Planning' },
   { key: 'private_events', label: 'Private Events' },
@@ -110,6 +114,7 @@ export function EventsListPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [programmeFilter, setProgrammeFilter] = useState<'' | 'none' | Programme>('')
 
   useEffect(() => {
     fetchAll()
@@ -121,7 +126,7 @@ export function EventsListPage() {
       supabase
         .from('events')
         .select(
-          'id, title, slug, start_date, venue_name, venue_city, event_type, status, capacity, member_price_pence, cover_image_url, bookings(count)',
+          'id, title, slug, start_date, venue_name, venue_city, event_type, programme, visibility, booking_status, status, capacity, member_price_pence, cover_image_url, bookings(count)',
         )
         .order('start_date', { ascending: false }),
       supabase
@@ -172,8 +177,12 @@ export function EventsListPage() {
   const norm = (v: string | null | undefined) =>
     (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const q = norm(search.trim())
+  const matchesProgramme = (e: EventRow) =>
+    programmeFilter === '' ||
+    (programmeFilter === 'none' ? !isProgramme(e.programme) : e.programme === programmeFilter)
   const matches = (e: EventRow) =>
-    !q || [e.title, e.slug, e.venue_name, e.venue_city].some((f) => norm(f).includes(q))
+    matchesProgramme(e) &&
+    (!q || [e.title, e.slug, e.venue_name, e.venue_city].some((f) => norm(f).includes(q)))
 
   const filtered = useMemo(() => {
     let list: EventRow[]
@@ -184,7 +193,7 @@ export function EventsListPage() {
     else list = events.filter((e) => e.event_type === activeTab && isUpcoming(e))
     return list.filter(matches)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, activeTab, now, q])
+  }, [events, activeTab, now, q, programmeFilter])
 
   const stats = useMemo(() => {
     const upcoming = events.filter((e) => isUpcoming(e) && isBookable(e))
@@ -220,7 +229,7 @@ export function EventsListPage() {
     <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Events"
-        description="Member nights, curated luxury, retreats — and a separate Private Events tab for the showcase cards on the Private Events page (external-link commissions, not bookable here)."
+        description="One calendar across the five programmes (filter by programme below) — and a separate Private Events tab for the showcase cards on the Private Events page (external-link commissions, not bookable here)."
         meta={
           <span className="text-xs text-text-dim">
             {stats.bookable} open for booking · {privateEvents.length} private showcases · {stats.bookings} bookings
@@ -306,14 +315,28 @@ export function EventsListPage() {
       </div>
 
       {!isPrivateTab && (
-        <div className="mb-4 max-w-sm">
-          <Input
-            placeholder="Search events by title, venue or city"
-            aria-label="Search events"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            suffix={<Search size={15} className="text-text-dim" />}
-          />
+        <div className="mb-4 flex flex-col sm:flex-row gap-3">
+          <div className="sm:max-w-sm sm:flex-1">
+            <Input
+              placeholder="Search events by title, venue or city"
+              aria-label="Search events"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              suffix={<Search size={15} className="text-text-dim" />}
+            />
+          </div>
+          <div className="sm:w-64">
+            <Select
+              aria-label="Filter by programme"
+              value={programmeFilter}
+              onChange={(e) => setProgrammeFilter(e.target.value as '' | 'none' | Programme)}
+              options={[
+                { value: '', label: 'All programmes' },
+                ...PROGRAMMES.map((p) => ({ value: p, label: PROGRAMME_TAG[p] })),
+                { value: 'none', label: 'No programme set' },
+              ]}
+            />
+          </div>
         </div>
       )}
 
@@ -480,7 +503,7 @@ function BookableEventsPanel({
                       )}
                     </TableCell>
                     <TableCell>
-                      <TypePill type={event.event_type} />
+                      <TypePill type={event.event_type} programme={event.programme} membersOnly={event.visibility === 'members'} />
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm">
                       <span className="text-text font-medium">{bookingCount}</span>
@@ -554,7 +577,7 @@ function BookableEventsPanel({
                       /{event.slug}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                      <TypePill type={event.event_type} />
+                      <TypePill type={event.event_type} programme={event.programme} membersOnly={event.visibility === 'members'} />
                       <span className="text-xs text-text-muted whitespace-nowrap">
                         {event.start_date ? formatDate(event.start_date) : 'Date TBC'}
                       </span>
@@ -696,8 +719,17 @@ function RowActions({
   )
 }
 
-function TypePill({ type }: { type: EventType }) {
+function TypePill({
+  type,
+  programme,
+  membersOnly,
+}: {
+  type: EventType
+  programme?: string | null
+  membersOnly?: boolean
+}) {
   return (
+    <span className="inline-flex items-center gap-1.5">
     <span
       className={cn(
         'inline-block whitespace-nowrap text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-1 rounded-full',
@@ -708,7 +740,13 @@ function TypePill({ type }: { type: EventType }) {
             : 'bg-[rgba(90,123,150,0.12)] text-accent-blue',
       )}
     >
-      {typeLabels[type]}
+      {isProgramme(programme) ? PROGRAMME_TAG[programme] : typeLabels[type]}
+    </span>
+    {membersOnly && (
+      <span className="inline-block whitespace-nowrap text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-1 rounded-full bg-surface-2 text-text-muted border border-border">
+        Members only
+      </span>
+    )}
     </span>
   )
 }

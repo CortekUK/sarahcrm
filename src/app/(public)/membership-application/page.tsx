@@ -29,6 +29,7 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import type { StripeElementsOptions } from '@stripe/stripe-js'
 import { getStripe } from '@/lib/stripe/client'
 import { apiClient, getApiErrorMessage } from '@/lib/http'
+import { canonicalPlanSlug } from '@/lib/membership/plans'
 import {
   DIRECT_DEBIT_LABEL,
   DIRECT_DEBIT_TIMING_COPY,
@@ -46,8 +47,10 @@ import {
 //   IV.  Build Profile          — photo, nationality, identity, bio
 //   V.   Online Profiles        — LinkedIn / IG / X / YT / TikTok / Website (all optional)
 //   VI.  Your Business          — company, sector, position, work email, scale
-//   VII. Choose Membership      — Individual / Business / Corporate (image cards)
-//   VIII.Select Payment         — Annual / Monthly
+//   VII. Choose Membership      — Access / The Club Membership / The Club
+//                                 Business Membership (image cards; ?tier=<slug>
+//                                 pre-selects, legacy slugs accepted)
+//   VIII.Select Payment         — annual only (all fees + VAT, paid annually)
 //
 // Visual vocabulary:
 //   • Diamond step indicator across the top (matches the original site
@@ -114,13 +117,13 @@ const STEPS = [
     n: 'VII',
     label: 'Choose Membership',
     title: 'Pick the membership.',
-    note: 'Each is a 12-month contract. You can choose how to pay next.',
+    note: 'Each is a 12 month membership, paid annually. All fees + VAT.',
   },
   {
     n: 'VIII',
     label: 'Select Payment',
-    title: 'Annual or monthly.',
-    note: "How you'd like to honour the contract — the team will confirm by email.",
+    title: 'Your annual fee.',
+    note: 'Membership is paid annually. The team will confirm by email.',
   },
   {
     n: 'IX',
@@ -217,6 +220,8 @@ interface TierCard {
   label: string
   price: string
   contract: string
+  /** The "For" line, e.g. "Decision makers · £500k+ turnover". */
+  audience: string
   body: string
   image: string
 }
@@ -228,36 +233,51 @@ interface TierPricing {
 
 const FALLBACK_TIERS: TierCard[] = [
   {
-    value: 'individual',
-    label: 'Individual',
+    value: 'access',
+    label: 'Access',
     price: '£2,500',
-    contract: 'plus VAT · 12 month minimum term',
-    body: 'A single representation. 6 Member tickets, 1 ticket at Member rate for paid events.',
-    image: '/gallery/potrait.png',
+    contract: 'a year + VAT',
+    audience: 'Decision makers · £500k+ turnover',
+    body: 'For time-poor clients who want the introductions. Advertise on our platform and reach the full database; The Club makes the introductions and helps convert them. One event included.',
+    image: '/theclub-section.png',
   },
   {
-    value: 'business',
-    label: 'Business',
-    price: '£15,000',
-    contract: 'plus VAT · 12 month minimum term',
-    body: 'Up to 4 representations. Brand showcase event with curated guestlist, corporate concierge included.',
+    value: 'the-club-membership',
+    label: 'The Club Membership',
+    price: '£6,000',
+    contract: 'a year + VAT',
+    audience: 'Owners and decision makers · £1m+ turnover',
+    body: 'Two places at every Round Table, Member Event, Harrods Series and PITCH event, for your team or a guest. Full platform and CRM access.',
     image: '/gallery/land2.png',
   },
   {
-    value: 'corporate',
-    label: 'Corporate',
-    price: '£30,000',
-    contract: 'plus VAT · 12 month minimum term',
-    body: 'Up to 4 representations plus 1 sponsorship opportunity, brand showcase event and corporate concierge.',
+    value: 'business',
+    label: 'The Club Business Membership',
+    price: '£15,000',
+    contract: 'a year + VAT',
+    audience: 'Owners and decision makers · £10m+ turnover',
+    body: 'Four places at every event, no other business member in your category, priority introductions and a bespoke event we fill with your prospects.',
     image: '/gallery/land3.png',
   },
 ]
 
+// NET prices (VAT added on top). Monthly kept only for legacy code paths —
+// the form is annual only.
 const FALLBACK_PRICING: Record<string, TierPricing> = {
-  individual: { annual: 250000, monthly: 20833 },
+  access: { annual: 250000, monthly: 20833 },
+  'the-club-membership': { annual: 600000, monthly: 50000 },
   business: { annual: 1500000, monthly: 125000 },
-  corporate: { annual: 3000000, monthly: 250000 },
 }
+
+// Turnover bands — line up with the tiers' "For" lines.
+const TURNOVER_BANDS = [
+  'Under £500k',
+  '£500k – £1m',
+  '£1m – £10m',
+  '£10m – £50m',
+  '£50m – £100m',
+  '£100m+',
+] as const
 
 const VAT_RATE = 0.2 // UK standard rate
 
@@ -271,16 +291,14 @@ function pence(n: number) {
   }).format(pounds)
 }
 
+// Annual only — "All fees + VAT, paid annually" (brief, Nov 2026). The
+// schema still accepts 'monthly' so older drafts don't crash, but the UI
+// only offers annual and drafts are coerced to it.
 const PAYMENTS = [
   {
     value: 'annual',
     label: 'Annual',
-    body: 'Settled in full at the start of your twelve-month term.',
-  },
-  {
-    value: 'monthly',
-    label: 'Monthly',
-    body: 'Twelve equal instalments across the year.',
+    body: 'Settled in full at the start of your twelve-month membership.',
   },
 ] as const
 
@@ -380,6 +398,7 @@ const schema = z.object({
     }),
   referral_source: z.string().optional(),
   referral_name: z.string().optional(),
+  goals: z.string().max(5000, 'Please keep this under 5,000 characters').optional(),
   // Due-diligence / introduction strategy (Spec §2/§3). Optional so they
   // never block submission, but they're the key matchmaking inputs.
   applicant_stage: z.string().optional(),
@@ -489,10 +508,15 @@ export default function MembershipApplicationPage() {
     let cancelled = false
     supabase
       .from('membership_plans')
-      .select('slug, name, lede, contract_terms, annual_price_pence, monthly_price_pence, image_url')
+      // `*` so the newer columns (audience, headline) come through even
+      // though they aren't in the generated types yet.
+      .select('*')
       .eq('is_active', true)
       .order('display_order', { ascending: true })
-      .then(({ data }) => {
+      .then(({ data: rows }) => {
+        const data = rows as
+          | (NonNullable<typeof rows>[number] & { audience?: string | null })[]
+          | null
         if (cancelled || !data || data.length === 0) return
         setTiers(
           data.map((p) => ({
@@ -503,7 +527,8 @@ export default function MembershipApplicationPage() {
               currency: 'GBP',
               maximumFractionDigits: p.annual_price_pence % 100 === 0 ? 0 : 2,
             }).format(p.annual_price_pence / 100),
-            contract: p.contract_terms ?? 'plus VAT · 12 month minimum term',
+            contract: p.contract_terms || 'a year + VAT',
+            audience: p.audience ?? '',
             body: p.lede ?? '',
             image: p.image_url ?? '/gallery/potrait.png',
           })),
@@ -534,7 +559,7 @@ export default function MembershipApplicationPage() {
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { interests: [], personal_interests: [] },
+    defaultValues: { interests: [], personal_interests: [], payment_preference: 'annual' },
     mode: 'onChange',
   })
 
@@ -564,7 +589,13 @@ export default function MembershipApplicationPage() {
           applicationId?: string | null
         }
         if (draft.values && typeof draft.values === 'object') {
-          reset({ interests: [], personal_interests: [], ...draft.values })
+          // Annual only now — an older draft may still say 'monthly'.
+          reset({
+            interests: [],
+            personal_interests: [],
+            ...draft.values,
+            payment_preference: 'annual',
+          })
           // Never resume on the card page — its Stripe secret is gone.
           const savedStep = Math.max(0, Math.min(STEPS.length - 2, Number(draft.step) || 0))
           setStep(savedStep)
@@ -575,8 +606,19 @@ export default function MembershipApplicationPage() {
     } catch {
       /* storage blocked or corrupt draft — start fresh */
     }
+    // ?tier=<slug> from a tier card's Apply button pre-selects the tier
+    // (wins over a saved draft — it's the applicant's latest choice).
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('tier')
+      if (fromUrl) {
+        const slug = canonicalPlanSlug(fromUrl)
+        if (/^[a-z0-9-]{1,64}$/.test(slug)) setValue('preferred_tier', slug)
+      }
+    } catch {
+      /* malformed URL — ignore */
+    }
     draftReadyRef.current = true
-  }, [reset])
+  }, [reset, setValue])
 
   const watchedValues = watch()
   useEffect(() => {
@@ -805,8 +847,8 @@ export default function MembershipApplicationPage() {
             <p className="font-[family-name:var(--font-editorial)] text-[clamp(1.125rem,1.4vw,1.375rem)] leading-[1.7] text-ivory-soft">
               Embark on a journey with us and become a member of The Club — designed to elevate
               your professional connections and business opportunities. Immerse yourself in a
-              curated calendar of events spanning the vibrant cities of{' '}
-              <em className="italic text-bronze-light">Manchester, Leeds and London</em>. Seize the
+              curated calendar of events{' '}
+              <em className="italic text-bronze-light">across the UK and internationally</em>. Seize the
               opportunity to enhance your network and amplify your business presence by applying
               for membership to The Club.
             </p>
@@ -1240,7 +1282,7 @@ function LocationStep({
               key={l.value}
               onClick={() => onChange(l.value)}
               className={cn(
-                'group relative aspect-[3/4] overflow-hidden border transition-all duration-500 text-left',
+                'group relative min-h-[460px] md:min-h-[520px] overflow-hidden border transition-all duration-500 text-left',
                 active
                   ? 'border-bronze shadow-[0_0_36px_-12px_rgba(192,152,112,0.55)]'
                   : 'border-graphite-line/50 hover:border-bronze/55',
@@ -1663,14 +1705,14 @@ function BusinessStep({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <Field label="Business name" error={errors.company?.message} {...register('company')} />
           <Field
-            label="Business sector"
-            placeholder="e.g. Finance, technology, hospitality"
+            label="Sector"
+            placeholder="e.g. Private banking, property, hospitality"
             error={errors.industry?.message}
             {...register('industry')}
           />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <Field label="Your position" error={errors.position?.message} {...register('position')} />
+          <Field label="Your role" error={errors.position?.message} {...register('position')} />
           <Field
             label="Work email (optional)"
             type="email"
@@ -1680,11 +1722,18 @@ function BusinessStep({
           />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <Field
-            label="Annual turnover"
-            placeholder="e.g. £500k – £1m"
-            error={errors.annual_turnover?.message}
-            {...register('annual_turnover')}
+          <Controller
+            name="annual_turnover"
+            control={control}
+            render={({ field }) => (
+              <EditorialSelect
+                label="Turnover band"
+                options={TURNOVER_BANDS as unknown as string[]}
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                error={errors.annual_turnover?.message}
+              />
+            )}
           />
           <Field
             label="Employees"
@@ -1708,7 +1757,15 @@ function BusinessStep({
         <Field
           as="textarea"
           rows={3}
-          label="Who would you like to meet, and what are you looking for? (optional)"
+          label="Your goals for membership (optional)"
+          placeholder="Revenue goals, target sectors, strategic partners — what would make this year a success?"
+          error={errors.goals?.message}
+          {...register('goals')}
+        />
+        <Field
+          as="textarea"
+          rows={3}
+          label="Your ideal client — who would you like to meet? (optional)"
           placeholder="The kind of people, businesses or opportunities you'd value an introduction to."
           {...register('looking_for')}
         />
@@ -1732,8 +1789,8 @@ function BusinessStep({
           )}
         />
         <Field
-          label="Member who can recommend you (optional)"
-          placeholder="If you know an existing Member, add their name"
+          label="Referred by (optional)"
+          placeholder="If one of The Club Members referred you, add their name"
           {...register('referral_name')}
         />
       </div>
@@ -1802,6 +1859,11 @@ function TierStep({
                 <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] text-ivory-soft/70">
                   {t.contract}
                 </p>
+                {t.audience && (
+                  <p className="font-[family-name:var(--font-editorial)] text-[13px] text-bronze-light/90">
+                    {t.audience}
+                  </p>
+                )}
                 <p className="font-[family-name:var(--font-editorial)] italic text-[13.5px] leading-[1.55] text-ivory-soft mt-2">
                   {t.body}
                 </p>
@@ -1862,7 +1924,7 @@ function PaymentStep({
       {/* Both cards share a row. `items-start` lets the active one
           grow taller (with its receipt) without pulling the other to
           match height — so the unselected card stays compact. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+      <div className="grid grid-cols-1 gap-5 items-start max-w-xl mx-auto">
         {PAYMENTS.map((p) => {
           const active = value === p.value
           const showReceipt = active && !!tierInfo

@@ -84,10 +84,13 @@ const statusBadge: Record<ApplicationStatus, 'active' | 'upcoming' | 'urgent' | 
   rejected: 'urgent',
 }
 
+// preferred_tier slugs → plan names (incl. pre-Nov-2026 slugs).
 const TIER_LABEL: Record<string, string> = {
-  individual: 'Individual',
-  business: 'Business',
-  corporate: 'Corporate',
+  access: 'Access',
+  'the-club-membership': 'The Club Membership',
+  business: 'The Club Business Membership',
+  individual: 'Access',
+  corporate: 'The Club Business Membership',
 }
 
 export function ApplicationsListPage() {

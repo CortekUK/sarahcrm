@@ -18,7 +18,7 @@ const SAMPLE_MERGE_DATA = {
   last_name: 'Hayes',
   email: '',
   phone: '+44 7700 900123',
-  membership_tier: 'Tier 1',
+  membership_tier: 'Access',
   company_name: 'Hayes & Co.',
   event_name: 'Spring Salon Supper',
   event_date: 'Saturday, 4 April 2026',

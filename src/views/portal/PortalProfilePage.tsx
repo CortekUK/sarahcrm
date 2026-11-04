@@ -57,9 +57,9 @@ const profileSchema = z.object({
 type ProfileFormData = z.infer<typeof profileSchema>
 
 const tierLabels: Record<MemberTier, string> = {
-  tier_1: 'Tier I',
-  tier_2: 'Tier II',
-  tier_3: 'Tier III',
+  tier_1: 'Access',
+  tier_2: 'The Club Membership',
+  tier_3: 'The Club Business Membership',
 }
 
 const CATEGORY_HEADINGS: Record<string, string> = {

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { isDirectDebitEnabled } from '@/lib/billing/direct-debit'
 import { cleanText, getSiteUrl, isValidEmail } from '@/lib/stripe/server-helpers'
+import { canonicalPlanSlug } from '@/lib/membership/plans'
 
 // POST /api/membership-application/setup
 //
@@ -35,10 +36,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Mirrors /checkout — DB is source of truth, this is the last-resort net.
+// Prices are NET (VAT added below). Keyed by canonical slug — legacy
+// slugs ('individual', 'corporate') are mapped by canonicalPlanSlug first.
 const FALLBACK_PRICING = {
-  individual: { annual: 250000, monthly: 20833, label: 'Individual Membership' },
-  business: { annual: 1500000, monthly: 125000, label: 'Business Membership' },
-  corporate: { annual: 3000000, monthly: 250000, label: 'Corporate Membership' },
+  access: { annual: 250000, monthly: 20833, label: 'Access Membership' },
+  'the-club-membership': { annual: 600000, monthly: 50000, label: 'The Club Membership' },
+  business: { annual: 1500000, monthly: 125000, label: 'The Club Business Membership' },
 } as const
 
 const VAT_RATE = 0.2
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
     }
     // Bound + clean every free-text field (NUL / control chars or huge
     // values would otherwise surface as a 500).
-    const LONG_FIELDS = new Set(['bio', 'looking_for', 'what_they_can_offer'])
+    const LONG_FIELDS = new Set(['bio', 'looking_for', 'what_they_can_offer', 'goals'])
     const body: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(raw)) {
       if (typeof v === 'string') body[k] = cleanText(v, LONG_FIELDS.has(k) ? 5000 : 500) ?? ''
@@ -66,7 +69,11 @@ export async function POST(req: NextRequest) {
     }
     if (typeof body.email === 'string') body.email = body.email.toLowerCase()
 
-    const tier = body.preferred_tier as string
+    // Canonical slug: old links / drafts may still carry 'individual' or
+    // 'corporate' from before the Nov 2026 tier rename.
+    const tier = canonicalPlanSlug(
+      typeof body.preferred_tier === 'string' ? body.preferred_tier : '',
+    )
     const cadence = body.payment_preference as CadenceKey
     const existingApplicationId =
       typeof body.application_id === 'string' &&
@@ -198,6 +205,9 @@ export async function POST(req: NextRequest) {
       applicant_stage: (body.applicant_stage as string) || null,
       looking_for: (body.looking_for as string) || null,
       what_they_can_offer: (body.what_they_can_offer as string) || null,
+      // "Goals" (brief Nov 2026). Column added in 20261106_b_memberships;
+      // only sent when filled, and dropped on retry if the column is missing.
+      ...(typeof body.goals === 'string' && body.goals ? { goals: body.goals } : {}),
       // PITCH routing: early-stage applicants seeking investment go to the
       // PITCH track; everyone else to standard membership. Admins can
       // override later.
@@ -208,6 +218,29 @@ export async function POST(req: NextRequest) {
       payment_preference: cadence,
       quoted_amount_pence: quotedGross,
       status: 'pending',
+    }
+
+    // If 20261106_b_memberships hasn't been applied yet the `goals` column
+    // doesn't exist — retry without it rather than lose the application.
+    const missingGoals = (err: { code?: string; message?: string } | null) =>
+      !!err && 'goals' in appFields && /goals/i.test(err.message ?? '')
+    const withoutGoals = () => {
+      const rest: Record<string, unknown> = { ...appFields }
+      delete rest.goals
+      return rest
+    }
+    async function insertApp() {
+      let res = await admin.from('membership_applications').insert(appFields).select('id').single()
+      if (missingGoals(res.error)) {
+        res = await admin.from('membership_applications').insert(withoutGoals()).select('id').single()
+      }
+      return res
+    }
+    async function updateApp(id: string) {
+      const res = await admin.from('membership_applications').update(appFields).eq('id', id)
+      if (missingGoals(res.error)) {
+        await admin.from('membership_applications').update(withoutGoals()).eq('id', id)
+      }
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -233,16 +266,9 @@ export async function POST(req: NextRequest) {
       if (existing && reusable) {
         applicationId = existing.id
         customerId = existing.stripe_customer_id ?? null
-        await admin
-          .from('membership_applications')
-          .update(appFields)
-          .eq('id', applicationId)
+        await updateApp(applicationId)
       } else {
-        const { data: inserted, error: insErr } = await admin
-          .from('membership_applications')
-          .insert(appFields)
-          .select('id')
-          .single()
+        const { data: inserted, error: insErr } = await insertApp()
         if (insErr || !inserted) {
           console.error('[setup] insert failed', insErr)
           return NextResponse.json({ error: 'Could not save your application.' }, { status: 500 })
@@ -250,11 +276,7 @@ export async function POST(req: NextRequest) {
         applicationId = inserted.id
       }
     } else {
-      const { data: inserted, error: insErr } = await admin
-        .from('membership_applications')
-        .insert(appFields)
-        .select('id')
-        .single()
+      const { data: inserted, error: insErr } = await insertApp()
       if (insErr || !inserted) {
         console.error('[setup] insert failed', insErr)
         return NextResponse.json({ error: 'Could not save your application.' }, { status: 500 })

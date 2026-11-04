@@ -20,10 +20,11 @@ import { dbErrorMessage } from '@/lib/form-validation'
 
 // /dashboard/website/membership-benefits
 //
-// CMS surface for the 9-card "Membership benefits" bento on /memberships.
-// The set of cards is FIXED at 9 — admins can edit copy/image and
+// CMS surface for the six-card "Membership benefits" bento on /memberships
+// (cut from nine to six in 20261106_b_memberships.sql per Sarah's brief).
+// The set of cards is FIXED — admins can edit copy/image and
 // toggle visibility, but NOT add or remove cards. The bento layout is
-// hand-tuned to nine positions and any other count breaks the
+// hand-tuned to six positions and any other count breaks the
 // editorial asymmetry. This is enforced at the RLS layer too
 // (INSERT/DELETE policies are intentionally absent).
 
@@ -186,7 +187,7 @@ export function MembershipBenefitsPage() {
     <div className="px-6 lg:px-10 py-8 lg:py-10 space-y-7">
       <AdminPageHeader
         title="Membership benefits"
-        description={`Edit copy and imagery for the bento on /memberships. ${visibleCount} of ${items.length} cards visible. The set is locked at nine — toggle visibility to hide a card from the public page.`}
+        description={`Edit copy and imagery for the bento on /memberships. ${visibleCount} of ${items.length} cards visible. The set is locked at six — toggle visibility to hide a card from the public page.`}
       />
 
       {/* Locked-set explainer pill — sits above the list so an admin who
@@ -210,8 +211,9 @@ export function MembershipBenefitsPage() {
               <Sparkles size={20} className="mx-auto mb-3 text-text-dim" />
               <p className="text-sm text-text">No benefit cards found.</p>
               <p className="text-[12px] text-text-dim mt-1.5 max-w-md mx-auto">
-                Run the <code className="text-text">20260526_membership_benefits.sql</code>{' '}
-                migration to seed the nine cards.
+                Run the <code className="text-text">20260526_membership_benefits.sql</code> and{' '}
+                <code className="text-text">20261106_b_memberships.sql</code> migrations to seed the
+                six cards.
               </p>
             </div>
           ) : (

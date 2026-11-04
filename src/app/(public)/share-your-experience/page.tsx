@@ -290,11 +290,7 @@ export default function ShareYourExperiencePage() {
                     {isSubmitting ? 'Sending…' : 'Share your review'}
                   </PremiumPillButton>
                   <p className="mt-6 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze">
-                    Reviews are moderated before they appear on{' '}
-                    <Link href="/reviews" className="text-bronze-light hover:text-ivory transition-colors">
-                      /reviews
-                    </Link>
-                    .
+                    Every review is read by The Club before anything is published.
                   </p>
                 </Reveal>
               </form>
@@ -330,7 +326,7 @@ function SuccessPanel() {
         <h2 className="display-md mb-6">Thank you for sharing.</h2>
         <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-relaxed max-w-md mx-auto">
           The team reads every review. With your permission, we may share yours on{' '}
-          <Link href="/reviews" className="text-bronze-light hover:text-ivory underline decoration-bronze/40 hover:decoration-bronze underline-offset-4 transition-colors">
+          <Link href="/success-stories" className="text-bronze-light hover:text-ivory underline decoration-bronze/40 hover:decoration-bronze underline-offset-4 transition-colors">
             our reviews page
           </Link>{' '}
           alongside other members.

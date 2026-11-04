@@ -3,41 +3,48 @@ import { NightHero } from '@/components/website/night/home/NightHero'
 import { HeroPartnersMarquee } from '@/components/website/night/home/HeroPartnersMarquee'
 import { IntroChapter } from '@/components/website/night/home/IntroChapter'
 import { ApproachChapter } from '@/components/website/night/home/ApproachChapter'
-import { LocationsChapter } from '@/components/website/night/home/LocationsChapter'
 import { VoicesChapter } from '@/components/website/night/home/VoicesChapter'
-import { GalleryBento } from '@/components/website/night/home/GalleryBento'
+import { RecentNights } from '@/components/website/night/home/RecentNights'
 import { EventsTeaser } from '@/components/website/night/home/EventsTeaser'
+import { WhatWeDo } from '@/components/website/night/home/WhatWeDo'
+import { FiveProgrammes } from '@/components/website/night/home/FiveProgrammes'
+import { ProgrammeBanners } from '@/components/website/night/home/ProgrammeBanners'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
+import { ClubNumbers } from '@/components/website/night/about/ClubNumbers'
 import { getPageHero } from '@/lib/cms/heroes'
+import { getClubStats } from '@/lib/cms/club-stats'
+
+const DESCRIPTION =
+  "A private members' club connecting founders, business owners and C-suite decision makers across luxury, corporate and hospitality through luxury events at five-star venues across the UK and beyond."
 
 export const metadata: Metadata = {
   title: "The Club by Sarah Restrick | Private Members' Club",
-  description:
-    "A private members' business club in Manchester, Leeds and London — curated dining, events and introductions for founders and business leaders.",
+  description: DESCRIPTION,
   openGraph: {
     title: "The Club by Sarah Restrick | Private Members' Club",
-    description:
-      "A private members' business club in Manchester, Leeds and London — curated dining, events and introductions for founders and business leaders.",
+    description: DESCRIPTION,
   },
 }
 
 export const revalidate = 60
 
-// Public homepage. All voice copy comes from the live site at
-// theclubbysarahrestrick.com — used verbatim, no fabrication. Sections
-// stay visible even when DB-driven content is empty (testimonials)
-// so the page rhythm is preserved.
+// Public homepage (Sarah's brief, 28 Oct 2026 — structure + existing body
+// copy kept; media, data and section order changed). DB-driven sections
+// hide themselves when they have nothing real to show.
 //
 // Chapter order:
-//   00 — Hero               (NightHero)
-//   —— Partner marquee      (HeroPartnersMarquee — single instance, sits under hero)
-//   01 — The Club           (IntroChapter — "Connecting leaders…")
-//   02 — The Approach       (ApproachChapter — "Engaging on a one-to-one…")
-//   03 — Locations          (LocationsChapter — Manchester / Leeds / London)
-//   —— In Their Own Words   (VoicesChapter — DB testimonials or placeholders)
-//   04 — Recent Nights      (GalleryBento — DB gallery photos)
-//   —— Forthcoming          (EventsTeaser — DB events)
-//   —— Membership           (ApplyClose — apply CTA)
+//   00 — Hero               (NightHero — video slot; Sarah supplies the new loop)
+//   —— Partner strip        (HeroPartnersMarquee — public.partner_logos, CMS-managed)
+//   01 — The Club           (IntroChapter — existing copy)
+//   02 — The Approach       (ApproachChapter — existing copy)
+//   03 — The Club in numbers(ClubNumbers — app_settings 'club_stats')
+//   —— What we do           (WhatWeDo — nine service tiles)
+//   —— Five programmes      (FiveProgrammes — filtered Events / own pages)
+//   —— Members' Voices      (VoicesChapter — active testimonials carousel)
+//   04 — Recent Nights      (RecentNights — featured portfolio case studies)
+//   05 — On the calendar    (EventsTeaser — next three public events)
+//   —— PITCH / London Series banners (ProgrammeBanners)
+//   —— Apply / Receive our notes     (ApplyClose)
 
 // Fallback if the hero_slides row is missing — keeps the old behaviour
 // so the homepage never blanks even with a freshly-bootstrapped DB.
@@ -47,6 +54,7 @@ const FALLBACK_POSTER =
   'https://res.cloudinary.com/dyxt44zjj/video/upload/so_32,f_jpg,w_1920,q_80/v1779573614/hero-video_nxcbkk.jpg'
 
 export default async function HomePage() {
+  const statsPromise = getClubStats()
   const hero = await getPageHero('home', {
     page_slug: 'home',
     media_type: 'video',
@@ -62,6 +70,8 @@ export default async function HomePage() {
     cta_secondary_label: 'Discover The Club',
     cta_secondary_href: '/about',
   })
+
+  const stats = await statsPromise
 
   return (
     <>
@@ -84,10 +94,13 @@ export default async function HomePage() {
       <HeroPartnersMarquee />
       <IntroChapter />
       <ApproachChapter />
-      <LocationsChapter />
+      <ClubNumbers tiles={stats.numbers} number="03" />
+      <WhatWeDo />
+      <FiveProgrammes />
       <VoicesChapter />
-      <GalleryBento />
+      <RecentNights />
       <EventsTeaser />
+      <ProgrammeBanners />
       <ApplyClose />
     </>
   )

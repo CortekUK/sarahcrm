@@ -6,6 +6,7 @@ import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMed
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
+import { ProgrammeTable } from '@/components/website/night/events/ProgrammeTable'
 import {
   EventsBrowser,
   type EventListItem,
@@ -17,23 +18,26 @@ import { ArrowUpRight } from 'lucide-react'
 export const metadata: Metadata = {
   title: 'Events | The Club by Sarah Restrick',
   description:
-    "Upcoming members' evenings, curated luxury experiences and retreats from The Club in Manchester, Leeds and London.",
+    'Five programmes, one calendar: Member Events, Round Tables, PITCH, Curated Experiences and the London Series at Harrods, UK-wide and overseas.',
   openGraph: {
     title: 'Events | The Club by Sarah Restrick',
     description:
-      "Upcoming members' evenings, curated luxury experiences and retreats from The Club in Manchester, Leeds and London.",
+      'Five programmes, one calendar: Member Events, Round Tables, PITCH, Curated Experiences and the London Series at Harrods, UK-wide and overseas.',
   },
 }
 
 export const revalidate = 60
 
 // ─────────────────────────────────────────────────────────────────────
-// /events — editorial calendar.
+// /events — editorial calendar (Sarah's brief, "Events").
 //
-//   01 Hero with verbatim intro line
-//   02 Filter chips + forthcoming events + past archive (client browser)
-//   03 Private Events CTA — for one-off / corporate bookings, links to
-//      /private-event-services
+//   01 Hero (kept, CMS-driven)
+//   02 "Five programmes, one calendar" — the brochure programme table
+//   03 Programme filter chips (?programme=) + summary band + cards +
+//      past archive (client browser). PUBLIC events only — members-only
+//      rows (Curated Experiences) are never queried here; RLS hides them
+//      from signed-out visitors too.
+//   04 Host your own evening → Concierge · Event Services
 //
 // Booking is open to anyone — guests can book without joining
 // (BookingWidget on the event detail page handles the guest form +
@@ -44,16 +48,25 @@ export const revalidate = 60
 const HERO_IMAGE = '/gallery/bigland.png' // PLACEHOLDER
 const PRIVATE_EVENTS_IMAGE = '/theclub-section.png' // PLACEHOLDER
 
-export default async function EventsPage() {
+export default async function EventsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ programme?: string }>
+}) {
+  const { programme } = await searchParams
   const supabase = await createClient()
 
   const [{ data }, hero] = await Promise.all([
     supabase
       .from('events')
       .select(
-        'id, slug, title, start_date, end_date, doors_open, event_type, venue_name, venue_city, cover_image_url, description, guest_price_pence, member_price_pence, vat_mode, vat_rate',
+        'id, slug, title, start_date, end_date, doors_open, event_type, programme, booking_status, short_description, venue_name, venue_city, cover_image_url, description, guest_price_pence, member_price_pence, vat_mode, vat_rate',
       )
       .in('status', ['published', 'live', 'completed'])
+      // Explicit, not just RLS: a signed-in member browsing the public site
+      // gets the same public calendar (their full list is in the portal).
+      .eq('visibility', 'public')
+      .not('start_date', 'is', null)
       .order('start_date', { ascending: true }),
     getPageHero('events', {
       page_slug: 'events',
@@ -68,8 +81,9 @@ export default async function EventsPage() {
 
   const now = new Date()
   const all = (data ?? []) as EventListItem[]
-  const upcoming = all.filter((e) => new Date(e.start_date) >= now)
-  const past = all.filter((e) => new Date(e.start_date) < now).reverse()
+  // Still "upcoming" until it finishes (multi-day events stay listed).
+  const upcoming = all.filter((e) => new Date(e.end_date ?? e.start_date) >= now)
+  const past = all.filter((e) => new Date(e.end_date ?? e.start_date) < now).reverse()
 
   return (
     <>
@@ -112,14 +126,26 @@ export default async function EventsPage() {
            see the live brand voice before browsing the calendar. */}
       <InstagramChapter />
 
-      {/* ── 02 · Browser (filters + lists) ────────────────────── */}
+      {/* ── 02 · Five programmes, one calendar ────────────────── */}
       <Chapter density="tight" bg="ink">
         <Reveal type="up" delay={0}>
-          <EventsBrowser upcoming={upcoming} past={past} />
+          <ProgrammeTable />
         </Reveal>
       </Chapter>
 
-      {/* ── 03 · Private Events CTA ───────────────────────────── */}
+      {/* ── 03 · Browser (filters + lists) ────────────────────── */}
+      <Chapter density="tight" bg="ink">
+        <div id="calendar" className="scroll-mt-28">
+          <EventsBrowser
+            key={programme ?? 'all'}
+            upcoming={upcoming}
+            past={past}
+            initialProgramme={programme ?? null}
+          />
+        </div>
+      </Chapter>
+
+      {/* ── 04 · Host your own evening → Concierge · Event Services ── */}
       <section className="relative overflow-hidden bg-graphite border-t border-graphite-line/40">
         <Aurora variant="dusk" />
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 max-w-[1400px] mx-auto">
@@ -138,7 +164,7 @@ export default async function EventsPage() {
             <div className="max-w-md">
               <Reveal type="up" delay={0}>
                 <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-                  Private Events
+                  Event Services
                 </p>
               </Reveal>
               <Reveal type="clip" delay={150}>
@@ -149,13 +175,13 @@ export default async function EventsPage() {
               <Reveal type="up" delay={350}>
                 <p className="mt-8 font-[family-name:var(--font-editorial)] italic text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.7] text-ivory-soft">
                   Private dinners, brand showcases, intimate panels — let the team curate an
-                  evening to your brief. Our private events service handles venue, guests,
+                  evening to your brief. Concierge · Event Services handles venue, guests,
                   catering and choreography end to end.
                 </p>
               </Reveal>
               <Reveal type="up" delay={500}>
                 <Link
-                  href="/private-event-services"
+                  href="/concierge#event-services"
                   className="group relative inline-block mt-10"
                 >
                   <span className="block relative px-8 py-3.5 border border-bronze rounded-full overflow-hidden transition-colors duration-700">
@@ -168,7 +194,7 @@ export default async function EventsPage() {
                       className="absolute inset-[5px] bg-bronze rounded-full scale-x-0 group-hover:scale-x-100 origin-center transition-transform duration-700 ease-out"
                     />
                     <span className="relative z-10 flex items-center gap-3 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-ivory group-hover:text-ink transition-colors duration-700">
-                      Private Event Services
+                      Event Services
                       <ArrowUpRight
                         size={14}
                         strokeWidth={1.5}

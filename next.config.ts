@@ -17,6 +17,24 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/admin/help/chat': ['./docs/knowledge/**'],
   },
+  // Old URLs → their new homes (Sarah's brief: Private Events and Gallery
+  // are deleted; Event Services now lives on Concierge, past events on
+  // Portfolio). Explicit 301 (Next.js `permanent` sends 308) so search engines move the ranking.
+  async redirects() {
+    return [
+      { source: '/private-event-services', destination: '/concierge#event-services', statusCode: 301 },
+      { source: '/gallery', destination: '/portfolio', statusCode: 301 },
+      { source: '/gallery/:slug', destination: '/portfolio', statusCode: 301 },
+    ]
+  },
+  // Members-only and staff areas must never be indexed (Sarah's brief:
+  // "set noindex on member routes").
+  async headers() {
+    return ['/portal/:path*', '/dashboard/:path*', '/team/:path*', '/checkin/:path*'].map((source) => ({
+      source,
+      headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+    }))
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },

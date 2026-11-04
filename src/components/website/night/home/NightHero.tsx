@@ -21,11 +21,11 @@ import { ChevronDown } from 'lucide-react'
 // The hero takes a real photograph URL via prop so it can later swap to
 // a CMS-driven background (hero_slides table) without component rewrites.
 
-const DEFAULT_IMAGE =
-  'https://images.unsplash.com/photo-1604079628040-94301bb21b91?auto=format&fit=crop&w=2400&q=85'
+// The Club's own photography (brochure) — only used if no hero media is set.
+const DEFAULT_IMAGE = 'https://owjnsljovmaaxgxpxxtw.supabase.co/storage/v1/object/public/site-images/site/private-dining-long-table.jpg'
 
 interface NightHeroProps {
-  /** Background image URL. Defaults to a placeholder atmospheric shot. */
+  /** Background image URL. Defaults to one of The Club's own photographs. */
   image?: string
   /** Optional video URL — when provided, replaces the still image. */
   video?: string

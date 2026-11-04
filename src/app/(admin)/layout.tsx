@@ -247,6 +247,11 @@ const NAV_SECTIONS: NavSection[] = [
           // event_type = curated_luxury, not here.
           { to: '/dashboard/website/experiences', label: 'Past Highlights' },
           { to: '/dashboard/website/videos', label: 'Videos' },
+          // Website rebuild (Sarah's brief, 28 Oct 2026)
+          { to: '/dashboard/website/club-numbers', label: 'Club numbers' },
+          { to: '/dashboard/website/business-categories', label: 'Business categories' },
+          { to: '/dashboard/website/portfolio', label: 'Portfolio' },
+          { to: '/dashboard/website/journal', label: 'Journal' },
           // Hidden for now (routes still work via direct URL):
           //   { to: '/dashboard/website/partners', label: 'Partners' },
           //   { to: '/dashboard/website/documents', label: 'Documents' },

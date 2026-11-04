@@ -77,7 +77,7 @@ The matcher's entire model is one sentence: **it pairs one member's "Looking for
    | IV. Build Profile | Photo, nationality, identity, bio |
    | V. Online Profiles | LinkedIn / Instagram / X / YouTube / TikTok / Website (all optional) |
    | VI. Your Business | Company, sector, position, work email, scale |
-   | VII. Choose Membership | Individual / Business / Corporate |
+   | VII. Choose Membership | Access / The Club Membership / The Club Business Membership (pre-selected from `?tier=<slug>`); annual only, all fees + VAT |
    | VIII. Select Payment | Annual / Monthly, then card details — or, when Direct Debit is switched on, a choice "How would you like to pay?" between card and **Direct Debit** |
 2. At payment, the applicant's card is **saved, not charged**. Nothing is taken from them at this point. If Direct Debit is switched on and they choose it, they go to a secure Stripe page to set up a UK bank-account mandate instead (**Set up Direct Debit**) — again nothing is collected until an admin approves (see Playbook 12 → Direct Debit).
 3. They land on an "Application received" confirmation page confirming nothing has been charged, and (if email is configured) receive a "we've received your application" email.

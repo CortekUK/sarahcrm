@@ -1,177 +1,188 @@
 import type { Metadata } from 'next'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
-import { TierExpandRow, type TierData } from '@/components/website/night/memberships/TierExpandRow'
 import { BenefitsBento, type BenefitItem } from '@/components/website/night/memberships/BenefitsBento'
+import {
+  CategoryExclusivity,
+  ComparisonSpec,
+  HowMatchmakingWorks,
+  MatchmakingIntro,
+  NextSteps,
+  SectionHead,
+  TierCards,
+  type CategoryChip,
+  type ComparisonRowData,
+  type TierCardData,
+} from '@/components/website/night/memberships/MembershipSections'
 import { createClient } from '@/lib/supabase/server'
+import { getAdmin } from '@/lib/marketing/admin'
 import { getPageHero } from '@/lib/cms/heroes'
-import { Check, Minus } from 'lucide-react'
-import { cn } from '@/lib/utils'
+
+const DESCRIPTION =
+  'Access, The Club Membership and The Club Business Membership: introductions, events and the platform, from £2,500 a year + VAT. How Professional Matchmaking works and how to apply.'
 
 export const metadata: Metadata = {
   title: 'Memberships | The Club by Sarah Restrick',
-  description:
-    'Individual, Business and Corporate membership of The Club — benefits, pricing and how to apply.',
+  description: DESCRIPTION,
   openGraph: {
     title: 'Memberships | The Club by Sarah Restrick',
-    description:
-      'Individual, Business and Corporate membership of The Club — benefits, pricing and how to apply.',
+    description: DESCRIPTION,
   },
 }
 
 export const revalidate = 60
 
 // ─────────────────────────────────────────────────────────────────────
-// /memberships — premium rebuild.
+// /memberships — rebuilt to Sarah's brief (Nov 2026).
 //
-// Voice copy is verbatim from Sarah's reference screenshots.
-// Composition is our own; the previous draft borrowed the reference's
-// 3×3 card grid + 3-in-a-row pricing strip, which felt like a catalogue,
-// not a private members club. This version:
+//   01 Hero                         — kept verbatim
+//   02 Membership & Professional Matchmaking intro (brochure)
+//   03 Three tiers                  — membership_plans (+ "Every tier:" line)
+//   04 Comparison + footnote        — membership_comparison + app_settings
+//   05 Six benefit cards            — membership_benefits
+//   06 Business Membership — one business per category
+//                                   — business_categories (Taken from the CRM)
+//   07 How Professional Matchmaking works (brochure)
+//   08 Next steps → Apply (brochure)
 //
-//   01 Hero               — full-bleed, italic lead-in line
-//   02 Benefits           — 9 alternating editorial chapters (image one
-//                           side, numeral + title + italic body the other)
-//                           — pure magazine vocabulary, every benefit gets
-//                           a real moment instead of being a 1/9th tile
-//   03 Tier scenes        — three atmospheric full-bleed plates, each
-//                           70vh tall, image bg with editorial overlay.
-//                           No card chrome, no "The X Membership"
-//                           eyebrow — just the price, the lede, the
-//                           features, the Apply CTA. Reads like three
-//                           deliberate scenes, not three rate cards.
-//   04 Comparison         — editorial spec sheet, generous row spacing
-//   05 Closing tagline    — brand line over atmospheric still
-//   06 Apply close (shared)
+// Every DB block falls back to the brief's copy if its table is empty or
+// unreachable, so the page never renders blank.
 // ─────────────────────────────────────────────────────────────────────
 
 const HERO_IMAGE = '/gallery/land2.png'
 
-const BENEFITS = [
+// Verbatim (brief).
+const EVERY_TIER =
+  'Member discounts across retail, hospitality, travel and more, with access to our concierge service.'
+
+const FALLBACK_FOOTNOTE =
+  'All fees + VAT, paid annually. Introductions are made through the platform. Commission applies to converted business in every tier, except private banking and wealth management on The Club Membership. Bespoke event costs are additional, negotiated through our preferred suppliers.'
+
+// Fallbacks — used ONLY if the DB is empty/unreachable. Edit live copy
+// in /dashboard/website/memberships (plans), /membership-comparison,
+// /membership-benefits and /business-categories.
+const FALLBACK_TIERS: TierCardData[] = [
+  {
+    slug: 'access',
+    name: 'Access',
+    headline: 'Introductions, on demand',
+    audience: 'Decision makers · £500k+ turnover',
+    price: '£2,500',
+    contract: 'a year + VAT',
+    body: 'For time-poor clients who want the introductions. Advertise on our platform and reach the full database; The Club makes the introductions and helps convert them. One event included.',
+    image: '/theclub-section.png',
+    features: [],
+  },
+  {
+    slug: 'the-club-membership',
+    name: 'The Club Membership',
+    headline: 'The room, all year',
+    audience: 'Owners and decision makers · £1m+ turnover',
+    price: '£6,000',
+    contract: 'a year + VAT',
+    body: 'Two places at every Round Table, Member Event, Harrods Series and PITCH event, for your team or a guest. Full platform and CRM access.',
+    image: '/gallery/land2.png',
+    features: [],
+  },
+  {
+    slug: 'business',
+    name: 'The Club Business Membership',
+    headline: 'Your category, exclusively',
+    audience: 'Owners and decision makers · £10m+ turnover',
+    price: '£15,000',
+    contract: 'a year + VAT',
+    body: 'Four places at every event, no other business member in your category, priority introductions and a bespoke event we fill with your prospects.',
+    image: '/gallery/land3.png',
+    features: [],
+  },
+]
+
+const FALLBACK_COMPARISON: ComparisonRowData[] = [
+  { label: 'Annual fee', cells: ['£2,500', '£6,000', '£15,000'] },
+  {
+    label: 'Events',
+    cells: [
+      'One event included; others at additional cost',
+      'Two places at Round Tables, Member Events, Harrods Series and PITCH',
+      'Four places at every event, plus a bespoke event we fill',
+    ],
+  },
+  {
+    label: 'Platform',
+    cells: [
+      'Advertise on the platform, full database access',
+      'Full platform and CRM access',
+      'Preferred status, priority introductions and CRM marketing campaigns',
+    ],
+  },
+  { label: 'Exclusivity', cells: ['—', '—', 'No other business member in your category'] },
+  {
+    label: 'Benefits',
+    cells: ['Discounts and concierge', 'Discounts and concierge', 'Discounts and concierge'],
+  },
+  { label: 'For', cells: ['£500k+ turnover', '£1m+ turnover', '£10m+ turnover'] },
+]
+
+const FALLBACK_BENEFITS: BenefitItem[] = [
   {
     n: 'I',
-    title: 'Access to The Club Network',
-    body:
-      "Unlock privileged access to The Club's elite network of members, connecting you with key industry leaders and high-net-worth professionals for unmatched business opportunities.",
+    title: 'Access to The Club network',
+    body: "A private members' club for founders, owners, senior executives and high-net-worth individuals. Membership is capped and by referral, and every applicant is vetted to protect the quality of the room.",
     image: '/gallery/bigland.png',
   },
   {
     n: 'II',
-    title: 'Choose Your Membership',
-    body:
-      'Experience the freedom of choice with our flexible membership options, designed to cater to your individual preferences, ensuring a tailored and versatile networking experience.',
+    title: 'Professional Matchmaking',
+    body: 'Qualified one-to-one introductions built around your goals and clients, up to ten a month depending on tier, then tracked through to revenue.',
     image: '/gallery/land1.png',
   },
   {
     n: 'III',
-    title: 'Advertise Your Business',
-    body:
-      'Elevate your visibility with the opportunity to showcase your brand through strategic advertising on our member directory and website, reaching a discerning audience of influential professionals and decision-makers.',
-    image: '/gallery/land2.png',
+    title: 'The events calendar',
+    body: 'Five programmes, one calendar: Member Events, Round Tables, PITCH, Curated Experiences and the London Series, at five-star venues across the UK and beyond.',
+    image: '/gallery/land3.png',
   },
   {
     n: 'IV',
-    title: 'Access to The Club Events',
-    body:
-      "Enjoy privileged access to The Club's exclusive members-only events, curated to provide a premium networking experience and unique opportunities for building meaningful connections within our distinguished community.",
-    image: '/gallery/land3.png',
+    title: 'Advertise on the platform',
+    body: 'Advertise on our platform and reach our full profiled database of 7,000+, beyond the members in the room.',
+    image: '/gallery/land2.png',
   },
   {
     n: 'V',
-    title: 'Monthly Members "Work In"',
-    body:
-      'Participate in our monthly member work-in sessions, designed to foster collaboration and productivity, providing a dedicated space for members to engage, share insights, and advance their professional endeavors together.',
-    image: '/gallery/potrait.png',
+    title: 'Member Rewards & Members Card',
+    body: 'Member discounts across retail, hospitality, travel and more, with your Members Card, partner rates and event access in one app.',
+    image: '/theclub-section.png',
   },
   {
     n: 'VI',
-    title: 'Private Dining Experiences',
-    body:
-      'Indulge in exquisite private dining experiences at exclusive member rates, curated to elevate your culinary journey and provide a luxurious backdrop for building connections and hosting memorable business gatherings.',
-    image: '/theclub-section.png',
-  },
-  {
-    n: 'VII',
-    title: 'Bespoke & Ticketed Events',
-    body:
-      'Unlock exclusive member rates for both bespoke and ticketed events, ensuring you have privileged access to a diverse range of curated experiences, from intimate gatherings to high-profile events, designed to enrich your networking journey.',
-    image: '/theapproch-image.png',
-  },
-  {
-    n: 'VIII',
-    title: 'Curated Sponsored Events',
-    body:
-      'Enhance your brand visibility and influence by sponsoring curated events included in our Business and Corporate memberships. Position your business at the forefront of exclusive gatherings, establishing a powerful presence within our elite community.',
-    image: '/manchester.png',
-  },
-  {
-    n: 'IX',
-    title: 'Corporate Luxury Concierge',
-    body:
-      'Experience the pinnacle of service with our Corporate Luxury Concierge, a premier offering exclusively included in our Business and Corporate memberships. Enjoy personalized assistance to complement your professional lifestyle.',
+    title: 'Private Concierge',
+    body: 'Collection, private travel, transfers and access for The Club Members and their guests. Ask for anything; we deliver it.',
     image: '/gallery/bigland.png',
   },
-] as const
-
-// Hardcoded fallback — used ONLY if the membership_plans table is
-// empty or unreachable. Edit copy + pricing from /dashboard/website/memberships
-// in production; this exists so the page never renders blank in dev /
-// during a Supabase outage.
-const FALLBACK_TIERS: TierData[] = [
-  {
-    name: 'Individual',
-    price: '£2,500',
-    contract: '12 months · plus VAT',
-    image: '/theclub-section.png',
-    lede:
-      'A single representation in the room. Quiet, considered, and built for the founder who keeps their own calendar.',
-    features: [
-      '1 representation',
-      '12 month minimum term',
-      'Businesses can take multiple individual memberships',
-      '6 Member tickets',
-      '1 Ticket at Member Rate for paid events',
-    ],
-    href: '/membership-application?tier=individual',
-  },
-  {
-    name: 'Business',
-    price: '£15,000',
-    contract: '12 months · plus VAT',
-    image: '/gallery/land2.png',
-    lede:
-      'Up to four seats with shared invitations, a brand showcase evening, and the corporate concierge on call.',
-    features: [
-      'Up to 4 representations / guests',
-      '12 month minimum term',
-      '6 Member tickets',
-      '4 Tickets at Member rates for paid events',
-      '1 brand showcase event with curated guestlist of prospects (additional fees apply)',
-      'Corporate & luxury concierge',
-    ],
-    href: '/membership-application?tier=business',
-  },
-  {
-    name: 'Corporate',
-    price: '£30,000',
-    contract: '12 months · plus VAT',
-    image: '/gallery/land3.png',
-    lede:
-      'A full partnership — your team across the calendar, a sponsorship moment, and a showcase evening of your own.',
-    features: [
-      'Up to 4 representations / guests',
-      '12 month minimum term',
-      '6 Member tickets',
-      '4 Tickets at Member rates for paid events',
-      '1 brand showcase event with curated guestlist of prospects (additional fees apply)',
-      '1 sponsorship opportunity included',
-      'Corporate & luxury concierge',
-    ],
-    href: '/membership-application?tier=corporate',
-  },
 ]
+
+const FALLBACK_CATEGORIES: CategoryChip[] = [
+  'Private aviation',
+  'Private banking',
+  'Wealth & finance',
+  'Insurance',
+  'Legal',
+  'Property & development',
+  'Construction',
+  'Prestige automotive',
+  'Jewellery & watches',
+  'Interiors & design',
+  'Travel & hotels',
+  'Events & hospitality',
+  'Concierge & lifestyle',
+  'Health & longevity',
+  'Security',
+  'Yachting',
+].map((name) => ({ name, is_taken: false }))
 
 function formatGBP(pence: number) {
   return new Intl.NumberFormat('en-GB', {
@@ -181,97 +192,130 @@ function formatGBP(pence: number) {
   }).format(pence / 100)
 }
 
-type ComparisonRow = { label: string; cells: [boolean, boolean, boolean] }
+interface PlanRow {
+  slug: string
+  name: string
+  headline: string | null
+  audience: string | null
+  lede: string | null
+  contract_terms: string | null
+  annual_price_pence: number
+  features: string[] | null
+  image_url: string | null
+  tier_classification: string | null
+}
 
-const COMPARISON: ComparisonRow[] = [
-  { label: 'Access to The Club network', cells: [true, true, true] },
-  { label: 'Single membership for one individual', cells: [true, false, false] },
-  { label: 'Up to 4 memberships', cells: [false, true, true] },
-  { label: "Advertising on Member's Directory and website", cells: [true, true, true] },
-  { label: "Access to The Club Member's Events", cells: [true, true, true] },
-  { label: '"Work in" Mondays with The Club members', cells: [true, true, true] },
-  { label: 'Exclusive member rates for private dining experiences', cells: [true, true, true] },
-  { label: 'Exclusive members rates for bespoke and ticketed events', cells: [true, true, true] },
-  { label: 'Access to The Club concierge service', cells: [false, true, true] },
-  {
-    label: '1 event curated for your business with sponsorship (all costs included)',
-    cells: [false, true, false],
-  },
-  {
-    label:
-      '4 events curated for your business with sponsorship (based on agreed budget and requirements)',
-    cells: [false, false, true],
-  },
-  { label: 'Bespoke marketing campaign', cells: [false, false, true] },
-  {
-    label: 'Exclusivity — only one business per sector during your membership term',
-    cells: [false, false, true],
-  },
-  {
-    label: 'Top level concierge services including designated team and guest management',
-    cells: [false, false, true],
-  },
-]
+interface ComparisonDbRow {
+  label: string
+  individual: boolean
+  business: boolean
+  corporate: boolean
+  tier_1_text?: string | null
+  tier_2_text?: string | null
+  tier_3_text?: string | null
+}
+
+// The comparison footnote lives in app_settings, which only admins can
+// read through RLS — read it server-side with the service role. It's
+// public copy, never anything sensitive.
+async function getFootnote(): Promise<string | null> {
+  try {
+    const { data } = await getAdmin()
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'membership_comparison_footnote')
+      .maybeSingle()
+    const v = (data as { value?: unknown } | null)?.value
+    if (typeof v === 'string') return v.trim() || null
+    return FALLBACK_FOOTNOTE
+  } catch {
+    return FALLBACK_FOOTNOTE
+  }
+}
 
 export default async function MembershipsPage() {
   const supabase = await createClient()
-  // Public RLS restricts the read to is_active = true; order by
-  // display_order so rows line up with the admin-curated sequence.
-  const comparisonQuery = supabase
-    .from('membership_comparison')
-    .select('label, individual, business, corporate')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
+  // New tables / columns aren't in the generated types yet.
+  const db = supabase as unknown as SupabaseClient
 
-  const [{ data: planRows }, { data: benefitRows }, { data: comparisonRows }, hero] =
-    await Promise.all([
-    supabase
+  const [
+    { data: planRows },
+    { data: benefitRows },
+    { data: comparisonRows },
+    { data: categoryRows },
+    footnote,
+    hero,
+  ] = await Promise.all([
+    db
       .from('membership_plans')
-      .select('slug, name, lede, contract_terms, annual_price_pence, features, image_url')
+      .select('*')
       .eq('is_active', true)
       .order('display_order', { ascending: true }),
-    // CMS-managed benefit cards. RLS restricts the public read to
-    // is_visible = true, so any card the admin has hidden in
-    // /dashboard/website/membership-benefits drops out automatically.
-    // We sort by position so the asymmetric SPANS in BenefitsBento line
-    // up with their intended slots.
+    // RLS restricts the public read to is_visible = true.
     supabase
       .from('membership_benefits')
       .select('position, numeral, title, body, image_url')
       .eq('is_visible', true)
       .order('position', { ascending: true }),
-    // CMS-managed comparison rows. Falls back to the hardcoded COMPARISON
-    // constant below if the table is empty/absent.
-    comparisonQuery,
+    db
+      .from('membership_comparison')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true }),
+    db
+      .from('business_categories')
+      .select('name, is_taken')
+      .order('display_order', { ascending: true })
+      .order('name', { ascending: true }),
+    getFootnote(),
     getPageHero('memberships', {
       page_slug: 'memberships',
       media_type: 'image',
       image_url: HERO_IMAGE,
-      alt_text: 'A members’ evening',
+      alt_text: 'An evening with The Club',
       eyebrow: 'At The Club',
       headline: 'Memberships.',
       lede: 'Three ways to belong. Each is a 12 month decision.',
     }),
   ])
 
-  // Map DB → TierData shape that TierExpandRow expects. Falls back to
-  // the hardcoded list if the table is empty so the page never blanks.
-  const tiers: TierData[] =
-    planRows && planRows.length > 0
-      ? planRows.map((p) => ({
+  const plans = (planRows ?? []) as PlanRow[]
+
+  const tiers: TierCardData[] =
+    plans.length > 0
+      ? plans.map((p) => ({
+          slug: p.slug,
           name: p.name,
+          headline: p.headline ?? '',
+          audience: p.audience ?? '',
           price: formatGBP(p.annual_price_pence),
-          contract: p.contract_terms ?? '',
+          contract: p.contract_terms || 'a year + VAT',
+          body: p.lede ?? '',
           image: p.image_url ?? '/theclub-section.png',
-          lede: p.lede ?? '',
           features: p.features ?? [],
-          href: `/membership-application?tier=${p.slug}`,
         }))
       : FALLBACK_TIERS
 
-  // Map DB → BenefitItem shape. If the table is empty (migration
-  // hasn't been applied yet, RLS misconfigured, etc.) fall back to
-  // the hardcoded BENEFITS so the page never renders blank.
+  // Comparison columns follow the tier order (tier_1 → tier_3); names
+  // come from the plan rows so a rename in the CMS flows through.
+  const TIER_KEYS = ['tier_1', 'tier_2', 'tier_3'] as const
+  const fallbackNames = FALLBACK_TIERS.map((t) => t.name)
+  const tierNames = TIER_KEYS.map(
+    (k, i) => plans.find((p) => p.tier_classification === k)?.name ?? fallbackNames[i],
+  )
+
+  const comparison: ComparisonRowData[] =
+    comparisonRows && comparisonRows.length > 0
+      ? (comparisonRows as ComparisonDbRow[]).map((r) => ({
+          label: r.label,
+          cells: [
+            r.tier_1_text?.trim() || r.individual,
+            r.tier_2_text?.trim() || r.business,
+            r.tier_3_text?.trim() || r.corporate,
+          ],
+        }))
+      : FALLBACK_COMPARISON
+
   const benefits: readonly BenefitItem[] =
     benefitRows && benefitRows.length > 0
       ? benefitRows.map((b) => ({
@@ -280,22 +324,18 @@ export default async function MembershipsPage() {
           body: b.body,
           image: b.image_url ?? '/theclub-section.png',
         }))
-      : BENEFITS
+      : FALLBACK_BENEFITS
 
-  // Map DB → comparison rows. Falls back to the hardcoded COMPARISON
-  // constant if the table is empty/absent (migration not yet applied,
-  // RLS misconfigured, etc.) so the spec sheet never renders blank.
-  const comparison: ComparisonRow[] =
-    comparisonRows && comparisonRows.length > 0
-      ? comparisonRows.map((r) => ({
-          label: r.label,
-          cells: [r.individual, r.business, r.corporate] as [boolean, boolean, boolean],
-        }))
-      : COMPARISON
+  const categories: CategoryChip[] =
+    categoryRows && categoryRows.length > 0 ? (categoryRows as CategoryChip[]) : FALLBACK_CATEGORIES
+
+  const businessPlan = plans.find((p) => p.tier_classification === 'tier_3')
+  const businessSlug = businessPlan?.slug ?? 'business'
+  const businessPrice = businessPlan ? formatGBP(businessPlan.annual_price_pence) : '£15,000'
 
   return (
     <>
-      {/* ── 01 · Hero ─────────────────────────────────────────────── */}
+      {/* ── 01 · Hero (kept verbatim) ─────────────────────────────── */}
       <section className="relative h-[78vh] min-h-[520px] w-full always-night overflow-hidden bg-ink">
         <PageHeroMedia
           mediaType={hero.media_type}
@@ -330,162 +370,67 @@ export default async function MembershipsPage() {
         </div>
       </section>
 
-      {/* ── 02 · Benefits — glowing-border bento ───────────────────
-         9 benefits in an asymmetric 12-col bento. Each tile has a
-         bronze conic-gradient border that spins on hover (see
-         `.glow-border` in globals.css). Larger tiles get a faded
-         image background. Reads as an editorial bento, not a
-         catalogue grid. `density="tight"` here trims the otherwise
-         excessive vertical gap between the hero and this section. */}
+      {/* ── 02 · Membership & Professional Matchmaking ─────────────── */}
       <Chapter density="tight" bg="ink">
-        <div className="max-w-3xl mx-auto text-center mb-12 lg:mb-14">
+        <MatchmakingIntro />
+      </Chapter>
+
+      {/* ── 03 · Three tiers ─────────────────────────────────────── */}
+      <Chapter density="tight" bg="ink" id="tiers">
+        <SectionHead eyebrow="Membership · All prices + VAT" title="Three ways to belong." />
+        <TierCards tiers={tiers} />
+        <Reveal type="up" delay={0}>
+          <p className="max-w-4xl mx-auto mt-12 text-center font-[family-name:var(--font-editorial)] text-[clamp(1rem,1.2vw,1.1875rem)] leading-[1.7] text-ivory-soft">
+            <span className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.36em] text-bronze-light mr-3">
+              Every tier:
+            </span>
+            {EVERY_TIER}
+          </p>
+        </Reveal>
+      </Chapter>
+
+      {/* ── 04 · Comparison ───────────────────────────────────────── */}
+      <Chapter density="default" bg="graphite" className="relative">
+        <Aurora variant="soft" />
+        <div className="relative z-10">
+          <SectionHead eyebrow="At a glance" title="What each tier includes." />
           <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              What you receive
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h2 className="display-md">Membership benefits.</h2>
-          </Reveal>
-          <Reveal type="up" delay={350}>
-            <p className="mt-8 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
-              Discover exclusive membership options and benefits at The Club, tailored to suit your
-              needs. Whether as an individual or business entity, our memberships offer excellent
-              opportunities for connections, sponsored events, and luxury concierge services.
-            </p>
+            <ComparisonSpec tierNames={tierNames} rows={comparison} footnote={footnote} />
           </Reveal>
         </div>
+      </Chapter>
 
+      {/* ── 05 · Six benefits ─────────────────────────────────────── */}
+      <Chapter density="tight" bg="ink">
+        <SectionHead eyebrow="What you receive" title="Membership benefits." />
         <Reveal type="up" delay={0}>
           <BenefitsBento items={benefits} />
         </Reveal>
       </Chapter>
 
-      {/* ── 03 · Tier expand row ─────────────────────────────────
-         Three equal cards in a row. Hovering any one expands it to
-         100% width and visually overlaps the other two; mouse-leave
-         returns it to slot. Cursor-X tracking on the container makes
-         the expansion follow whichever third the cursor is in, so
-         switching between expanded tiers feels fluid instead of
-         requiring the user to leave the row first. Mobile falls back
-         to stacked full-content cards.
-         `density="tight"` here (matching Benefits) trims the
-         stacked padding that was leaving a big dead zone between
-         the two sections. */}
-      <Chapter density="tight" bg="ink">
-        <div className="max-w-3xl mx-auto text-center mb-16 lg:mb-20">
-          <Reveal type="up" delay={0}>
-            <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-              Choose your tier
-            </p>
-          </Reveal>
-          <Reveal type="clip" delay={150}>
-            <h2 className="display-md">Membership types.</h2>
-          </Reveal>
-          <Reveal type="up" delay={350}>
-            <p className="mt-8 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
-              Explore our Individual, Business, and Corporate memberships, each designed with
-              unique benefits to enhance your networking journey. From single representatives to
-              comprehensive corporate packages, The Club provides a platform for meaningful
-              connections and exclusive experiences.
-            </p>
-          </Reveal>
+      {/* ── 06 · Business Membership — one business per category ──── */}
+      <Chapter density="default" bg="graphite" className="relative">
+        <div className="relative z-10">
+          <CategoryExclusivity
+            categories={categories}
+            applyHref={`/membership-application?tier=${encodeURIComponent(businessSlug)}`}
+            price={businessPrice}
+          />
         </div>
-
-        <Reveal type="up" delay={0}>
-          <TierExpandRow tiers={tiers} />
-        </Reveal>
       </Chapter>
 
-      {/* ── 04 · Comparison ───────────────────────────────────────
-         Editorial spec sheet — generous row height, hairline rules,
-         bronze ticks. Sits on graphite so it visually separates from
-         the tier scenes above. */}
+      {/* ── 07 · How Professional Matchmaking works ───────────────── */}
+      <Chapter density="default" bg="ink">
+        <HowMatchmakingWorks />
+      </Chapter>
+
+      {/* ── 08 · Next steps → Apply ───────────────────────────────── */}
       <Chapter density="default" bg="graphite" className="relative">
         <Aurora variant="soft" />
         <div className="relative z-10">
-          <div className="max-w-3xl mx-auto text-center mb-20">
-            <Reveal type="up" delay={0}>
-              <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
-                At a glance
-              </p>
-            </Reveal>
-            <Reveal type="clip" delay={150}>
-              <h2 className="display-md">Membership comparison.</h2>
-            </Reveal>
-            <Reveal type="up" delay={350}>
-              <p className="mt-8 font-[family-name:var(--font-editorial)] text-[clamp(1.0625rem,1.25vw,1.25rem)] leading-[1.75] text-ivory-soft">
-                Explore our membership benefits at a glance with our comprehensive table. Easily
-                compare the exclusive offerings of our Individual, Business, and Corporate
-                memberships to find the perfect fit for your networking goals.
-              </p>
-            </Reveal>
-          </div>
-
-          <Reveal type="up" delay={0}>
-            <ComparisonTable rows={comparison} />
-          </Reveal>
+          <NextSteps />
         </div>
       </Chapter>
-
     </>
-  )
-}
-
-// ─── Comparison table — editorial spec sheet ───────────────────────
-
-function ComparisonTable({ rows }: { rows: ComparisonRow[] }) {
-  return (
-    <div className="max-w-5xl mx-auto overflow-x-auto">
-      <table className="w-full text-left border-collapse min-w-[720px]">
-        <thead>
-          <tr>
-            <th className="w-1/2 pb-8 align-bottom" />
-            {(['Individual', 'Business', 'Corporate'] as const).map((tier) => (
-              <th key={tier} className="pb-8 text-center align-bottom">
-                <p className="font-[family-name:var(--font-display)] text-[clamp(1rem,1.2vw,1.125rem)] text-ivory leading-tight">
-                  {tier}
-                </p>
-                <span className="block h-px w-12 bg-bronze/65 mx-auto mt-5" />
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr
-              key={row.label}
-              className={cn(
-                'border-t border-graphite-line/40 transition-colors duration-300 hover:bg-bronze/[0.04]',
-                i === rows.length - 1 && 'border-b',
-              )}
-            >
-              <td className="py-6 pr-8 font-[family-name:var(--font-editorial)] text-[16px] leading-[1.6] text-ivory">
-                {row.label}
-              </td>
-              {row.cells.map((on, j) => (
-                <td key={j} className="py-6 text-center">
-                  {on ? (
-                    <span
-                      aria-label="Included"
-                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-bronze/15 border border-bronze/55 text-bronze-light"
-                    >
-                      <Check size={14} strokeWidth={2} />
-                    </span>
-                  ) : (
-                    <span
-                      aria-label="Not included"
-                      className="inline-flex items-center justify-center w-8 h-8 text-slate-dim"
-                    >
-                      <Minus size={14} strokeWidth={1.5} />
-                    </span>
-                  )}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   )
 }

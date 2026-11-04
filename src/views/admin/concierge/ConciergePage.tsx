@@ -618,6 +618,29 @@ export function ConciergePage() {
                   <p className="text-sm text-text-muted whitespace-pre-wrap">{form.description}</p>
                 </div>
               )}
+              {(() => {
+                // Extra answers from the website/portal request forms
+                // (Access, Travel, Retail & Hospitality, Event Services).
+                const fd = requests.find((r) => r.id === editingId)?.form_data
+                const entries =
+                  fd && typeof fd === 'object' && !Array.isArray(fd)
+                    ? Object.entries(fd as Record<string, unknown>).filter(
+                        ([, v]) => v !== null && v !== undefined && String(v).trim() !== '',
+                      )
+                    : []
+                if (entries.length === 0) return null
+                return (
+                  <div className="mt-3 pt-3 border-t border-border grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
+                    {entries.map(([k, v]) => (
+                      <MemberAsk
+                        key={k}
+                        label={k.replace(/_/g, ' ')}
+                        value={Array.isArray(v) ? v.join(', ') : String(v)}
+                      />
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           )}
 

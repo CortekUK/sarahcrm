@@ -9,6 +9,7 @@
 // future automation runner all produce identical substitutions — a bug in the
 // resolver shows up in one spot, not three.
 
+import { tierLabel } from '@/lib/membership/plans'
 import type { MergeTagData } from '@/lib/utils-templates/merge-tags-core'
 
 export interface MemberRow {
@@ -131,9 +132,9 @@ export function buildMergeData(opts: {
   if (profile?.email) data.email = profile.email
   if (profile?.phone) data.phone = profile.phone
   if (member.membership_tier) {
-    // Tier values in the DB are 'tier_1' / 'tier_2' / 'tier_3' — present them
-    // in a friendlier "Tier 1" form for the inbox.
-    data.membership_tier = member.membership_tier.replace(/^tier_/, 'Tier ')
+    // Tier values in the DB are 'tier_1' / 'tier_2' / 'tier_3' — present the
+    // plan name (Access / The Club Membership / The Club Business Membership).
+    data.membership_tier = tierLabel(member.membership_tier)
   }
   if (member.company_name || profile?.company_name) {
     data.company_name = member.company_name ?? profile?.company_name ?? ''
