@@ -377,7 +377,7 @@ export function FormPanel({
   children: React.ReactNode
 }) {
   return (
-    <div id={id} className="scroll-mt-28 border border-graphite-line/60 bg-graphite/30 day:bg-white day:shadow-sm p-6 sm:p-10 lg:p-12">
+    <div id={id} className="scroll-mt-28 w-full max-w-4xl mx-auto border border-graphite-line/60 bg-graphite/30 day:bg-white day:shadow-sm p-6 sm:p-10 lg:p-12">
       <p className={cn(eyebrowClass, 'mb-5')}>{eyebrow}</p>
       <h3 className="display-sm">{title}</h3>
       {lede && <div className={cn(ledeClass, 'mt-4 mb-10 !text-[16px]')}>{lede}</div>}

@@ -137,7 +137,7 @@ export default async function SponsorshipPage({
 
       {/* ── Enquiry ─────────────────────────────────────────── */}
       <Chapter density="default" bg="ink" id="enquire" className="scroll-mt-20">
-        <div className="max-w-4xl">
+        <div className="max-w-4xl mx-auto">
           <FormPanel
             id="sponsorship-enquiry"
             eyebrow="Sponsorship enquiry"

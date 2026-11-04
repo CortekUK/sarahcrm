@@ -388,7 +388,7 @@ export default async function PitchPage() {
           </div>
         </Reveal>
 
-        <div className="mt-20 max-w-4xl">
+        <div className="mt-20 max-w-4xl mx-auto">
           <FormPanel
             id="apply"
             eyebrow="Apply to pitch"
@@ -433,14 +433,14 @@ export default async function PitchPage() {
                 <p className="mt-16 display-md">No fee to join.</p>
               </Reveal>
 
-              <div className="mt-14 max-w-4xl">
+              <div className="mt-14 max-w-4xl mx-auto">
                 <FormPanel id="investor-apply" eyebrow="Apply to the Investor Panel" title="Take your seat on the panel.">
                   <InvestorApplicationForm />
                 </FormPanel>
               </div>
             </>
           ) : (
-            <div className="max-w-4xl">
+            <div className="max-w-4xl mx-auto">
               <SectionHead eyebrow="For investors" title="Investor Panel applications open soon — register interest." />
               <FormPanel id="investor-apply" eyebrow="Register interest" title="Be the first to know.">
                 <InvestorInterestForm />
@@ -463,7 +463,7 @@ export default async function PitchPage() {
           </div>
         </Reveal>
 
-        <div className="mt-20 max-w-4xl">
+        <div className="mt-20 max-w-4xl mx-auto">
           <FormPanel id="partner-enquiry" eyebrow="Partner with PITCH" title="Enquire about partnership.">
             <PitchPartnerForm />
           </FormPanel>

@@ -76,7 +76,7 @@ export default async function CorporateEventsPage() {
       </Chapter>
 
       <Chapter density="default" bg="graphite" id="request" className="scroll-mt-20">
-        <div className="max-w-4xl">
+        <div className="max-w-4xl mx-auto">
           <FormPanel id="corporate-request" eyebrow="Corporate event request" title="Tell us about your event.">
             <EventServicesForm corporate />
           </FormPanel>

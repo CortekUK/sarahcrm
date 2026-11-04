@@ -73,7 +73,7 @@ export default function VenuesPage() {
       </Chapter>
 
       <Chapter density="default" bg="ink" id="enquire" className="scroll-mt-20">
-        <div className="max-w-4xl">
+        <div className="max-w-4xl mx-auto">
           <FormPanel id="venue-enquiry" eyebrow="Hospitality partnership" title="Tell us about your venue.">
             <VenuePartnershipForm />
           </FormPanel>
