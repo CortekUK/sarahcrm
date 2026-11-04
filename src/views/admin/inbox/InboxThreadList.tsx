@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { cn } from '@/lib/utils'
-import { Inbox } from 'lucide-react'
-import { type ThreadRow, type Mailbox, formatRelativeDate } from './shared'
+import { Inbox, Loader2 } from 'lucide-react'
+import { type ThreadRow, type Mailbox, formatRelativeDate, bareAddress } from './shared'
 
 // Left pane: the thread list. Fetching/paging state is owned by InboxPage; this
 // component just renders rows, the "Load more" control, and empty/loading UI.
@@ -33,10 +33,24 @@ export function InboxThreadList({
   const labelFor = (email: string) =>
     mailboxes.find((m) => m.email === email)?.label ?? email
 
+  // Label a thread with the person the conversation is with — not the club's
+  // own address. The list API returns the LATEST message's sender, which is
+  // our own mailbox when the last message was a reply we sent.
+  const ownAddresses = new Set(mailboxes.map((m) => m.email.toLowerCase()))
+  const partyFor = (t: ThreadRow): { label: string; sentByUs: boolean } => {
+    if (t.counterparty_email) return { label: t.counterparty_email, sentByUs: false }
+    const from = bareAddress(t.from_email)
+    const sentByUs = !!from && (from === t.mailbox.toLowerCase() || ownAddresses.has(from))
+    if (sentByUs) return { label: `You (${labelFor(t.mailbox)})`, sentByUs: true }
+    return { label: t.from_email || 'Unknown sender', sentByUs: false }
+  }
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       {loading ? (
-        <p className="px-4 py-8 text-center text-sm text-text-dim">Loading…</p>
+        <p className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-text-dim">
+          <Loader2 size={14} className="animate-spin" /> Loading conversations…
+        </p>
       ) : threads.length === 0 ? (
         <AdminEmptyState
           icon={Inbox}
@@ -49,6 +63,7 @@ export function InboxThreadList({
             {threads.map((t) => {
               const active = t.gmail_thread_id === selectedId
               const unread = t.unread
+              const party = partyFor(t)
               return (
                 <li key={`${t.mailbox}:${t.gmail_thread_id}`}>
                   <button
@@ -71,7 +86,10 @@ export function InboxThreadList({
                           unread ? 'font-semibold text-text' : 'font-medium text-text',
                         )}
                       >
-                        {t.from_email || 'Unknown sender'}
+                        {party.label}
+                        {party.sentByUs && (
+                          <span className="ml-1.5 text-[11px] font-normal text-text-dim">· last reply sent</span>
+                        )}
                       </span>
                       <span className="shrink-0 text-[11px] tabular-nums text-text-dim">
                         {formatRelativeDate(t.internal_date)}

@@ -22,6 +22,7 @@ import {
   ACC_STATUS_OPTIONS,
   isAccOverdue,
 } from '@/lib/accountability'
+import { dbErrorMessage } from '@/lib/form-validation'
 
 // Staff self-service — a signed-in team member sees ONLY their own tasks
 // (enforced by RLS: owner_id = auth.uid()). They can change status, add
@@ -100,7 +101,7 @@ export function StaffTasksPage() {
       .select('*')
       .single()
     if (error) {
-      toast({ title: 'Could not update status', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update status', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     if (data) {
@@ -111,6 +112,14 @@ export function StaffTasksPage() {
 
   async function saveOutcome() {
     if (!openTask) return
+    if (outcomeDraft.trim().length > 5000) {
+      toast({
+        title: 'Could not save outcome',
+        description: 'The outcome is too long (5,000 characters max).',
+        variant: 'destructive',
+      })
+      return
+    }
     setSavingOutcome(true)
     const { data, error } = await supabase
       .from('accountability_tasks')
@@ -120,7 +129,7 @@ export function StaffTasksPage() {
       .single()
     setSavingOutcome(false)
     if (error) {
-      toast({ title: 'Could not save outcome', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not save outcome', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     if (data) {

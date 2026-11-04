@@ -28,7 +28,7 @@ import {
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/lib/hooks/use-toast'
 import { apiClient, getApiErrorMessage } from '@/lib/http'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 
 interface Outreach {
   id: string
@@ -114,7 +114,7 @@ function fmtDay(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return d.toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE, day: 'numeric', month: 'short' })
 }
 
 // One-line schedule summary for a step: when it went / goes out.
@@ -325,7 +325,7 @@ function OutreachRow({ item, onOpen }: { item: Outreach; onOpen: () => void }) {
           </p>
         </div>
         <div className="flex flex-col items-end shrink-0 gap-0.5">
-          <span className="text-[11px] text-text-dim">Step {item.step}</span>
+          <span className="text-[11px] text-text-dim">Step {item.step + 1}</span>
           {schedule && <span className="text-[11px] text-text-dim">{schedule}</span>}
         </div>
         {item.opened_at && <Badge variant="info">Opened</Badge>}
@@ -469,7 +469,9 @@ function OutreachEditor({
       }
       loadSequence()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed')
+      const msg = e instanceof Error ? e.message : 'Update failed'
+      setError(msg)
+      toast({ title: 'Not saved', description: msg, variant: 'destructive' })
     } finally {
       setBusy(null)
     }
@@ -486,11 +488,18 @@ function OutreachEditor({
         body: JSON.stringify({ outreach_id: item.id }),
       })
       const json = await res.json()
-      if (!res.ok || json.error) throw new Error(json.error ?? 'Send failed')
+      if (!res.ok || json.error) {
+        // 409 = another click/tab already claimed this send, or it's no longer
+        // approved — refresh so the queue shows its real status.
+        if (res.status === 409) onReload()
+        throw new Error(json.error ?? 'Send failed')
+      }
       toast({ title: 'Sent', description: toEmail ? `Delivered to ${toEmail}.` : undefined })
       onSent()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Send failed')
+      const msg = e instanceof Error ? e.message : 'Send failed'
+      setError(msg)
+      toast({ title: 'Not sent', description: msg, variant: 'destructive' })
     } finally {
       setBusy(null)
     }
@@ -505,7 +514,7 @@ function OutreachEditor({
           {item.opened_at && <Badge variant="info">Opened</Badge>}
           <span>{item.company_name ?? 'Company'}</span>
           {item.decision_maker_name && <span>· {item.decision_maker_name}</span>}
-          <span>· Step {item.step}</span>
+          <span>· Step {item.step + 1}</span>
           {item.voice && <span>· {item.voice} voice</span>}
           {schedule && <span>· {schedule}</span>}
         </div>
@@ -740,7 +749,7 @@ function SequenceTimeline({
                 s.id === currentId ? 'bg-surface-2' : 'hover:bg-surface-2',
               )}
             >
-              <span className="text-[11px] text-text-dim w-12 shrink-0">Step {s.step}</span>
+              <span className="text-[11px] text-text-dim w-12 shrink-0">Step {s.step + 1}</span>
               <span className="flex-1 min-w-0 truncate text-text">{s.subject || 'No subject'}</span>
               {when ? (
                 <span className="text-[11px] text-text-dim shrink-0">{when}</span>

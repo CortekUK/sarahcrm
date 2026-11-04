@@ -27,6 +27,8 @@ interface ParsedRow {
   job_title: string
   membership_tier: string
   membership_status: string
+  // "Member since" — optional; the server parses any common date format.
+  membership_start_date: string
 }
 
 interface RowResult {
@@ -94,6 +96,10 @@ const HEADER_ALIASES: Record<keyof ParsedRow, string[]> = {
   job_title: ['jobtitle', 'title', 'role', 'position'],
   membership_tier: ['tier', 'membershiptier', 'level'],
   membership_status: ['status', 'membershipstatus'],
+  membership_start_date: [
+    'membersince', 'membershipstartdate', 'startdate', 'memberstartdate',
+    'joined', 'joindate', 'datejoined', 'joineddate', 'since',
+  ],
 }
 
 function normaliseHeader(h: string): string {
@@ -176,6 +182,7 @@ export function ImportMembersModal({ open, onClose, onSuccess }: ImportMembersMo
         const out: ParsedRow = {
           first_name: '', last_name: '', email: '', phone: '',
           company_name: '', job_title: '', membership_tier: '', membership_status: '',
+          membership_start_date: '',
         }
         cells.forEach((val, idx) => {
           const field = headerMap[idx]
@@ -207,9 +214,17 @@ export function ImportMembersModal({ open, onClose, onSuccess }: ImportMembersMo
           default_status: defaultStatus,
         }),
       })
-      const json = await res.json()
+      const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast({ title: 'Import failed', description: json.error, variant: 'destructive' })
+        // 400 = validation (empty/too many rows, bad defaults); show the
+        // server's message verbatim — it's written for the admin.
+        const msg =
+          (typeof json?.error === 'string' && json.error) ||
+          (res.status === 409
+            ? 'Some of these accounts already exist.'
+            : `Import failed (HTTP ${res.status}).`)
+        setParseError(msg)
+        toast({ title: 'Import failed', description: msg, variant: 'destructive' })
         return
       }
       setResults({ summary: json.summary, results: json.results })
@@ -266,7 +281,8 @@ export function ImportMembersModal({ open, onClose, onSuccess }: ImportMembersMo
               <p className="text-sm text-text-muted mb-3">
                 Upload a CSV with a header row. Recognised columns:{' '}
                 <span className="text-text">first_name, last_name, email</span> (required), plus
-                optional <span className="text-text">phone, company_name, job_title, tier, status</span>.
+                optional <span className="text-text">phone, company_name, job_title, tier, status, member_since</span>
+                {' '}(also read from “membership_start_date”, “start date” or “joined”). Existing accounts are skipped, never overwritten.
               </p>
               <input
                 ref={fileRef}

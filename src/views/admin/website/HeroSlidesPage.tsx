@@ -23,6 +23,7 @@ import {
 } from '@/lib/cms/cloudinary'
 import { Pencil, Trash2, Film, ImageIcon, Plus } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { dbErrorMessage, isHttpUrlOrPath } from '@/lib/form-validation'
 
 type HeroSlide = Database['public']['Tables']['hero_slides']['Row']
 
@@ -111,9 +112,17 @@ const schema = z
     headline: z.string().optional(),
     lede: z.string().optional(),
     cta_primary_label: z.string().optional(),
-    cta_primary_href: z.string().optional(),
+    cta_primary_href: z
+      .string()
+      .trim()
+      .optional()
+      .refine((v) => !v || isHttpUrlOrPath(v), 'Use a site path like /memberships or a full https:// link'),
     cta_secondary_label: z.string().optional(),
-    cta_secondary_href: z.string().optional(),
+    cta_secondary_href: z
+      .string()
+      .trim()
+      .optional()
+      .refine((v) => !v || isHttpUrlOrPath(v), 'Use a site path like /memberships or a full https:// link'),
   })
   .refine(
     (d) => {
@@ -301,7 +310,7 @@ export function HeroSlidesPage() {
         description: `${pageMeta(data.page_slug)?.label ?? data.page_slug} updated. The public page will refresh on its next visit.`,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(dbErrorMessage(err, 'Failed to save'))
     } finally {
       setSaving(false)
     }
@@ -325,7 +334,7 @@ export function HeroSlidesPage() {
     if (!ok) return
     const { error: err } = await supabase.from('hero_slides').delete().eq('id', existing.id)
     if (err) {
-      toast({ title: 'Reset failed', description: err.message, variant: 'destructive' })
+      toast({ title: 'Reset failed', description: dbErrorMessage(err), variant: 'destructive' })
       return
     }
     toast({
@@ -353,7 +362,7 @@ export function HeroSlidesPage() {
       .eq('id', item.id)
     if (err) {
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, is_active: !next } : i)))
-      toast({ title: 'Toggle failed', description: err.message, variant: 'destructive' })
+      toast({ title: 'Toggle failed', description: dbErrorMessage(err), variant: 'destructive' })
     }
   }
 
@@ -605,6 +614,7 @@ export function HeroSlidesPage() {
               <Input
                 label="Primary link"
                 placeholder="/membership-application"
+                error={form.formState.errors.cta_primary_href?.message}
                 {...form.register('cta_primary_href')}
               />
               <Input
@@ -615,6 +625,7 @@ export function HeroSlidesPage() {
               <Input
                 label="Secondary link"
                 placeholder="/about"
+                error={form.formState.errors.cta_secondary_href?.message}
                 {...form.register('cta_secondary_href')}
               />
             </div>

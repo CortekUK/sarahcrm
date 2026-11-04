@@ -21,6 +21,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
+import { dbErrorMessage } from '@/lib/form-validation'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Loader2, Plus, Trash2, Pencil, Sparkles, Target, ChevronLeft, ChevronRight } from 'lucide-react'
 import { personName, type PersonLite } from '@/lib/accountability'
@@ -75,6 +76,7 @@ export function ScorecardsPage() {
   const [modalStaffId, setModalStaffId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [formErrors, setFormErrors] = useState<{ label?: string; target?: string; actual?: string }>({})
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState<string | null>(null)
 
@@ -135,12 +137,14 @@ export function ScorecardsPage() {
   }, [targets])
 
   function openAdd(staffId: string) {
+    setFormErrors({})
     setModalStaffId(staffId)
     setEditingId(null)
     setForm({ ...emptyForm })
   }
 
   function openEdit(t: ScorecardTargetRow) {
+    setFormErrors({})
     setModalStaffId(t.staff_id)
     setEditingId(t.id)
     setForm({
@@ -152,6 +156,7 @@ export function ScorecardsPage() {
   }
 
   function closeModal() {
+    setFormErrors({})
     setModalStaffId(null)
     setEditingId(null)
   }
@@ -159,15 +164,20 @@ export function ScorecardsPage() {
   async function saveTarget() {
     if (!modalStaffId) return
     const label = form.label.trim()
-    if (!label) {
-      toast({ title: 'A label is required', variant: 'destructive' })
+    const errs: typeof formErrors = {}
+    if (!label) errs.label = 'A label is required.'
+    const target = parseNonNegative(form.target_value, 'Target')
+    if (target.error) errs.target = target.error
+    else if (target.value === null) errs.target = 'Enter a target number.'
+    const actual =
+      form.source === 'manual' ? parseNonNegative(form.manual_actual, 'Actual') : { value: 0 }
+    if (actual.error) errs.actual = actual.error
+    setFormErrors(errs)
+    if (Object.keys(errs).length) {
+      toast({ title: 'Check the target', description: Object.values(errs)[0], variant: 'destructive' })
       return
     }
-    const targetValue = Number(form.target_value)
-    if (!Number.isFinite(targetValue) || targetValue < 0) {
-      toast({ title: 'Enter a valid target number', variant: 'destructive' })
-      return
-    }
+    const targetValue = target.value as number
     setSaving(true)
     const payload = {
       staff_id: modalStaffId,
@@ -175,10 +185,7 @@ export function ScorecardsPage() {
       label,
       target_value: targetValue,
       source: form.source,
-      manual_actual:
-        form.source === 'manual' && form.manual_actual.trim() !== ''
-          ? Number(form.manual_actual)
-          : 0,
+      manual_actual: form.source === 'manual' ? (actual.value ?? 0) : 0,
     }
     if (editingId) {
       const { error } = await supabase
@@ -187,7 +194,7 @@ export function ScorecardsPage() {
         .eq('id', editingId)
       setSaving(false)
       if (error) {
-        toast({ title: 'Could not save', description: error.message, variant: 'destructive' })
+        toast({ title: 'Could not save', description: dbErrorMessage(error), variant: 'destructive' })
         return
       }
       toast({ title: 'Target updated' })
@@ -197,7 +204,7 @@ export function ScorecardsPage() {
         .insert({ ...payload, created_by: profile?.id ?? null })
       setSaving(false)
       if (error) {
-        toast({ title: 'Could not create', description: error.message, variant: 'destructive' })
+        toast({ title: 'Could not create', description: dbErrorMessage(error), variant: 'destructive' })
         return
       }
       toast({ title: 'Target added' })
@@ -217,7 +224,7 @@ export function ScorecardsPage() {
     if (!ok) return
     const { error } = await supabase.from('scorecard_targets').delete().eq('id', editingId)
     if (error) {
-      toast({ title: 'Could not remove', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not remove', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     closeModal()
@@ -226,25 +233,29 @@ export function ScorecardsPage() {
   }
 
   // Inline edit of a manual target's actual value.
-  async function saveManualActual(target: ScorecardTargetRow, raw: string) {
-    const value = raw.trim() === '' ? 0 : Number(raw)
-    if (!Number.isFinite(value) || value < 0) {
-      toast({ title: 'Enter a valid number', variant: 'destructive' })
-      return
+  // Returns an error message to show under the field, or null when fine.
+  async function saveManualActual(target: ScorecardTargetRow, raw: string): Promise<string | null> {
+    const parsed = parseNonNegative(raw, 'Actual')
+    if (parsed.error) {
+      toast({ title: 'Actual not saved', description: parsed.error, variant: 'destructive' })
+      return parsed.error
     }
-    if (value === Number(target.manual_actual ?? 0)) return
+    const value = parsed.value ?? 0
+    if (value === Number(target.manual_actual ?? 0)) return null
     const { error } = await supabase
       .from('scorecard_targets')
       .update({ manual_actual: value })
       .eq('id', target.id)
     if (error) {
-      toast({ title: 'Could not save actual', description: error.message, variant: 'destructive' })
+      const msg = dbErrorMessage(error)
+      toast({ title: 'Could not save actual', description: msg, variant: 'destructive' })
       load()
-      return
+      return msg
     }
     setTargets((prev) =>
       prev.map((t) => (t.id === target.id ? { ...t, manual_actual: value } : t)),
     )
+    return null
   }
 
   async function generateSummary(staffId: string) {
@@ -479,17 +490,17 @@ export function ScorecardsPage() {
             label="Label"
             placeholder="e.g. Outreach messages"
             value={form.label}
+            error={formErrors.label}
             onChange={(e) => setForm({ ...form, label: e.target.value })}
           />
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="Target number"
-              type="number"
-              min="0"
-              step="1"
+              type="text"
               inputMode="decimal"
               placeholder="50"
               value={form.target_value}
+              error={formErrors.target}
               onChange={(e) => setForm({ ...form, target_value: e.target.value })}
             />
             <SelectMenu
@@ -505,12 +516,11 @@ export function ScorecardsPage() {
           {form.source === 'manual' && (
             <Input
               label="Actual so far (optional)"
-              type="number"
-              min="0"
-              step="1"
+              type="text"
               inputMode="decimal"
               placeholder="0"
               value={form.manual_actual}
+              error={formErrors.actual}
               onChange={(e) => setForm({ ...form, manual_actual: e.target.value })}
             />
           )}
@@ -548,22 +558,34 @@ function ManualActualInput({
   onSave,
 }: {
   initial: number
-  onSave: (value: string) => void
+  onSave: (value: string) => Promise<string | null>
 }) {
   const [value, setValue] = useState(String(initial))
+  const [error, setError] = useState<string | null>(null)
   return (
     <Input
-      type="number"
-      min="0"
-      step="1"
+      type="text"
       inputMode="decimal"
+      aria-label="Actual"
       value={value}
+      error={error ?? undefined}
       onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onSave(value)}
+      onBlur={async () => setError(await onSave(value))}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
       className="text-right"
     />
   )
+}
+
+// Parse a non-negative number typed into a text field. Kept as a text input
+// (not type="number") so letters / "-5" reach us and get a visible message
+// instead of the browser silently blanking the value.
+function parseNonNegative(raw: string, label: string): { value: number | null; error?: string } {
+  const s = raw.trim().replace(/^£/, '').replace(/,/g, '')
+  if (s === '') return { value: null }
+  if (s.startsWith('-')) return { value: null, error: `${label} can’t be negative.` }
+  if (!/^\d+(\.\d+)?$/.test(s)) return { value: null, error: `${label} must be a number.` }
+  return { value: Number(s) }
 }

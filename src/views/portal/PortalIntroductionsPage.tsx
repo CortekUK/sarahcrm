@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { Avatar } from '@/components/ui/Avatar'
 import { formatDate } from '@/lib/utils'
-import { Handshake, MessageCircle } from 'lucide-react'
+import { ArrowUpRight, Handshake, MessageCircle } from 'lucide-react'
 import {
   PortalBadge,
   PortalButton,
@@ -20,6 +21,7 @@ import { toast } from '@/lib/hooks/use-toast'
 import { useChat } from '@/lib/chat/ChatProvider'
 import { useCreateDm } from '@/lib/chat/hooks'
 import { getApiErrorMessage } from '@/lib/http/chat-client'
+import { dbErrorMessage } from '@/components/portal/portal-utils'
 import type { Database } from '@/types/database'
 
 type IntroStatus = Database['public']['Enums']['intro_status']
@@ -52,6 +54,21 @@ interface IntroRow {
 // A member sees an introduction once THEIR side's email was actually sent
 // (mySent) — so "sent to one, not the other" is respected — or it's their own
 // pending request. Pre-send team states (approved/scheduled) stay hidden.
+
+// Statuses in which a member may still accept / decline (mirrors the
+// /api/portal/introductions/respond rule).
+const OPEN_FOR_RESPONSE: IntroStatus[] = ['sent', 'scheduled']
+
+// The member's own request The Club hasn't sent out yet.
+function isAwaitingClub(i: IntroRow) {
+  return i.mineRequest && !i.mySent
+}
+
+// Accept / decline only once MY side was emailed, the intro is open and I
+// haven't answered yet.
+function canRespond(i: IntroRow) {
+  return i.mySent && i.myResponse === 'pending' && OPEN_FOR_RESPONSE.includes(i.status)
+}
 
 const introVariant: Record<IntroStatus, PortalBadgeVariant> = {
   suggested: 'draft',
@@ -94,7 +111,12 @@ export function PortalIntroductionsPage() {
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
-      throw new Error(json.error || 'Could not save your response.')
+      // 409 = not open yet / already answered — refresh so the card shows
+      // the real state.
+      if (res.status === 409 && user?.id) fetchIntros(user.id)
+      throw new Error(
+        json.error ? dbErrorMessage(json.error, json.error) : 'Could not save your response.',
+      )
     }
     if (user?.id) await fetchIntros(user.id)
   }
@@ -205,13 +227,14 @@ export function PortalIntroductionsPage() {
     }
 
     allIntros.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    // Visible if MY email was actually sent, or it's my own pending request.
-    setIntros(allIntros.filter((i) => i.mySent || (i.status === 'suggested' && i.mineRequest)))
+    // Visible if MY email was actually sent, or it's my own request (shown as
+    // "Requested — awaiting The Club" until The Club sends it).
+    setIntros(allIntros.filter((i) => i.mySent || i.mineRequest))
     setLoading(false)
   }
 
   const requestedIntros = useMemo(
-    () => intros.filter((i) => !i.mySent && i.status === 'suggested' && i.mineRequest),
+    () => intros.filter((i) => isAwaitingClub(i)),
     [intros],
   )
   const pastIntros = useMemo(
@@ -332,9 +355,15 @@ export function PortalIntroductionsPage() {
                     {Math.round(intro.match_score * 100)}%
                   </span>
                 )}
-                <PortalBadge variant={introVariant[intro.status]} dot>
-                  {statusLabels[intro.status]}
-                </PortalBadge>
+                {isAwaitingClub(intro) ? (
+                  <PortalBadge variant={intro.status === 'declined' ? 'urgent' : 'draft'} dot>
+                    {intro.status === 'declined' ? 'Not taken forward' : 'Requested'}
+                  </PortalBadge>
+                ) : (
+                  <PortalBadge variant={introVariant[intro.status]} dot>
+                    {statusLabels[intro.status]}
+                  </PortalBadge>
+                )}
               </div>
             </div>
 
@@ -359,28 +388,29 @@ export function PortalIntroductionsPage() {
               </p>
             )}
 
-            {/* My own pending request, awaiting The Club */}
-            {intro.status === 'suggested' && (
+            {/* My own request, not yet sent out by The Club */}
+            {isAwaitingClub(intro) && (
               <div className="mt-4 px-4 py-3 border-l-2 border-bronze/55 bg-bronze/[0.06]">
                 <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-bronze-light">
-                  Requested — with The Club for review.
+                  {intro.status === 'declined'
+                    ? 'The Club didn’t take this request forward this time.'
+                    : 'Requested — awaiting The Club.'}
                 </p>
               </div>
             )}
 
-            {/* Response — accept / decline once my email has been sent */}
-            {intro.status === 'suggested' ? null : intro.mySent &&
-              intro.myResponse === 'pending' ? (
+            {/* Response — accept / decline once my side has been sent */}
+            {isAwaitingClub(intro) || !intro.mySent ? null : canRespond(intro) ? (
               <RespondBlock intro={intro} otherFirst={intro.other.first_name || 'this member'} />
             ) : (
               <div className="mt-4 space-y-2">
                 {intro.myResponse === 'accepted' && (
-                  <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-emerald-200">
+                  <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-accent">
                     You accepted this introduction.
                   </p>
                 )}
                 {intro.myResponse === 'declined' && (
-                  <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-rose-300/90">
+                  <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-accent-warm">
                     You declined this introduction.
                   </p>
                 )}
@@ -395,8 +425,8 @@ export function PortalIntroductionsPage() {
                   </p>
                 )}
                 {intro.status === 'accepted' && (
-                  <div className="px-4 py-3 border-l-2 border-emerald-500/60 bg-emerald-900/15">
-                    <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-emerald-200">
+                  <div className="px-4 py-3 border-l-2 border-accent/60 bg-accent/10">
+                    <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-accent">
                       You both accepted — The Club will connect you shortly.
                     </p>
                   </div>
@@ -452,7 +482,14 @@ export function PortalIntroductionsPage() {
         <PortalEmptyState
           icon={<Handshake size={18} strokeWidth={1.5} />}
           title="No introductions yet."
-          description="We'll match you with members who share your interests and ambitions."
+          description="We'll match you with members who share your interests and ambitions. In the meantime, browse the Network and request an introduction to anyone you'd like to meet."
+          action={
+            <Link href="/portal/network">
+              <PortalButton variant="secondary" icon={<ArrowUpRight size={13} strokeWidth={1.5} />}>
+                Browse the network
+              </PortalButton>
+            </Link>
+          }
         />
       ) : (
         <>

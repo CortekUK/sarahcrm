@@ -8,6 +8,7 @@ import { useTheme, themeColors } from '../ThemeContext'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import type { Database } from '@/types/database'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -149,7 +150,7 @@ export function UpcomingEventsGrid({ events }: UpcomingEventsGridProps) {
                   <div className="absolute top-5 left-5 bg-black/50 backdrop-blur-sm border border-white/15 px-4 py-2">
                     <span className="font-[family-name:var(--font-label)] text-[0.65rem] uppercase tracking-[0.2em] text-white">
                       {event.start_date
-                        ? new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                        ? new Date(event.start_date).toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE, day: 'numeric', month: 'short' })
                         : 'TBC'}
                     </span>
                   </div>

@@ -18,6 +18,7 @@ import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
+import { dbErrorMessage, isHttpUrl } from '@/lib/form-validation'
 import { Plus, Pencil, Trash2, Instagram, ExternalLink, Save } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -38,9 +39,21 @@ function flushPublicPages() {
 // ─── Settings form schema ────────────────────────────────────────────
 
 const settingsSchema = z.object({
-  handle: z.string().optional(),
+  // Instagram usernames: letters, numbers, dots and underscores (max 30).
+  handle: z
+    .string()
+    .trim()
+    .optional()
+    .refine(
+      (v) => !v || /^@?[A-Za-z0-9._]{1,30}$/.test(v),
+      'Letters, numbers, dots and underscores only — e.g. @theclubbysarahrestrick',
+    ),
   display_name: z.string().optional(),
-  profile_url: z.string().optional(),
+  profile_url: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || isHttpUrl(v), 'Enter a full link starting with https://'),
   avatar_url: z.string().optional(),
   bio: z.string().optional(),
   follower_count: z.coerce.number().int().min(0).optional().or(z.literal('').transform(() => undefined)),
@@ -59,7 +72,11 @@ const postSchema = z
   .object({
     image_url: z.string().optional(),
     caption: z.string().optional(),
-    post_url: z.string().optional(),
+    post_url: z
+      .string()
+      .trim()
+      .optional()
+      .refine((v) => !v || isHttpUrl(v), 'Enter a full link starting with https://'),
     display_order: z.coerce.number().int().min(0),
     is_active: z.boolean(),
   })
@@ -159,7 +176,8 @@ export function InstagramAdminPage() {
   async function onSaveSettings(data: SettingsFormData) {
     setSavingSettings(true)
     const payload = {
-      handle: data.handle || null,
+      // Store the handle consistently with a single leading @.
+      handle: data.handle ? `@${data.handle.replace(/^@+/, '')}` : null,
       display_name: data.display_name || null,
       profile_url: data.profile_url || null,
       avatar_url: data.avatar_url || null,
@@ -189,7 +207,7 @@ export function InstagramAdminPage() {
     } catch (e) {
       toast({
         title: 'Could not save',
-        description: e instanceof Error ? e.message : 'Unknown error',
+        description: dbErrorMessage(e, 'Unknown error'),
         variant: 'destructive',
       })
     } finally {
@@ -223,7 +241,7 @@ export function InstagramAdminPage() {
       await fetchAll()
       flushPublicPages()
     } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Failed to save')
+      setPostError(dbErrorMessage(e, 'Failed to save'))
     } finally {
       setSavingPost(false)
     }
@@ -288,7 +306,7 @@ export function InstagramAdminPage() {
     <div className="p-8">
       <AdminPageHeader
         title="Instagram"
-        description="The Instagram chapter shown on the homepage and the About page. Set the profile bits (handle, name, bio, avatar, follower count) then add up to nine tiles — the chapter renders the first six. Drag to reorder; toggle inactive to hide without deleting."
+        description="The Instagram chapter shown on the homepage and the About page. Set the profile details (handle, name, bio, avatar, follower count) and switch the chapter on or off."
         meta={
           <span className="text-xs text-text-dim">
             {posts.length} tile{posts.length !== 1 ? 's' : ''} · {activeCount} active
@@ -339,6 +357,7 @@ export function InstagramAdminPage() {
                 <Input
                   label="Handle"
                   placeholder="@theclubbysarahrestrick"
+                  error={settingsForm.formState.errors.handle?.message}
                   {...settingsForm.register('handle')}
                 />
                 <Input
@@ -356,7 +375,8 @@ export function InstagramAdminPage() {
             <Input
               label="Profile URL"
               placeholder="https://instagram.com/theclubbysarahrestrick"
-              hint="Where 'Follow on Instagram' (and tiles without their own URL) link to."
+              hint="Where 'Follow on Instagram' links to."
+              error={settingsForm.formState.errors.profile_url?.message}
               {...settingsForm.register('profile_url')}
             />
 
@@ -550,6 +570,7 @@ export function InstagramAdminPage() {
             label="Post URL (optional)"
             placeholder="https://instagram.com/p/..."
             hint="If set, clicking the tile opens this specific post. Leave blank to link to the main profile."
+            error={postForm.formState.errors.post_url?.message}
             {...postForm.register('post_url')}
           />
           <Input

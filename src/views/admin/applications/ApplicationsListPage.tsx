@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/Card'
@@ -13,7 +13,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { useProgress } from '@/components/admin/TopProgressBar'
-import { formatDateTime, formatDate, cn, titleCase } from '@/lib/utils'
+import { formatDateTime, formatDate, formatCurrency, cn, titleCase } from '@/lib/utils'
 import { toast } from '@/lib/hooks/use-toast'
 import {
   ClipboardList,
@@ -44,19 +44,42 @@ import {
 import type { Database } from '@/types/database'
 
 type ApplicationRow = Database['public']['Tables']['membership_applications']['Row']
-type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'shortlisted'
+// 'processing' = the approve route has claimed the row and is charging /
+// provisioning right now (or crashed mid-way — it restores after a timeout).
+type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'shortlisted' | 'processing'
+
+/** Read a JSON error body without throwing on HTML / empty responses. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readJson(res: Response): Promise<Record<string, any>> {
+  try {
+    return (await res.json()) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function errorText(res: Response, json: Record<string, any>, fallback: string): string {
+  if (typeof json.error === 'string' && json.error.trim()) return json.error
+  if (res.status === 401 || res.status === 403) return 'Your admin session has expired — sign in again.'
+  return `${fallback} (HTTP ${res.status}).`
+}
+
+const digitsOnly = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '')
 
 const STATUS_OPTIONS: { value: ApplicationStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
   { value: 'shortlisted', label: 'Shortlisted' },
+  { value: 'processing', label: 'Processing' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ]
 
-const statusBadge: Record<ApplicationStatus, 'active' | 'upcoming' | 'urgent' | 'draft'> = {
+const statusBadge: Record<ApplicationStatus, 'active' | 'upcoming' | 'urgent' | 'draft' | 'info'> = {
   pending: 'upcoming',
   shortlisted: 'active',
+  processing: 'info',
   approved: 'active',
   rejected: 'urgent',
 }
@@ -100,12 +123,16 @@ export function ApplicationsListPage() {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
+    // Phone search ignores spaces, dashes, brackets and a leading +44 / 0.
+    const termDigits = digitsOnly(term).replace(/^(44|0)/, '')
     return apps.filter((a) => {
       if (statusFilter !== 'all' && a.status !== statusFilter) return false
       if (!term) return true
       const name = `${a.first_name ?? ''} ${a.last_name ?? ''}`.toLowerCase()
+      const phoneDigits = digitsOnly(a.phone).replace(/^(44|0)/, '')
       return (
         name.includes(term) ||
+        (termDigits.length >= 3 && phoneDigits.includes(termDigits)) ||
         (a.email ?? '').toLowerCase().includes(term) ||
         (a.company ?? '').toLowerCase().includes(term) ||
         (a.industry ?? '').toLowerCase().includes(term) ||
@@ -127,6 +154,29 @@ export function ApplicationsListPage() {
 
   // ── Action handlers ────────────────────────────────────────────────
 
+  async function refreshOne(id: string) {
+    const { data } = await supabase
+      .from('membership_applications')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+    if (!data) return
+    const row = data as ApplicationRow
+    setApps((prev) => prev.map((a) => (a.id === id ? row : a)))
+    setSelected((prev) => (prev?.id === id ? row : prev))
+  }
+
+  /** Autosave target for the notes box — returns an error message or null. */
+  async function saveNotes(application: ApplicationRow, notes: string): Promise<string | null> {
+    const { error } = await supabase
+      .from('membership_applications')
+      .update({ notes })
+      .eq('id', application.id)
+    if (error) return error.message
+    setApps((prev) => prev.map((a) => (a.id === application.id ? { ...a, notes } : a)))
+    return null
+  }
+
   async function updateStatus(
     application: ApplicationRow,
     next: ApplicationStatus,
@@ -142,18 +192,31 @@ export function ApplicationsListPage() {
           .update({ notes })
           .eq('id', application.id)
       }
-      const res = await progress.track(
-        fetch('/api/admin/applications/approve', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ application_id: application.id }),
-        }),
+      // Show 'processing' straight away — the route claims the row before
+      // charging, so a second tab sees it too.
+      setApps((prev) =>
+        prev.map((a) => (a.id === application.id ? { ...a, status: 'processing' } : a)),
       )
-      const json = await res.json()
+      let res: Response
+      try {
+        res = await progress.track(
+          fetch('/api/admin/applications/approve', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ application_id: application.id }),
+          }),
+        )
+      } catch {
+        res = new Response(null, { status: 503 })
+      }
+      const json = await readJson(res)
       if (!res.ok) {
+        // Put the row back to what the server says it is now (it restores
+        // the previous status on failure).
+        void refreshOne(application.id)
         toast({
           title: 'Approval failed',
-          description: json.error || 'Unknown error',
+          description: errorText(res, json, 'The approval could not be completed'),
           variant: 'destructive',
         })
         return false
@@ -170,8 +233,8 @@ export function ApplicationsListPage() {
       toast({
         title: 'Member created',
         description: json.invite_sent
-          ? `${application.first_name} ${application.last_name} added at ${json.tier.replace('_', ' ')} — invitation email sent.`
-          : `${application.first_name} ${application.last_name} added at ${json.tier.replace('_', ' ')}.`,
+          ? `${application.first_name} ${application.last_name} added at ${String(json.tier ?? '').replace('_', ' ')} — invitation email sent.`
+          : `${application.first_name} ${application.last_name} added at ${String(json.tier ?? '').replace('_', ' ')}.`,
       })
       return true
     }
@@ -188,18 +251,26 @@ export function ApplicationsListPage() {
           .update({ notes })
           .eq('id', application.id)
       }
-      const res = await progress.track(
-        fetch('/api/admin/applications/reject', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ application_id: application.id }),
-        }),
-      )
-      const json = await res.json()
+      let res: Response
+      try {
+        res = await progress.track(
+          fetch('/api/admin/applications/reject', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ application_id: application.id }),
+          }),
+        )
+      } catch {
+        res = new Response(null, { status: 503 })
+      }
+      const json = await readJson(res)
       if (!res.ok) {
+        // 409 = approved member / approval in progress — the server's message
+        // explains what to do instead (e.g. cancel from Members).
+        if (res.status === 409) void refreshOne(application.id)
         toast({
-          title: 'Rejection failed',
-          description: json.error || 'Unknown error',
+          title: res.status === 409 ? 'Can’t reject this application' : 'Rejection failed',
+          description: errorText(res, json, 'The rejection could not be completed'),
           variant: 'destructive',
         })
         return false
@@ -265,7 +336,12 @@ export function ApplicationsListPage() {
     setApps((prev) => prev.map((a) => (a.id === application.id ? { ...a, ...patch } : a)))
     setSelected((prev) => (prev?.id === application.id ? { ...prev, ...patch } : prev))
     toast({
-      title: next === 'shortlisted' ? 'Marked as shortlisted' : 'Status updated',
+      title:
+        next === 'shortlisted'
+          ? 'Marked as shortlisted'
+          : next === 'pending'
+            ? 'Moved back to pending'
+            : 'Status updated',
       description: `${application.first_name} ${application.last_name}`,
     })
     return true
@@ -276,26 +352,40 @@ export function ApplicationsListPage() {
       title: `Delete "${application.first_name} ${application.last_name}"?`,
       description: (
         <span>
-          The application row will be permanently removed.{' '}
-          {application.status === 'approved' && (
-            <strong className="text-text">
-              This applicant has already been provisioned as a member — the member account itself
-              will <em>not</em> be deleted (handle that from Members).
-            </strong>
-          )}{' '}
-          This cannot be undone.
+          The application will be permanently removed.{' '}
+          {application.stripe_payment_method_id && (
+            <>
+              Their saved {application.stripe_payment_method_type === 'bacs_debit' ? 'Direct Debit mandate' : 'card'}{' '}
+              will also be <strong className="text-text">removed from Stripe</strong>.{' '}
+            </>
+          )}
+          Approved or paid applications can’t be deleted — they’re kept for the record. This
+          cannot be undone.
         </span>
       ),
       confirmLabel: 'Delete application',
       tone: 'danger',
     })
     if (!ok) return
-    const { error } = await supabase
-      .from('membership_applications')
-      .delete()
-      .eq('id', application.id)
-    if (error) {
-      toast({ title: 'Delete failed', description: error.message, variant: 'destructive' })
+    let res: Response
+    try {
+      res = await progress.track(
+        fetch('/api/admin/applications/delete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ application_id: application.id }),
+        }),
+      )
+    } catch {
+      res = new Response(null, { status: 503 })
+    }
+    const json = await readJson(res)
+    if (!res.ok) {
+      toast({
+        title: res.status === 409 ? 'Can’t delete this application' : 'Delete failed',
+        description: errorText(res, json, 'The application could not be deleted'),
+        variant: 'destructive',
+      })
       return
     }
     setApps((prev) => prev.filter((a) => a.id !== application.id))
@@ -321,7 +411,7 @@ export function ApplicationsListPage() {
         title="Membership applications"
         description="Prospective members who've submitted the public application form. Review their full profile — every field they filled in on the widget is captured here — then shortlist, reject, or approve. Approving provisions the auth account, sends an invitation email, and adds them to Members."
         meta={
-          <span className="text-xs text-text-dim">
+          <span className="text-xs text-text-dim break-words min-w-0">
             {counts.total} total · {counts.pending} pending · {counts.shortlisted} shortlisted ·{' '}
             {counts.approved} approved
           </span>
@@ -348,11 +438,11 @@ export function ApplicationsListPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, company, industry, city…"
+            placeholder="Search by name, email, phone, company, city…"
             className="pl-9"
           />
         </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           {STATUS_OPTIONS.map((opt) => {
             const count =
               opt.value === 'all'
@@ -404,6 +494,7 @@ export function ApplicationsListPage() {
         onClose={() => setSelected(null)}
         onAction={updateStatus}
         onDelete={deleteApplication}
+        onSaveNotes={saveNotes}
       />
     </div>
   )
@@ -562,19 +653,71 @@ function ApplicationDetailModal({
   onClose,
   onAction,
   onDelete,
+  onSaveNotes,
 }: {
   application: ApplicationRow | null
   onClose: () => void
   onAction: (a: ApplicationRow, status: ApplicationStatus, notes?: string) => Promise<boolean>
   onDelete: (a: ApplicationRow) => Promise<void>
+  onSaveNotes: (a: ApplicationRow, notes: string) => Promise<string | null>
 }) {
   const confirm = useConfirm()
   const [notes, setNotes] = useState(application?.notes ?? '')
   const [pending, setPending] = useState<ApplicationStatus | null>(null)
+  // Notes autosave (QA #42 — typing a note then pressing Close lost it).
+  const [notesState, setNotesState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const savedNotesRef = useRef(application?.notes ?? '')
+  const appIdRef = useRef<string | null>(application?.id ?? null)
 
   useEffect(() => {
-    setNotes(application?.notes ?? '')
+    // Only reset when a DIFFERENT application opens — status patches to the
+    // same row must not wipe what's being typed.
+    if ((application?.id ?? null) !== appIdRef.current) {
+      appIdRef.current = application?.id ?? null
+      setNotes(application?.notes ?? '')
+      savedNotesRef.current = application?.notes ?? ''
+      setNotesState('idle')
+    }
   }, [application])
+
+  useEffect(() => {
+    if (!application || notes === savedNotesRef.current) return
+    const target = application
+    const value = notes
+    const t = setTimeout(async () => {
+      setNotesState('saving')
+      const err = await onSaveNotes(target, value)
+      if (appIdRef.current !== target.id) return
+      if (err) {
+        setNotesState('error')
+      } else {
+        savedNotesRef.current = value
+        setNotesState('saved')
+      }
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, application?.id])
+
+  async function handleClose() {
+    if (application && notes !== savedNotesRef.current) {
+      setNotesState('saving')
+      const err = await onSaveNotes(application, notes)
+      if (err) {
+        setNotesState('error')
+        const discard = await confirm({
+          title: 'Notes not saved',
+          description: `Your internal note couldn’t be saved (${err}). Close anyway and lose it?`,
+          confirmLabel: 'Close without saving',
+          tone: 'danger',
+        })
+        if (!discard) return
+      } else {
+        savedNotesRef.current = notes
+      }
+    }
+    onClose()
+  }
 
   if (!application) return null
   const a = application
@@ -587,12 +730,42 @@ function ApplicationDetailModal({
     // (an auth user is created + an email is sent). Always confirm first
     // so the admin sees exactly what's about to happen.
     if (next === 'approved') {
+      const quoted = a.quoted_amount_pence ?? 0
+      const alreadyBilled = Boolean(a.stripe_subscription_id)
+      const hasMethod = Boolean(a.stripe_payment_method_id && a.stripe_customer_id)
+      const isBacs = a.stripe_payment_method_type === 'bacs_debit'
+      const cadence = a.payment_preference === 'monthly' ? 'month' : 'year'
+      const billingLine = alreadyBilled ? (
+        <li>
+          <span className="font-medium text-text">No new charge</span> — a subscription is already
+          set up for this applicant.
+        </li>
+      ) : hasMethod && quoted > 0 ? (
+        <li>
+          {isBacs ? 'Submit a Direct Debit of ' : 'Charge their saved card '}
+          <span className="font-medium text-text">{formatCurrency(quoted)}</span> (incl. VAT) now,
+          then every {cadence}
+          {isBacs ? ' — it clears in 3–5 working days' : ''}
+        </li>
+      ) : hasMethod ? (
+        <li className="text-accent-warm">
+          A payment method is saved but no amount was quoted — the approval will be refused.
+        </li>
+      ) : null
       const ok = await confirm({
         title: `Approve ${fullName}?`,
         description: (
           <span>
+            {!alreadyBilled && !hasMethod && (
+              <span className="block mb-3 rounded-[var(--radius-md)] border border-accent-warm/40 bg-accent-warm/10 px-3 py-2 text-text">
+                <strong>No card or Direct Debit on file.</strong> Nothing will be charged — they’ll
+                become an active member without a subscription and must set up payment from their
+                portal.
+              </span>
+            )}
             {status === 'approved' ? 'Re-approving will:' : 'Approving will:'}
             <ul className="mt-3 space-y-1.5 text-text-muted list-disc list-inside">
+              {billingLine}
               <li>
                 Create an auth account for{' '}
                 <span className="font-medium text-text">{a.email}</span>
@@ -674,7 +847,9 @@ function ApplicationDetailModal({
   // a flag. The block sits right above the action footer so it's read
   // immediately before they click.
   const actionHint =
-    status === 'approved'
+    status === 'processing'
+      ? 'Approval is in progress (charging and creating the member account). Refresh in a moment — if it stays here for more than a few minutes, approving again will retry safely.'
+      : status === 'approved'
       ? 'This applicant is already provisioned as a member. Re-approving will refresh their tier and re-send the password-set email.'
       : 'Approving provisions an auth account, adds them to Members, and emails them a branded link to set their password and enter the portal. Shortlisting & rejecting are silent — no email is sent.'
 
@@ -702,7 +877,7 @@ function ApplicationDetailModal({
   const activeSocials = socials.filter((s) => s.url)
 
   return (
-    <Modal open={!!application} onClose={onClose} title={fullName} size="xl">
+    <Modal open={!!application} onClose={handleClose} title={fullName} size="xl">
       <div className="space-y-7">
         {/* ── Header strip — photo + name + status + headline meta ──
            Bronze ring around the avatar, capacity row of meta beneath
@@ -1011,7 +1186,15 @@ function ApplicationDetailModal({
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
             placeholder="e.g. spoke with applicant on phone, recommending tier 2…"
-            hint="Visible only to admins. Saved when you click an action button below."
+            hint={
+              notesState === 'saving'
+                ? 'Saving…'
+                : notesState === 'saved'
+                  ? 'Saved. Visible only to admins.'
+                  : notesState === 'error'
+                    ? 'Couldn’t save — check your connection; we’ll retry when you keep typing or close.'
+                    : 'Visible only to admins. Saves automatically as you type.'
+            }
           />
         </Section>
 
@@ -1029,7 +1212,7 @@ function ApplicationDetailModal({
         {/* ── Actions ─────────────────────────────────────────────── */}
         <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 -mx-6 px-6">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose} className="flex-1 sm:flex-none">
+            <Button variant="ghost" onClick={handleClose} className="flex-1 sm:flex-none">
               Close
             </Button>
             <Button
@@ -1046,10 +1229,35 @@ function ApplicationDetailModal({
                 approve, shortlist, or email-applicant from here. The
                 application stays visible (with Refunded ledger info)
                 for the record. Delete remains available on the left. */}
-            {status !== 'rejected' && (
+            {status === 'shortlisted' && (
+              <Button
+                variant="ghost"
+                onClick={() => handleAction('pending')}
+                loading={pending === 'pending'}
+                disabled={pending !== null}
+              >
+                Move back to pending
+              </Button>
+            )}
+            {/* A claim older than 5 min means the approve request died
+                mid-way; the route lets a fresh Approve re-take it. */}
+            {status === 'processing' &&
+              a.reviewed_at &&
+              Date.now() - new Date(a.reviewed_at).getTime() > 5 * 60 * 1000 && (
+                <Button
+                  onClick={() => handleAction('approved')}
+                  loading={pending === 'approved'}
+                  disabled={pending !== null}
+                >
+                  <CheckCircle2 size={14} />
+                  Retry approval
+                </Button>
+              )}
+            {status !== 'rejected' && status !== 'processing' && (
               <>
                 <Button
                   variant="ghost"
+                  disabled={pending !== null}
                   onClick={() => handleAction('rejected')}
                   loading={pending === 'rejected'}
                   className="text-accent-warm"
@@ -1062,12 +1270,17 @@ function ApplicationDetailModal({
                     variant="secondary"
                     onClick={() => handleAction('shortlisted')}
                     loading={pending === 'shortlisted'}
+                    disabled={pending !== null}
                   >
                     <Tag size={14} />
                     Shortlist
                   </Button>
                 )}
-                <Button onClick={() => handleAction('approved')} loading={pending === 'approved'}>
+                <Button
+                  onClick={() => handleAction('approved')}
+                  loading={pending === 'approved'}
+                  disabled={pending !== null}
+                >
                   <CheckCircle2 size={14} />
                   {status === 'approved' ? 'Re-provision member' : 'Approve & create member'}
                 </Button>

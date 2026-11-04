@@ -10,6 +10,7 @@ import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { usePageHero } from '@/components/website/usePageHero'
 import { Resources } from '@/components/website/Resources'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -65,6 +66,7 @@ function formatPrice(pence: number): string {
 function formatEventDate(iso: string): string {
   try {
     return new Intl.DateTimeFormat('en-GB', {
+      timeZone: UK_TIME_ZONE,
       day: 'numeric',
       month: 'long',
       year: 'numeric',

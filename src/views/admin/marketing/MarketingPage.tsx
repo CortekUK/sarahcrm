@@ -21,7 +21,7 @@ import {
 } from '@/components/ui'
 import { supabase } from '@/lib/supabase/client'
 import { MetricoolStatusCard } from './MetricoolStatusCard'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 import {
   CHANNEL_META,
   CHANNEL_GROUP_ORDER,
@@ -86,7 +86,7 @@ function statusVariant(status: string): 'active' | 'upcoming' | 'draft' | 'info'
 
 function fmtDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    return new Intl.DateTimeFormat('en-GB', { timeZone: UK_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' }).format(
       new Date(iso),
     )
   } catch {

@@ -1,12 +1,14 @@
 'use client'
 
+import { vatSuffix, withEventVat } from '@/lib/events/vat'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
-import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
+import { formatCurrency, formatDate, formatTime } from '@/lib/utils'
+import { apiError, fetchSeatsTaken } from '@/components/portal/portal-utils'
 import {
   AlertCircle,
   ArrowLeft,
@@ -30,9 +32,9 @@ type EventRow = Database['public']['Tables']['events']['Row']
 type EventType = Database['public']['Enums']['event_type']
 type BookingStatus = Database['public']['Enums']['booking_status']
 
-interface EventWithCount extends EventRow {
-  bookings: { count: number }[]
-}
+// Bookings sent to Stripe Checkout and not yet paid carry this marker; they're
+// released automatically after ~35 minutes (and the member may simply retry).
+const AWAITING_CHECKOUT = 'Awaiting Stripe Checkout'
 
 interface Speaker {
   name: string
@@ -74,11 +76,16 @@ export function PortalEventDetailPage() {
   const router = useRouter()
   const { user } = useAuth()
 
-  const [event, setEvent] = useState<EventWithCount | null>(null)
+  const [event, setEvent] = useState<EventRow | null>(null)
+  // Seats taken (booker + guests over confirmed/pending bookings), counted
+  // server-side — members can't count other members' bookings under RLS.
+  const [seatsTaken, setSeatsTaken] = useState<number | null>(null)
   const [memberId, setMemberId] = useState<string | null>(null)
   const [existingBooking, setExistingBooking] = useState<{
     id: string
     status: BookingStatus
+    charge_error: string | null
+    guests_invited: number | null
   } | null>(null)
   // Set when the logged-in member is a sponsor of this event — their ticket is
   // priced at the negotiated sponsor rate rather than the standard member rate.
@@ -92,16 +99,21 @@ export function PortalEventDetailPage() {
   const [guestName, setGuestName] = useState('')
   const [addAccommodation, setAddAccommodation] = useState(false)
 
+  // Depend on the user id, not the user object: auth events (token refresh,
+  // tab focus) hand back a new object for the same user, which used to
+  // re-run this, flash "Loading event" and reset the guest selection.
+  const userId = user?.id
   useEffect(() => {
-    if (id && user) fetchData()
-  }, [id, user]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (id && userId) fetchData(userId)
+  }, [id, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function fetchData() {
-    setLoading(true)
-    const [eventResult, memberResult] = await Promise.all([
-      supabase.from('events').select('*, bookings(count)').eq('id', id!).single(),
-      supabase.from('members').select('id').eq('profile_id', user!.id).single(),
+  async function fetchData(uid: string) {
+    const [eventResult, memberResult, seats] = await Promise.all([
+      supabase.from('events').select('*').eq('id', id!).single(),
+      supabase.from('members').select('id').eq('profile_id', uid).single(),
+      fetchSeatsTaken([id!]),
     ])
+    setSeatsTaken(typeof seats[id!] === 'number' ? seats[id!] : null)
 
     if (eventResult.error || !eventResult.data) {
       setError('Event not found')
@@ -116,18 +128,20 @@ export function PortalEventDetailPage() {
       setLoading(false)
       return
     }
-    setEvent(eventResult.data as unknown as EventWithCount)
+    setEvent(eventResult.data)
 
     if (memberResult.data) {
       setMemberId(memberResult.data.id)
       const { data: bookingData } = await supabase
         .from('bookings')
-        .select('id, status')
+        .select('id, status, charge_error, guests_invited')
         .eq('event_id', id!)
         .eq('member_id', memberResult.data.id)
         .in('status', ['confirmed', 'pending'])
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle()
-      if (bookingData) setExistingBooking(bookingData)
+      setExistingBooking(bookingData ?? null)
 
       // Sponsor of this event? Use their negotiated rate. (RLS already lets a
       // member read their own sponsorship rows.)
@@ -149,14 +163,16 @@ export function PortalEventDetailPage() {
     setLoading(false)
   }
 
-  async function handleBookPaid() {
+  // Every member booking — paid or complimentary (£0) — goes through
+  // /api/events/book. It charges the card on file (auto-confirm), holds a
+  // pending request (manual approval), books a free seat, or falls back to
+  // Stripe Checkout when there's no usable saved card. Capacity, duplicates
+  // and past events are enforced server-side (409 with a clean message).
+  async function handleBook() {
+    if (booking) return
     setBooking(true)
     setError(null)
     try {
-      // Member booking goes through /api/events/book, which charges the
-      // card on file (auto-confirm) or holds a pending request (manual
-      // approval) — only falling back to Stripe Checkout when there's no
-      // usable saved card.
       const res = await fetch('/api/events/book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -167,58 +183,33 @@ export function PortalEventDetailPage() {
           add_accommodation: addAccommodation,
         }),
       })
+      if (!res.ok) {
+        setError(await apiError(res, 'Could not complete your booking. Please try again.'))
+        setBooking(false)
+        // Seats may have changed (e.g. it just sold out) — refresh quietly.
+        if (res.status === 409 && userId) fetchData(userId)
+        return
+      }
       const json = (await res.json().catch(() => ({}))) as {
         url?: string
         ok?: boolean
         booking_id?: string
-        error?: string
-      }
-      if (!res.ok) {
-        setError(json.error || 'Could not complete your booking.')
-        setBooking(false)
-        return
+        status?: string
       }
       if (json.url) {
         // Fallback: collect a card via Stripe.
         window.location.href = json.url
         return
       }
-      // Charged on file or held as pending — straight to confirmation.
-      router.push(`/portal/events/${id}/confirmation?booking_id=${json.booking_id}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
-      setBooking(false)
-    }
-  }
-
-  async function handleBookComplimentary() {
-    if (!memberId || !event) return
-    setBooking(true)
-    setError(null)
-    try {
-      // Honour the event's auto_confirm: when it's off, the booking must go
-      // through admin approval (pending) just like the paid hold flow —
-      // otherwise it confirms immediately. (No charge either way; this is a
-      // £0 ticket.)
-      const status: BookingStatus = event.auto_confirm === false ? 'pending' : 'confirmed'
-      const { data: newBooking, error: bookingError } = await supabase
-        .from('bookings')
-        .insert({
-          event_id: id!,
-          member_id: memberId,
-          status,
-          amount_pence: 0,
-        })
-        .select('id')
-        .single()
-      if (bookingError) {
-        setError(bookingError.message)
+      if (!json.booking_id) {
+        setError('Could not complete your booking. Please try again.')
         setBooking(false)
         return
       }
-      router.push(`/portal/events/${id}/confirmation?booking_id=${newBooking.id}`)
+      // Charged on file, free, or held as pending — straight to confirmation.
+      router.push(`/portal/events/${id}/confirmation?booking_id=${json.booking_id}`)
     } catch {
-      setError('Something went wrong. Please try again.')
+      setError('Something went wrong. Please check your connection and try again.')
       setBooking(false)
     }
   }
@@ -250,9 +241,26 @@ export function PortalEventDetailPage() {
 
   if (!event) return null
 
-  const bookingCount = (event.bookings as unknown as { count: number }[])?.[0]?.count ?? 0
-  const spotsRemaining = event.capacity ? event.capacity - bookingCount : null
+  // The member's own unpaid Checkout hold is counted in seatsTaken, but the
+  // server reuses that row on retry — don't let it lock them out as "full".
+  const ownHold =
+    existingBooking?.status === 'pending' && existingBooking.charge_error === AWAITING_CHECKOUT
+      ? 1 + (existingBooking.guests_invited ?? 0)
+      : 0
+  const spotsRemaining =
+    event.capacity && seatsTaken !== null
+      ? Math.max(0, event.capacity - Math.max(0, seatsTaken - ownHold))
+      : null
   const isFullyBooked = spotsRemaining !== null && spotsRemaining <= 0
+  // Finished once the end (or, failing that, the start) has passed.
+  const finishAt = event.end_date ?? event.start_date
+  const isPast =
+    event.status === 'completed' || (finishAt ? new Date(finishAt).getTime() < Date.now() : false)
+  // A Checkout booking the member never paid for — not a real booking yet;
+  // the server reuses it if they try again.
+  const awaitingCheckout =
+    existingBooking?.status === 'pending' && existingBooking.charge_error === AWAITING_CHECKOUT
+  const hasBooking = !!existingBooking && !awaitingCheckout
   // The member's ticket price — sponsor rate when they're a sponsor, otherwise
   // the standard member price.
   const ticketPrice = sponsorRate ?? event.member_price_pence
@@ -267,14 +275,22 @@ export function PortalEventDetailPage() {
   const accommodationAvailable = event.accommodation_available === true && accommodationPrice > 0
   const hasAddOns = guestAvailable || accommodationAvailable
   // Running total = member ticket + any selected add-ons.
-  const bookingTotal =
+  // Plus VAT on top when the event adds it — the same rule /api/events/book
+  // charges by, so the Book button shows the real amount.
+  const bookingTotal = withEventVat(
     ticketPrice +
-    (bringGuest && guestAvailable ? guestPrice : 0) +
-    (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
+      (bringGuest && guestAvailable ? guestPrice : 0) +
+      (addAccommodation && accommodationAvailable ? accommodationPrice : 0),
+    event,
+  )
+  const priceVatSuffix = vatSuffix(event)
   // Route through paid checkout whenever there's anything to charge — even
   // a complimentary member ticket becomes a paid booking once a priced
   // guest or accommodation add-on is selected.
   const useComplimentaryPath = bookingTotal === 0
+  // Guest seat needs a second place.
+  const seatsNeeded = 1 + (bringGuest && guestAvailable ? 1 : 0)
+  const notEnoughSeats = spotsRemaining !== null && !isFullyBooked && spotsRemaining < seatsNeeded
 
   return (
     <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
@@ -328,14 +344,19 @@ export function PortalEventDetailPage() {
             <li className="flex items-center gap-2.5">
               <Calendar size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
               <span>{event.start_date ? formatDate(event.start_date) : 'Date to be confirmed'}</span>
-              {event.end_date && (
+              {event.end_date && formatDate(event.end_date) !== (event.start_date ? formatDate(event.start_date) : '') && (
                 <span className="text-slate-haze">— {formatDate(event.end_date)}</span>
               )}
             </li>
-            {event.doors_open && (
+            {event.start_date && (
               <li className="flex items-center gap-2.5">
                 <Clock size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
-                <span>Doors open {formatDateTime(event.doors_open).split(', ')[1]}</span>
+                <span>
+                  {formatTime(event.start_date)}
+                  {event.end_date ? ` – ${formatTime(event.end_date)}` : ''}
+                  {event.doors_open ? ` · Doors ${formatTime(event.doors_open)}` : ''}
+                  <span className="text-slate-haze"> (UK time)</span>
+                </span>
               </li>
             )}
             {event.venue_name && (
@@ -347,7 +368,7 @@ export function PortalEventDetailPage() {
                 </span>
               </li>
             )}
-            {spotsRemaining !== null && (
+            {spotsRemaining !== null && !isPast && (
               <li className="flex items-center gap-2.5">
                 <Users size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
                 <span>
@@ -375,20 +396,23 @@ export function PortalEventDetailPage() {
               {!isComplimentary && (
                 <p className="mt-2 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-haze">
                   {sponsorRate != null ? 'Your sponsor rate' : 'Per member'}
+                  {priceVatSuffix ? ` · ${priceVatSuffix}` : ''}
                 </p>
               )}
             </div>
 
-            {existingBooking ? (
+            {hasBooking && existingBooking ? (
               <div className="text-center">
                 <div className="inline-flex items-center gap-2 mb-3">
-                  <Ticket size={14} strokeWidth={1.5} className="text-emerald-300" />
-                  <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-emerald-300 capitalize">
-                    {existingBooking.status}
+                  <Ticket size={14} strokeWidth={1.5} className="text-bronze-light" />
+                  <span className="font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-bronze-light">
+                    {existingBooking.status === 'pending' ? 'Awaiting approval' : 'Confirmed'}
                   </span>
                 </div>
                 <p className="font-[family-name:var(--font-editorial)] italic text-[13px] text-ivory-soft/85">
-                  You already have a booking for this evening.
+                  {isPast
+                    ? 'You were booked for this event.'
+                    : 'You already have a booking for this event.'}
                 </p>
                 <Link
                   href={`/portal/events/${id}/confirmation?booking_id=${existingBooking.id}`}
@@ -416,12 +440,38 @@ export function PortalEventDetailPage() {
                   Open admin members
                 </Link>
               </div>
+            ) : isPast ? (
+              <div className="text-center">
+                <p className="font-[family-name:var(--font-display)] text-[14.5px] text-ivory leading-tight mb-2">
+                  This event has finished.
+                </p>
+                <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft/85 leading-[1.7]">
+                  Bookings are closed. Take a look at what&apos;s coming up next.
+                </p>
+                <Link
+                  href="/portal/events"
+                  className="mt-4 inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light hover:text-ivory transition-colors"
+                >
+                  Upcoming events
+                </Link>
+              </div>
             ) : isFullyBooked ? (
               <PortalButton disabled className="w-full justify-center">
                 Fully booked
               </PortalButton>
             ) : (
               <>
+                {awaitingCheckout && (
+                  <div className="mb-5 px-3 py-3 border-l-2 border-bronze/60 bg-bronze/10">
+                    <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-bronze-light mb-1.5">
+                      Payment not completed
+                    </p>
+                    <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft leading-[1.65]">
+                      You started checkout but didn&apos;t finish paying, so your seat isn&apos;t
+                      confirmed yet. Book again below to complete payment.
+                    </p>
+                  </div>
+                )}
                 {/* Add-ons */}
                 {hasAddOns && (
                   <div className="mb-5 space-y-3">
@@ -479,24 +529,29 @@ export function PortalEventDetailPage() {
                 <PortalButton
                   className="w-full justify-center"
                   loading={booking}
-                  disabled={bringGuest && guestAvailable && !guestName.trim()}
-                  onClick={useComplimentaryPath ? handleBookComplimentary : handleBookPaid}
+                  disabled={booking || notEnoughSeats || (bringGuest && guestAvailable && !guestName.trim())}
+                  onClick={handleBook}
                 >
                   {useComplimentaryPath
                     ? 'Reserve seat'
-                    : `Book · ${formatCurrency(bookingTotal)}`}
+                    : `Book · ${formatCurrency(bookingTotal)}${priceVatSuffix ? ' incl. VAT' : ''}`}
                 </PortalButton>
+                {notEnoughSeats && (
+                  <p className="mt-2 text-center font-[family-name:var(--font-editorial)] italic text-[12px] text-slate-haze">
+                    Only one seat left — there isn&apos;t room for a guest.
+                  </p>
+                )}
                 {bringGuest && guestAvailable && !guestName.trim() && (
                   <p className="mt-2 text-center font-[family-name:var(--font-editorial)] italic text-[12px] text-slate-haze">
                     Add your guest&apos;s name to continue.
                   </p>
                 )}
                 {error && (
-                  <div className="mt-4 px-3 py-3 border-l-2 border-rose-500/60 bg-rose-900/15">
-                    <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-rose-300 mb-1.5">
-                      Couldn&apos;t start checkout
+                  <div className="mt-4 px-3 py-3 border-l-2 border-accent-warm/60 bg-accent-warm/10">
+                    <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-accent-warm mb-1.5">
+                      Couldn&apos;t complete booking
                     </p>
-                    <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-rose-200 leading-[1.65]">
+                    <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft leading-[1.65]">
                       {error}
                     </p>
                   </div>

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
-import { formatDate } from '@/lib/utils'
+import { formatDate, UK_TIME_ZONE } from '@/lib/utils'
 import {
   ArrowUpRight,
   CalendarDays,
@@ -42,6 +42,7 @@ interface MemberRecord {
   membership_start_date: string | null
   renewal_date: string | null
   stripe_subscription_id: string | null
+  parent_member_id: string | null
 }
 
 interface UpcomingBooking {
@@ -148,7 +149,7 @@ const eventTypeLabel: Record<Database['public']['Enums']['event_type'], string> 
 }
 
 export function PortalDashboard() {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   const [member, setMember] = useState<MemberRecord | null>(null)
   const [upcomingBookings, setUpcomingBookings] = useState<UpcomingBooking[]>([])
   const [recentIntros, setRecentIntros] = useState<RecentIntro[]>([])
@@ -158,15 +159,20 @@ export function PortalDashboard() {
   const [nextPayment, setNextPayment] = useState<NextPayment | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Keyed on the auth user id (= profile id) so the dashboard starts loading
+  // as soon as the session is known, rather than waiting for AuthProvider's
+  // own profile fetch — the header/greeting already reads that profile, so
+  // it isn't fetched again here.
+  const viewerId = user?.id
   useEffect(() => {
-    if (profile?.id) fetchData(profile.id)
-  }, [profile?.id])
+    if (viewerId) fetchData(viewerId)
+  }, [viewerId])
 
   async function fetchData(profileId: string) {
     const { data: memberData } = await supabase
       .from('members')
       .select(
-        'id, membership_tier, membership_type, membership_status, intros_used_this_month, monthly_intro_quota, membership_start_date, renewal_date, stripe_subscription_id',
+        'id, membership_tier, membership_type, membership_status, intros_used_this_month, monthly_intro_quota, membership_start_date, renewal_date, stripe_subscription_id, parent_member_id',
       )
       .eq('profile_id', profileId)
       .single()
@@ -218,11 +224,15 @@ export function PortalDashboard() {
         .eq('member_b_id', memberId)
         .order('created_at', { ascending: false })
         .limit(5),
+      // Same population the Network page lists (active, showcased, not
+      // the viewer) so the two pages show the same number.
       supabase
         .from('members')
         .select('id', { count: 'exact', head: true })
         .eq('membership_status', 'active')
-        .is('deleted_at', null),
+        .is('deleted_at', null)
+        .eq('showcase_enabled', true)
+        .neq('profile_id', profileId),
       // Curated-for-you candidate pool — published/live events from
       // today onward. We over-fetch (8) so we still have 3 left after
       // subtracting events the member already booked, even if they've
@@ -350,8 +360,27 @@ export function PortalDashboard() {
     )
   }
 
+  // Billing is covered by a recurring subscription, by the organisation (reps
+  // have no Stripe fields of their own), or by a paid-up renewal date (e.g. an
+  // annual member who paid once at approval).
+  const billingCovered =
+    !!member &&
+    (!!member.stripe_subscription_id ||
+      !!member.parent_member_id ||
+      (!!member.renewal_date &&
+        member.renewal_date >= new Intl.DateTimeFormat('en-CA', { timeZone: UK_TIME_ZONE }).format(new Date())))
+  // Only claim "good standing" when billing is actually covered.
+  const standing = !member
+    ? 'Your membership.'
+    : member.membership_status !== 'active'
+      ? `Membership ${member.membership_status.replace(/_/g, ' ')}.`
+      : !billingCovered
+        ? 'Payment setup needed.'
+        : 'In good standing.'
+
   const introsRemaining = member ? member.monthly_intro_quota - member.intros_used_this_month : 0
   const today = new Date().toLocaleDateString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -371,7 +400,7 @@ export function PortalDashboard() {
       />
 
       {/* Payment setup CTA — only when membership has no stripe subscription */}
-      {member && member.membership_status === 'active' && !member.stripe_subscription_id && (
+      {member && member.membership_status === 'active' && !billingCovered && (
         <PortalCard className="mb-8 p-6 lg:p-7 border-bronze/45 bg-bronze/[0.06]">
           <div className="flex flex-col sm:flex-row sm:items-center gap-5">
             <div className="w-11 h-11 rounded-full border border-bronze/55 bg-bronze/15 flex items-center justify-center text-bronze-light shrink-0">
@@ -495,11 +524,13 @@ export function PortalDashboard() {
                   <div className="w-12 h-12 border border-bronze/35 bg-bronze/[0.06] flex flex-col items-center justify-center shrink-0">
                     <span className="font-[family-name:var(--font-display)] text-[16px] text-ivory leading-none">
                       {new Date(booking.events.start_date).toLocaleDateString('en-GB', {
+                        timeZone: UK_TIME_ZONE,
                         day: 'numeric',
                       })}
                     </span>
                     <span className="font-[family-name:var(--font-meta)] text-[8.5px] uppercase tracking-[0.22em] text-bronze-light mt-1">
                       {new Date(booking.events.start_date).toLocaleDateString('en-GB', {
+                        timeZone: UK_TIME_ZONE,
                         month: 'short',
                       })}
                     </span>
@@ -632,6 +663,7 @@ export function PortalDashboard() {
                   <div className="p-5 flex-1 flex flex-col">
                     <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-bronze-light mb-2">
                       {new Date(evt.start_date).toLocaleDateString('en-GB', {
+                        timeZone: UK_TIME_ZONE,
                         weekday: 'short',
                         day: 'numeric',
                         month: 'short',
@@ -662,7 +694,7 @@ export function PortalDashboard() {
           <PortalSectionTitle eyebrow="Your Membership">
             <span className="inline-flex items-center gap-2.5">
               <Crown size={14} strokeWidth={1.5} className="text-bronze-light" />
-              In good standing.
+              {standing}
             </span>
           </PortalSectionTitle>
 
@@ -713,8 +745,8 @@ export function PortalDashboard() {
               {totalMembers}
             </p>
             <p className="mt-4 font-[family-name:var(--font-editorial)] italic text-[14px] text-ivory-soft/90 leading-[1.65] max-w-xs">
-              You&apos;re part of a curated network of {totalMembers}{' '}
-              {totalMembers === 1 ? 'member' : 'members'} across Manchester, Leeds and London.
+              {totalMembers === 1 ? 'Fellow member' : 'Fellow members'} across Manchester, Leeds
+              and London you can browse in the network.
             </p>
             <Link href="/portal/network" className="mt-7">
               <PortalButton variant="secondary" icon={<ArrowUpRight size={13} strokeWidth={1.5} />}>

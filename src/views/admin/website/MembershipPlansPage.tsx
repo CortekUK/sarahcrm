@@ -19,6 +19,7 @@ import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { dbErrorMessage } from '@/lib/form-validation'
 import {
   Plus,
   Pencil,
@@ -47,8 +48,12 @@ const schema = z.object({
   name: z.string().min(1, 'Name is required'),
   lede: z.string().optional(),
   contract_terms: z.string().optional(),
-  annual_price_pounds: z.coerce.number().min(0),
-  monthly_price_pounds: z.coerce.number().min(0),
+  annual_price_pounds: z.coerce
+    .number({ error: 'Enter a price in pounds' })
+    .min(0, 'Price can’t be negative'),
+  monthly_price_pounds: z.coerce
+    .number({ error: 'Enter a price in pounds' })
+    .min(0, 'Price can’t be negative'),
   features: z
     .array(z.object({ value: z.string().min(1, 'Feature can’t be empty') }))
     .default([]),
@@ -99,12 +104,24 @@ export function MembershipPlansPage() {
       tier_classification: '',
       intro_quota: 3,
       display_order: 0,
-      is_active: true,
+      // New plans start hidden so a half-finished plan never goes live.
+      is_active: false,
       is_featured: false,
     },
   })
 
   const featureField = useFieldArray({ control: form.control, name: 'features' })
+
+  // On a new plan, keep the monthly price at annual ÷ 12 until the admin
+  // types their own monthly figure.
+  const annualPounds = form.watch('annual_price_pounds')
+  useEffect(() => {
+    if (!modalOpen || editing) return
+    if (form.getFieldState('monthly_price_pounds').isDirty) return
+    const annual = Number(annualPounds)
+    if (!Number.isFinite(annual) || annual < 0) return
+    form.setValue('monthly_price_pounds', Math.round((annual / 12) * 100) / 100)
+  }, [annualPounds, modalOpen, editing, form])
 
   const fetchPlans = useCallback(async () => {
     setLoading(true)
@@ -115,7 +132,7 @@ export function MembershipPlansPage() {
     if (err) {
       toast({
         title: 'Failed to load plans',
-        description: err.message,
+        description: dbErrorMessage(err),
         variant: 'destructive',
       })
     } else if (data) {
@@ -161,7 +178,7 @@ export function MembershipPlansPage() {
         tier_classification: '',
         intro_quota: 3,
         display_order: plans.length,
-        is_active: true,
+        is_active: false,
         is_featured: false,
       })
     }
@@ -169,6 +186,13 @@ export function MembershipPlansPage() {
   }, [modalOpen, editing, form, plans.length])
 
   async function onSubmit(data: FormData) {
+    const slugTaken = plans.some(
+      (p) => p.slug.toLowerCase() === data.slug.toLowerCase() && p.id !== editing?.id,
+    )
+    if (slugTaken) {
+      form.setError('slug', { message: 'Another plan already uses this slug — pick a different one.' })
+      return
+    }
     setSaving(true)
     setError(null)
     const payload = {
@@ -202,10 +226,19 @@ export function MembershipPlansPage() {
       fetchPlans()
       toast({
         title: editing ? 'Plan updated' : 'Plan added',
-        description: data.name,
+        description: data.is_active
+          ? data.name
+          : `${data.name} is saved as hidden — switch on "Active" to show it on the website.`,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      const code = (err as { code?: string } | null)?.code
+      const msg =
+        code === '23505'
+          ? 'Another plan already uses this slug — pick a different one.'
+          : dbErrorMessage(err, 'Failed to save the plan.')
+      if (code === '23505') form.setError('slug', { message: msg })
+      setError(msg)
+      toast({ title: 'Plan not saved', description: msg, variant: 'destructive' })
     } finally {
       setSaving(false)
     }
@@ -230,7 +263,7 @@ export function MembershipPlansPage() {
       .delete()
       .eq('id', plan.id)
     if (err) {
-      toast({ title: 'Delete failed', description: err.message, variant: 'destructive' })
+      toast({ title: 'Delete failed', description: dbErrorMessage(err), variant: 'destructive' })
       return
     }
     toast({ title: 'Plan deleted', description: plan.name })
@@ -246,7 +279,7 @@ export function MembershipPlansPage() {
       .eq('id', plan.id)
     if (err) {
       setPlans((prev) => prev.map((p) => (p.id === plan.id ? { ...p, is_active: !next } : p)))
-      toast({ title: 'Toggle failed', description: err.message, variant: 'destructive' })
+      toast({ title: 'Toggle failed', description: dbErrorMessage(err), variant: 'destructive' })
     }
   }
 
@@ -465,6 +498,8 @@ export function MembershipPlansPage() {
               step="0.01"
               prefix="£"
               hint="What the applicant pays per year (ex-VAT). Shown as the headline price."
+              min={0}
+              error={form.formState.errors.annual_price_pounds?.message}
               {...form.register('annual_price_pounds', { valueAsNumber: true })}
             />
             <Input
@@ -472,7 +507,9 @@ export function MembershipPlansPage() {
               type="number"
               step="0.01"
               prefix="£"
-              hint="What the applicant pays per month (ex-VAT). Usually annual / 12."
+              hint="What the applicant pays per month (ex-VAT). Fills in as annual ÷ 12 until you change it."
+              min={0}
+              error={form.formState.errors.monthly_price_pounds?.message}
               {...form.register('monthly_price_pounds', { valueAsNumber: true })}
             />
           </div>

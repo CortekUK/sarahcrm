@@ -72,6 +72,23 @@ interface ReviewWithEvent extends ReviewRow {
   events: EventLite | null
 }
 
+// Reviews posted under the club's or staff names (e.g. "Sarah Restrick",
+// "The Club (official)") are likely impersonation — flag them for the admin.
+const IMPERSONATION_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /\brestrick\b/i, label: 'uses the founder’s name (Restrick)' },
+  { re: /\bthe\s*club\b/i, label: 'uses the club’s name (“The Club”)' },
+  { re: /\bclub\s*group\b/i, label: 'uses the club’s name (“Club Group”)' },
+  { re: /\bofficial\b/i, label: 'claims to be “official”' },
+  { re: /\b(founder|staff|admin(istrator)?)\b.*\bclub\b|\bclub\b.*\b(founder|staff|admin(istrator)?)\b/i, label: 'claims a club role' },
+]
+
+function impersonationReasons(
+  r: Pick<ReviewRow, 'first_name' | 'last_name' | 'company' | 'title'>,
+): string[] {
+  const identity = [r.first_name, r.last_name, r.company, r.title].filter(Boolean).join(' ')
+  return IMPERSONATION_PATTERNS.filter((p) => p.re.test(identity)).map((p) => p.label)
+}
+
 function fullName(r: Pick<ReviewRow, 'first_name' | 'last_name'>) {
   return `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || 'Unknown'
 }
@@ -128,10 +145,44 @@ export function ReviewsAdminPage() {
   }, [rows, search, statusFilter])
 
   async function updateStatus(id: string, next: ReviewStatus) {
+    if (next === 'approved') {
+      const review = rows.find((r) => r.id === id)
+      const flags = review ? impersonationReasons(review) : []
+      const ok = await confirm({
+        title: 'Approve & publish this review?',
+        description: (
+          <span className="space-y-2 block">
+            <span className="block">
+              {review ? (
+                <>
+                  The review from <strong className="text-text">{fullName(review)}</strong> will go
+                  live on the public /reviews page straight away.
+                </>
+              ) : (
+                'This review will go live on the public /reviews page straight away.'
+              )}
+            </span>
+            {flags.length > 0 && (
+              <span className="block text-accent-warm">
+                Check this one carefully — it {flags.join(', ')}. It may be someone posing as the
+                club or its staff.
+              </span>
+            )}
+          </span>
+        ),
+        confirmLabel: 'Approve & publish',
+        tone: flags.length > 0 ? 'warning' : 'neutral',
+      })
+      if (!ok) return
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     const now = new Date().toISOString()
     const patch: Partial<ReviewRow> = {
       status: next,
       reviewed_at: now,
+      reviewed_by: user?.id ?? null,
       ...(next === 'approved' ? { approved_at: now, is_active: true } : {}),
     }
     const { error } = await supabase.from('reviews').update(patch).eq('id', id)
@@ -319,6 +370,11 @@ export function ReviewsAdminPage() {
                     >
                       <TableCell>
                         <p className="font-medium text-text">{fullName(r)}</p>
+                        {impersonationReasons(r).length > 0 && (
+                          <Badge variant="urgent" dot className="mt-1">
+                            Check: club/staff name
+                          </Badge>
+                        )}
                         <p className="text-xs text-text-dim truncate max-w-[220px]">
                           {r.email}
                           {r.company ? ` · ${r.company}` : ''}
@@ -429,6 +485,15 @@ function ReviewDetailModal({
           </div>
           <p className="text-xs text-text-dim">{formatDateTime(review.created_at)}</p>
         </div>
+
+        {impersonationReasons(review).length > 0 && (
+          <div className="px-4 py-3 rounded-[var(--radius-md)] bg-[rgba(196,105,74,0.08)] border border-[rgba(196,105,74,0.2)]">
+            <p className="text-sm text-accent-warm">
+              Possible impersonation — this review {impersonationReasons(review).join(', ')}. Make
+              sure it really comes from a member or guest before publishing.
+            </p>
+          </div>
+        )}
 
         {/* Contact */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

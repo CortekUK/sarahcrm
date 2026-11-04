@@ -14,9 +14,10 @@ import {
   type DailyHandoverRow,
   HANDOVER_FIELDS,
   handoverHasContent,
-  today as todayStr,
   formatHandoverDate,
 } from '@/lib/handover'
+import { dbErrorMessage } from '@/lib/form-validation'
+import { ukToday } from '@/components/accountability/uk-date'
 
 type FormState = Record<(typeof HANDOVER_FIELDS)[number]['key'], string>
 
@@ -32,7 +33,8 @@ const emptyForm: FormState = {
 // One handover per day (handover_date), editable that day via upsert.
 export function StaffHandoverPanel() {
   const { profile } = useAuth()
-  const date = useMemo(() => todayStr(), [])
+  // UK date — the database only accepts today's (Europe/London) handover.
+  const date = useMemo(() => ukToday(), [])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<FormState>({ ...emptyForm })
@@ -90,7 +92,7 @@ export function StaffHandoverPanel() {
       .single()
     setSaving(false)
     if (error) {
-      toast({ title: 'Could not save', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not save', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     setExisting(data as DailyHandoverRow)

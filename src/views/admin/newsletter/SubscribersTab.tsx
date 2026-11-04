@@ -52,18 +52,37 @@ export function SubscribersTab() {
     setLoading(false)
   }
 
+  // One row per address, compared case-insensitively ("Jo@x.com" and
+  // "jo@x.com" are the same person). The shown row is the active one if any
+  // copy is still subscribed, else the most recent; actions apply to every
+  // copy of the address.
+  const uniqueRows = useMemo(() => {
+    const byEmail = new Map<string, Subscriber>()
+    for (const r of rows) {
+      const key = r.email.trim().toLowerCase()
+      const cur = byEmail.get(key)
+      if (!cur || (cur.unsubscribed_at && !r.unsubscribed_at)) byEmail.set(key, r)
+    }
+    return Array.from(byEmail.values())
+  }, [rows])
+
+  const idsFor = (email: string) => {
+    const key = email.trim().toLowerCase()
+    return rows.filter((r) => r.email.trim().toLowerCase() === key).map((r) => r.id)
+  }
+
   const counts = useMemo(
     () => ({
-      total: rows.length,
-      active: rows.filter((r) => !r.unsubscribed_at).length,
-      unsubscribed: rows.filter((r) => !!r.unsubscribed_at).length,
+      total: uniqueRows.length,
+      active: uniqueRows.filter((r) => !r.unsubscribed_at).length,
+      unsubscribed: uniqueRows.filter((r) => !!r.unsubscribed_at).length,
     }),
-    [rows],
+    [uniqueRows],
   )
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return rows.filter((r) => {
+    return uniqueRows.filter((r) => {
       if (filter === 'active' && r.unsubscribed_at) return false
       if (filter === 'unsubscribed' && !r.unsubscribed_at) return false
       if (!term) return true
@@ -72,33 +91,36 @@ export function SubscribersTab() {
         r.email.toLowerCase().includes(term)
       )
     })
-  }, [rows, search, filter])
+  }, [uniqueRows, search, filter])
 
-  async function unsubscribe(id: string) {
+  async function unsubscribe(row: Subscriber) {
+    const ids = idsFor(row.email)
+    const now = new Date().toISOString()
     const { error } = await supabase
       .from('mailing_list')
-      .update({ unsubscribed_at: new Date().toISOString() })
-      .eq('id', id)
+      .update({ unsubscribed_at: now })
+      .in('id', ids)
     if (error) {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' })
       return
     }
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, unsubscribed_at: new Date().toISOString() } : r)),
+      prev.map((r) => (ids.includes(r.id) ? { ...r, unsubscribed_at: now } : r)),
     )
     toast({ title: 'Marked as unsubscribed' })
   }
 
-  async function resubscribe(id: string) {
+  async function resubscribe(row: Subscriber) {
+    // Re-subscribe just the shown copy so the address appears once as active.
     const { error } = await supabase
       .from('mailing_list')
       .update({ unsubscribed_at: null })
-      .eq('id', id)
+      .eq('id', row.id)
     if (error) {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' })
       return
     }
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, unsubscribed_at: null } : r)))
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, unsubscribed_at: null } : r)))
     toast({ title: 'Re-subscribed' })
   }
 
@@ -111,12 +133,13 @@ export function SubscribersTab() {
       confirmLabel: 'Delete',
     })
     if (!ok) return
-    const { error } = await supabase.from('mailing_list').delete().eq('id', row.id)
+    const ids = idsFor(row.email)
+    const { error } = await supabase.from('mailing_list').delete().in('id', ids)
     if (error) {
       toast({ title: 'Delete failed', description: error.message, variant: 'destructive' })
       return
     }
-    setRows((prev) => prev.filter((r) => r.id !== row.id))
+    setRows((prev) => prev.filter((r) => !ids.includes(r.id)))
     toast({ title: 'Deleted' })
   }
 
@@ -243,7 +266,7 @@ export function SubscribersTab() {
                           {unsubbed ? (
                             <button
                               type="button"
-                              onClick={() => resubscribe(r.id)}
+                              onClick={() => resubscribe(r)}
                               className="p-1.5 rounded text-text-dim hover:text-accent hover:bg-surface-2"
                               title="Re-subscribe"
                             >
@@ -252,7 +275,7 @@ export function SubscribersTab() {
                           ) : (
                             <button
                               type="button"
-                              onClick={() => unsubscribe(r.id)}
+                              onClick={() => unsubscribe(r)}
                               className="p-1.5 rounded text-text-dim hover:text-accent-warm hover:bg-surface-2"
                               title="Unsubscribe"
                             >

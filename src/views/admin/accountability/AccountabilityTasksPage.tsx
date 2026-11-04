@@ -26,6 +26,7 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { TaskCollab } from '@/components/accountability/TaskCollab'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDate, cn } from '@/lib/utils'
+import { dbErrorMessage } from '@/lib/form-validation'
 import { Loader2, Plus, Trash2, ShieldCheck } from 'lucide-react'
 import {
   type AccTaskRow,
@@ -69,6 +70,7 @@ export function AccountabilityTasksPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [saving, setSaving] = useState(false)
+  const [formErrors, setFormErrors] = useState<{ title?: string; owner?: string; deadline?: string; outcome?: string }>({})
 
   useEffect(() => {
     load()
@@ -137,12 +139,15 @@ export function AccountabilityTasksPage() {
 
   function openNew() {
     setEditingId(null)
-    setForm({ ...emptyForm, owner_id: staff[0]?.id ?? '' })
+    // No owner pre-selected — the admin must choose who owns it.
+    setFormErrors({})
+    setForm({ ...emptyForm })
     setModalOpen(true)
   }
 
   function openEdit(task: AccTaskRow) {
     setEditingId(task.id)
+    setFormErrors({})
     setForm({
       title: task.title,
       description: task.description ?? '',
@@ -157,12 +162,16 @@ export function AccountabilityTasksPage() {
 
   async function saveTask() {
     const title = form.title.trim()
-    if (!title) {
-      toast({ title: 'Title required', variant: 'destructive' })
-      return
-    }
-    if (!form.owner_id) {
-      toast({ title: 'An owner is required', variant: 'destructive' })
+    const errs: typeof formErrors = {}
+    if (!title) errs.title = 'A title is required.'
+    else if (title.length > 300) errs.title = 'Keep the title under 300 characters.'
+    if (!form.owner_id) errs.owner = 'Choose the team member who owns this task.'
+    // New tasks need a deadline; older tasks saved without one can still be edited.
+    if (!form.deadline && !editingId) errs.deadline = 'Every task needs a deadline.'
+    if (form.outcome.trim().length > 5000) errs.outcome = 'The outcome is too long (5,000 characters max).'
+    setFormErrors(errs)
+    if (Object.keys(errs).length) {
+      toast({ title: 'Check the task', description: Object.values(errs)[0], variant: 'destructive' })
       return
     }
     setSaving(true)
@@ -183,7 +192,7 @@ export function AccountabilityTasksPage() {
         .eq('id', editingId)
       setSaving(false)
       if (error) {
-        toast({ title: 'Could not save', description: error.message, variant: 'destructive' })
+        toast({ title: 'Could not save', description: dbErrorMessage(error), variant: 'destructive' })
         return
       }
       toast({ title: 'Task updated' })
@@ -193,7 +202,7 @@ export function AccountabilityTasksPage() {
         .insert({ ...payload, created_by: profile?.id ?? null })
       setSaving(false)
       if (error) {
-        toast({ title: 'Could not create', description: error.message, variant: 'destructive' })
+        toast({ title: 'Could not create', description: dbErrorMessage(error), variant: 'destructive' })
         return
       }
       toast({ title: 'Task assigned' })
@@ -209,7 +218,7 @@ export function AccountabilityTasksPage() {
       .update({ status })
       .eq('id', task.id)
     if (error) {
-      toast({ title: 'Could not update status', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update status', description: dbErrorMessage(error), variant: 'destructive' })
       load()
     }
   }
@@ -226,7 +235,7 @@ export function AccountabilityTasksPage() {
     if (!ok) return
     const { error } = await supabase.from('accountability_tasks').delete().eq('id', editingId)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not delete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     setModalOpen(false)
@@ -387,6 +396,7 @@ export function AccountabilityTasksPage() {
             label="Title"
             placeholder="e.g. Confirm florist for the September dinner"
             value={form.title}
+            error={formErrors.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
           <Textarea
@@ -397,20 +407,28 @@ export function AccountabilityTasksPage() {
             rows={3}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <SelectMenu
-              label="Owner"
-              value={form.owner_id || 'none'}
-              onValueChange={(v) => setForm({ ...form, owner_id: v === 'none' ? '' : v })}
-              options={[
-                { value: 'none', label: 'Select a team member' },
-                ...staff.map((s) => ({ value: s.id, label: personName(s) })),
-              ]}
-            />
-            <DateField
-              label="Deadline"
-              value={form.deadline}
-              onChange={(v) => setForm({ ...form, deadline: v })}
-            />
+            <div>
+              <SelectMenu
+                label="Owner"
+                value={form.owner_id || 'none'}
+                onValueChange={(v) => setForm({ ...form, owner_id: v === 'none' ? '' : v })}
+                options={[
+                  { value: 'none', label: 'Select a team member' },
+                  ...staff.map((s) => ({ value: s.id, label: personName(s) })),
+                ]}
+              />
+              {formErrors.owner && <p className="mt-1.5 text-xs text-accent-warm">{formErrors.owner}</p>}
+            </div>
+            <div>
+              <DateField
+                label="Deadline"
+                value={form.deadline}
+                onChange={(v) => setForm({ ...form, deadline: v })}
+              />
+              {formErrors.deadline && (
+                <p className="mt-1.5 text-xs text-accent-warm">{formErrors.deadline}</p>
+              )}
+            </div>
             <SelectMenu
               label="Status"
               value={form.status}
@@ -434,6 +452,7 @@ export function AccountabilityTasksPage() {
             label="Outcome"
             placeholder="Record the outcome when this task is closed…"
             value={form.outcome}
+            error={formErrors.outcome}
             onChange={(e) => setForm({ ...form, outcome: e.target.value })}
             rows={2}
           />

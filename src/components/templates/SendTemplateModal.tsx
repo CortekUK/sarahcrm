@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui-shadcn/select'
 import { ScrollArea } from '@/components/ui-shadcn/scroll-area'
+import { UK_TIME_ZONE } from '@/lib/utils'
 import { Loader2, Send, Eye, AlertCircle, Check, Users, Calendar } from 'lucide-react'
 import { toast } from '@/lib/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
@@ -259,7 +260,7 @@ export function SendTemplateModal({ template, open, onClose }: SendTemplateModal
                       ) : (
                         events.map((e) => (
                           <SelectItem key={e.id} value={e.id}>
-                            {e.title} · {new Date(e.start_date).toLocaleDateString('en-GB')}
+                            {e.title} · {new Date(e.start_date).toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE })}
                           </SelectItem>
                         ))
                       )}

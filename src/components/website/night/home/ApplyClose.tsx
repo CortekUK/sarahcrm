@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase/client'
 import { Aurora } from '../effects/Aurora'
 import { Spotlight } from '../effects/Spotlight'
 import { Reveal } from '../effects/Reveal'
@@ -15,13 +14,15 @@ import { fireBronzeConfetti } from '@/lib/effects/confetti'
 // background so the close feels like one editorial moment with two
 // paths out (apply now / stay close).
 //
-// Newsletter writes to public.mailing_list, which requires first_name,
-// last_name, email (all non-null). The form captures all three.
+// Newsletter posts to /api/newsletter/subscribe (server-side upsert into
+// public.mailing_list — visitors can't write that table directly). It
+// requires first_name, last_name, email. `website` is a hidden honeypot.
 
 export function ApplyClose() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
+  const [website, setWebsite] = useState('') // honeypot — humans never see it
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,23 +35,27 @@ export function ApplyClose() {
       return
     }
     setSubmitting(true)
-    // Upsert by email — if someone signs up twice we refresh their
-    // first/last name + clear any previous unsubscribed_at, rather
-    // than blocking with a unique-violation error.
-    const { error: err } = await supabase.from('mailing_list').upsert(
-      {
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        email: email.trim().toLowerCase(),
-        unsubscribed_at: null,
-        source: 'website',
-      },
-      { onConflict: 'email' },
-    )
-    setSubmitting(false)
-    if (err) {
-      setError('Something went wrong. Please try again.')
+    try {
+      const res = await fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          email: email.trim(),
+          website,
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (!res.ok || !json.ok) {
+        setError(json.error || 'Something went wrong. Please try again.')
+        return
+      }
+    } catch {
+      setError('Network error — please check your connection and try again.')
       return
+    } finally {
+      setSubmitting(false)
     }
     setSubmitted(true)
     void fireBronzeConfetti()
@@ -131,6 +136,8 @@ export function ApplyClose() {
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                       placeholder="First name"
+                      aria-label="First name"
+                      required
                       autoComplete="given-name"
                       className="bg-transparent border-b border-bronze/30 focus:border-bronze py-3 px-0 text-[15px] text-ivory placeholder:text-ivory-soft/40 outline-none transition-colors duration-300"
                     />
@@ -139,6 +146,8 @@ export function ApplyClose() {
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="Last name"
+                      aria-label="Last name"
+                      required
                       autoComplete="family-name"
                       className="bg-transparent border-b border-bronze/30 focus:border-bronze py-3 px-0 text-[15px] text-ivory placeholder:text-ivory-soft/40 outline-none transition-colors duration-300"
                     />
@@ -148,12 +157,29 @@ export function ApplyClose() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Email address"
+                    aria-label="Email address"
+                    required
                     autoComplete="email"
                     className="w-full bg-transparent border-b border-bronze/30 focus:border-bronze py-3 px-0 text-[15px] text-ivory placeholder:text-ivory-soft/40 outline-none transition-colors duration-300"
                   />
 
+                  {/* Honeypot — visually hidden, skipped by keyboard + autofill. */}
+                  <div aria-hidden="true" className="absolute -left-[10000px] top-auto w-px h-px overflow-hidden">
+                    <label>
+                      Website
+                      <input
+                        type="text"
+                        name="website"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
                   {error && (
-                    <p className="text-[12px] text-bronze-light italic">{error}</p>
+                    <p role="alert" className="text-[12px] text-bronze-light italic">{error}</p>
                   )}
 
                   <div className="pt-2">

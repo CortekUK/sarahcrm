@@ -20,14 +20,15 @@ import {
   PortalSectionTitle,
   PortalTextarea,
 } from '@/components/portal/PortalChrome'
+import { dbErrorMessage } from '@/components/portal/portal-utils'
 import type { Database } from '@/types/database'
 
 type Tag = Database['public']['Tables']['tags']['Row']
 type MemberTier = Database['public']['Enums']['membership_tier']
 
 const profileSchema = z.object({
-  first_name: z.string().min(1, 'First name is required'),
-  last_name: z.string().min(1, 'Last name is required'),
+  first_name: z.string().trim().min(1, 'First name is required'),
+  last_name: z.string().trim().min(1, 'Last name is required'),
   phone: z.string().optional(),
   job_title: z.string().optional(),
   bio: z.string().optional(),
@@ -71,11 +72,15 @@ export function PortalProfilePage() {
   const { profile, user } = useAuth()
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [memberTagIds, setMemberTagIds] = useState<string[]>([])
+  // Tags as last saved — so a save only inserts the new ones and deletes the
+  // removed ones, instead of wiping and re-adding everything.
+  const [savedTagIds, setSavedTagIds] = useState<string[]>([])
   const [memberId, setMemberId] = useState<string | null>(null)
   const [memberTier, setMemberTier] = useState<MemberTier | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const {
     register,
@@ -186,7 +191,11 @@ export function PortalProfilePage() {
         .from('member_tags')
         .select('tag_id')
         .eq('member_id', memberRes.data.id)
-      if (tagData) setMemberTagIds(tagData.map((t) => t.tag_id))
+      if (tagData) {
+        const ids = tagData.map((t) => t.tag_id)
+        setMemberTagIds(ids)
+        setSavedTagIds(ids)
+      }
     }
 
     if (tagsRes.data) setAllTags(tagsRes.data)
@@ -203,49 +212,88 @@ export function PortalProfilePage() {
     if (!user?.id) return
     setSaving(true)
     setSaved(false)
+    setSaveError(null)
 
-    await supabase
+    const clean = (v: string | undefined) => {
+      const t = (v ?? '').trim()
+      return t ? t : null
+    }
+    const firstName = data.first_name.trim()
+    const lastName = data.last_name.trim()
+    if (!firstName || !lastName) {
+      setSaveError('Please enter your first and last name.')
+      setSaving(false)
+      return
+    }
+
+    // Every write's error is checked — "Saved" only shows when all succeed.
+    const fail = (err: { message?: string | null }) => {
+      setSaveError(dbErrorMessage(err, 'We couldn’t save your profile. Please try again.'))
+      setSaving(false)
+    }
+
+    const { error: profileError } = await supabase
       .from('profiles')
       .update({
-        first_name: data.first_name,
-        last_name: data.last_name,
-        phone: data.phone || null,
-        job_title: data.job_title || null,
-        bio: data.bio || null,
-        linkedin_url: data.linkedin_url || null,
-        website_url: data.website_url || null,
+        first_name: firstName,
+        last_name: lastName,
+        phone: clean(data.phone),
+        job_title: clean(data.job_title),
+        bio: clean(data.bio),
+        linkedin_url: clean(data.linkedin_url),
+        website_url: clean(data.website_url),
       })
       .eq('id', user.id)
+    if (profileError) return fail(profileError)
 
     if (memberId) {
-      await supabase
+      const { error: memberError } = await supabase
         .from('members')
         .update({
-          company_name: data.company_name || null,
-          company_description: data.company_description || null,
-          company_website: data.company_website || null,
-          sector: data.sector || null,
-          sub_sector: data.sub_sector || null,
-          employee_count: data.employee_count || null,
-          annual_turnover: data.annual_turnover || null,
-          intro_target_types: data.intro_target_types || null,
-          intro_target_criteria: data.intro_target_criteria || null,
-          dream_introductions: data.dream_introductions || null,
-          what_they_can_offer: data.what_they_can_offer || null,
-          business_objectives: data.business_objectives || null,
-          budgets: data.budgets || null,
-          partner_name: data.partner_name || null,
-          assistant_name: data.assistant_name || null,
-          dietary_requirements: data.dietary_requirements || null,
+          company_name: clean(data.company_name),
+          company_description: clean(data.company_description),
+          company_website: clean(data.company_website),
+          sector: clean(data.sector),
+          sub_sector: clean(data.sub_sector),
+          employee_count: clean(data.employee_count),
+          annual_turnover: clean(data.annual_turnover),
+          intro_target_types: clean(data.intro_target_types),
+          intro_target_criteria: clean(data.intro_target_criteria),
+          dream_introductions: clean(data.dream_introductions),
+          what_they_can_offer: clean(data.what_they_can_offer),
+          business_objectives: clean(data.business_objectives),
+          budgets: clean(data.budgets),
+          partner_name: clean(data.partner_name),
+          assistant_name: clean(data.assistant_name),
+          dietary_requirements: clean(data.dietary_requirements),
         })
         .eq('id', memberId)
+      if (memberError) return fail(memberError)
 
-      await supabase.from('member_tags').delete().eq('member_id', memberId)
-      if (memberTagIds.length > 0) {
-        await supabase
+      // Tags: add the new ones first, then remove the deselected ones. If
+      // either step fails nothing already saved is lost.
+      const toAdd = memberTagIds.filter((t) => !savedTagIds.includes(t))
+      const toRemove = savedTagIds.filter((t) => !memberTagIds.includes(t))
+      if (toAdd.length > 0) {
+        const { error: addError } = await supabase
           .from('member_tags')
-          .insert(memberTagIds.map((tagId) => ({ member_id: memberId, tag_id: tagId })))
+          .insert(toAdd.map((tagId) => ({ member_id: memberId, tag_id: tagId })))
+        if (addError) return fail(addError)
       }
+      if (toRemove.length > 0) {
+        const { error: removeError } = await supabase
+          .from('member_tags')
+          .delete()
+          .eq('member_id', memberId)
+          .in('tag_id', toRemove)
+        if (removeError) {
+          // The additions did save — remember them so a retry doesn't
+          // re-insert them.
+          setSavedTagIds(Array.from(new Set([...savedTagIds, ...toAdd])))
+          return fail(removeError)
+        }
+      }
+      setSavedTagIds(memberTagIds)
     }
 
     setSaving(false)
@@ -481,8 +529,19 @@ export function PortalProfilePage() {
 
         {/* Save bar */}
         <div className="flex items-center justify-end gap-5 pt-2 pb-4">
-          {saved && (
-            <span className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-emerald-300">
+          {saveError && (
+            <p
+              role="alert"
+              className="font-[family-name:var(--font-editorial)] italic text-[13px] text-accent-warm"
+            >
+              {saveError}
+            </p>
+          )}
+          {saved && !saveError && (
+            <span
+              role="status"
+              className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-accent"
+            >
               <Check size={13} strokeWidth={2} />
               Saved
             </span>

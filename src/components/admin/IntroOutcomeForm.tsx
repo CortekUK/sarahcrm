@@ -13,6 +13,7 @@ import {
   OUTCOME_STAGES,
   outcomeStageFlags,
   buildIntroOutcomeUpdate,
+  canRecordDealOutcome,
   poundsToPence,
   penceToPounds,
   toDateInput,
@@ -43,6 +44,12 @@ interface Props {
    * set, a commission suggestion (revenue × pct) is offered on won deals.
    */
   agreementCommissionPct?: number | null
+  /**
+   * The introduction's current status. Won/Lost can only be recorded once
+   * the introduction is accepted (or completed). When omitted, the form
+   * reads the status from the database before saving a decided deal.
+   */
+  status?: string | null
   /** Called after a successful save so the parent can refetch. */
   onSaved?: () => void
 }
@@ -68,7 +75,7 @@ function today(): string {
  * introduction detail page and the member matches panel so the two never
  * drift. Renders fields only — the parent supplies the surrounding card/modal.
  */
-export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, onSaved }: Props) {
+export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, status, onSaved }: Props) {
   const [outcome, setOutcome] = useState(initial.outcome ?? '')
   const [meetingHeld, setMeetingHeld] = useState(Boolean(initial.meeting_held_at))
   const [meetingDate, setMeetingDate] = useState(toDateInput(initial.meeting_held_at))
@@ -103,8 +110,36 @@ export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, onS
     testimonial_obtained: testimonialObtained,
   })
 
+  // Won/Lost is only allowed once both members accepted (#28). When the
+  // parent passes the status we can block up front; otherwise save() checks.
+  const dealLocked = status !== undefined && !canRecordDealOutcome(status)
+
   async function save() {
     setSaving(true)
+    let currentStatus = status
+    if (currentStatus === undefined) {
+      const { data, error: statusError } = await supabase
+        .from('introductions')
+        .select('status')
+        .eq('id', introId)
+        .single()
+      if (statusError) {
+        setSaving(false)
+        toast({ title: 'Could not save outcome', description: statusError.message, variant: 'destructive' })
+        return
+      }
+      currentStatus = data?.status ?? null
+    }
+    if (dealStatus != null && !canRecordDealOutcome(currentStatus)) {
+      setSaving(false)
+      toast({
+        title: 'Deal outcome not saved',
+        description:
+          'Won/Lost can only be recorded once both members have accepted the introduction. Set the deal to Undecided to save the other details.',
+        variant: 'destructive',
+      })
+      return
+    }
     const values: IntroOutcomeValues = {
       outcome: outcome || null,
       meeting_held_at: meetingAt,
@@ -116,7 +151,7 @@ export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, onS
       testimonial_obtained: testimonialObtained,
       testimonial_note: testimonialNote || null,
     }
-    const update = buildIntroOutcomeUpdate(values, initial.followed_up_at)
+    const update = buildIntroOutcomeUpdate(values, initial.followed_up_at, undefined, currentStatus)
     const { error } = await supabase.from('introductions').update(update).eq('id', introId)
     setSaving(false)
     if (error) {
@@ -212,12 +247,16 @@ export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, onS
             { key: 'lost', label: 'Lost' },
           ] as const).map((opt) => {
             const active = dealStatus === opt.key
+            const disabled = dealLocked && opt.key !== null && !active
             return (
               <button
                 key={opt.label}
                 type="button"
+                disabled={disabled}
+                title={disabled ? 'Available once both members have accepted' : undefined}
                 onClick={() => setDealStatus(opt.key)}
                 className={cn(
+                  disabled && 'opacity-50 cursor-not-allowed',
                   'rounded-[var(--radius-md)] border px-3 py-1.5 text-sm font-medium transition-colors',
                   active && opt.key === 'won' && 'bg-accent text-white border-accent',
                   active && opt.key === 'lost' && 'bg-[rgba(196,105,74,0.12)] text-accent-warm border-border-gold',
@@ -231,7 +270,9 @@ export function IntroOutcomeForm({ introId, initial, agreementCommissionPct, onS
           })}
         </div>
         <p className="text-xs text-text-dim">
-          Marking a deal Won or Lost completes the introduction.
+          {dealLocked
+            ? 'Won/Lost can be recorded once both members have accepted the introduction.'
+            : 'Marking a deal Won or Lost completes the introduction.'}
         </p>
       </div>
 

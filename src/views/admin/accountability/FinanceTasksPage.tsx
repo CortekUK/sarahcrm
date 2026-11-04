@@ -14,6 +14,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDateTime } from '@/lib/utils'
+import { dbErrorMessage, isValidEmail } from '@/lib/form-validation'
 import { Loader2, PoundSterling, Plus, Pencil, CheckCircle2, AlertTriangle } from 'lucide-react'
 import {
   CADENCE_OPTIONS,
@@ -70,6 +71,9 @@ export function FinanceTasksPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  // Inline field errors (keyed by FormState field) so the bad field is
+  // highlighted, not just reported in a toast.
+  const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
   useEffect(() => {
     load()
@@ -112,11 +116,13 @@ export function FinanceTasksPage() {
   const pendingCount = occurrences.filter((o) => o.status === 'pending').length
 
   function openCreate() {
+    setErrors({})
     setForm(EMPTY_FORM)
     setModalOpen(true)
   }
 
   function openEdit(t: FinanceTaskRow) {
+    setErrors({})
     setForm({
       id: t.id,
       title: t.title,
@@ -141,6 +147,29 @@ export function FinanceTasksPage() {
     }
     if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 28) {
       toast({ title: 'Due day must be a whole number 1–28', variant: 'destructive' })
+      return
+    }
+    // The overdue chaser emails these contacts — the accountant is required
+    // and every email given must be a real address, or nobody gets chased.
+    const errs: Partial<Record<keyof FormState, string>> = {}
+    if (!form.accountant_email.trim()) errs.accountant_email = 'The accountant’s email is required.'
+    for (const key of ['accountant_email', 'escalation_email', 'final_email'] as const) {
+      const v = form[key].trim()
+      if (v && !isValidEmail(v)) errs[key] = 'Enter a valid email address.'
+    }
+    for (const [nameKey, emailKey] of [
+      ['escalation_name', 'escalation_email'],
+      ['final_name', 'final_email'],
+    ] as const) {
+      if (form[nameKey].trim() && !form[emailKey].trim()) errs[emailKey] = 'Add an email so this contact can be chased.'
+    }
+    setErrors(errs)
+    if (Object.keys(errs).length) {
+      toast({
+        title: 'Check the contacts',
+        description: Object.values(errs)[0],
+        variant: 'destructive',
+      })
       return
     }
     setSaving(true)
@@ -198,7 +227,7 @@ export function FinanceTasksPage() {
     } catch (e) {
       toast({
         title: 'Could not save',
-        description: e instanceof Error ? e.message : 'Unknown error',
+        description: dbErrorMessage(e, 'Unknown error'),
         variant: 'destructive',
       })
     } finally {
@@ -212,7 +241,7 @@ export function FinanceTasksPage() {
       .update({ active: !t.active })
       .eq('id', t.id)
     if (error) {
-      toast({ title: 'Could not update', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     toast({ title: t.active ? 'Task deactivated' : 'Task reactivated' })
@@ -229,7 +258,7 @@ export function FinanceTasksPage() {
       })
       .eq('id', o.id)
     if (error) {
-      toast({ title: 'Could not mark complete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not mark complete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     toast({ title: 'Marked complete' })
@@ -464,9 +493,11 @@ export function FinanceTasksPage() {
           </div>
 
           <ContactRow
-            roleLabel="Accountant (level 1)"
+            roleLabel="Accountant (level 1) — required"
             name={form.accountant_name}
             email={form.accountant_email}
+            nameError={errors.accountant_name}
+            emailError={errors.accountant_email}
             onName={(v) => setForm((f) => ({ ...f, accountant_name: v }))}
             onEmail={(v) => setForm((f) => ({ ...f, accountant_email: v }))}
           />
@@ -474,6 +505,7 @@ export function FinanceTasksPage() {
             roleLabel="Escalation — Finance Director (level 2)"
             name={form.escalation_name}
             email={form.escalation_email}
+            emailError={errors.escalation_email}
             onName={(v) => setForm((f) => ({ ...f, escalation_name: v }))}
             onEmail={(v) => setForm((f) => ({ ...f, escalation_email: v }))}
           />
@@ -481,6 +513,7 @@ export function FinanceTasksPage() {
             roleLabel="Final — Sarah (level 3)"
             name={form.final_name}
             email={form.final_email}
+            emailError={errors.final_email}
             onName={(v) => setForm((f) => ({ ...f, final_name: v }))}
             onEmail={(v) => setForm((f) => ({ ...f, final_email: v }))}
           />
@@ -516,10 +549,14 @@ function ContactRow({
   email,
   onName,
   onEmail,
+  nameError,
+  emailError,
 }: {
   roleLabel: string
   name: string
   email: string
+  nameError?: string
+  emailError?: string
   onName: (v: string) => void
   onEmail: (v: string) => void
 }) {
@@ -529,11 +566,19 @@ function ContactRow({
         {roleLabel}
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Input placeholder="Name" value={name} onChange={(e) => onName(e.target.value)} />
+        <Input
+          placeholder="Name"
+          aria-label={`${roleLabel} name`}
+          value={name}
+          error={nameError}
+          onChange={(e) => onName(e.target.value)}
+        />
         <Input
           placeholder="Email"
           type="email"
+          aria-label={`${roleLabel} email`}
           value={email}
+          error={emailError}
           onChange={(e) => onEmail(e.target.value)}
         />
       </div>

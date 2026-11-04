@@ -17,6 +17,8 @@ import {
   elapsedClock,
   sumHours,
 } from '@/lib/time-tracking'
+import { dbErrorMessage } from '@/lib/form-validation'
+import { ukToday, shiftIsoDate } from '@/components/accountability/uk-date'
 
 // Staff-facing time log for a SINGLE task. Manual hours entry + a start/stop
 // timer, the list of this task's entries and a running total. RLS guarantees
@@ -37,9 +39,11 @@ export function TaskTimeLog({
   const [busy, setBusy] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
-  const today = new Date().toISOString().slice(0, 10)
+  // UK "today" — the database only accepts entries for the last 14 UK days.
+  const today = ukToday()
   const [hours, setHours] = useState('')
   const [entryDate, setEntryDate] = useState(today)
+  const [hoursError, setHoursError] = useState<string | null>(null)
   const [note, setNote] = useState('')
 
   const load = useCallback(async () => {
@@ -70,9 +74,19 @@ export function TaskTimeLog({
   const total = useMemo(() => sumHours(entries), [entries])
 
   async function addManual() {
-    const h = Number(hours)
-    if (!Number.isFinite(h) || h <= 0) {
-      toast({ title: 'Enter a number of hours greater than 0', variant: 'destructive' })
+    const raw = hours.trim()
+    const h = Number(raw)
+    let err: string | null = null
+    if (raw.startsWith('-')) err = 'Hours can’t be negative.'
+    else if (!/^\d+(\.\d+)?$/.test(raw) || !Number.isFinite(h) || h <= 0)
+      err = 'Enter a number of hours greater than 0, e.g. 2.5.'
+    else if (h > 24) err = 'You can’t log more than 24 hours in one day.'
+    const day = entryDate || today
+    if (!err && day > today) err = 'Time can’t be logged for a future date.'
+    else if (!err && day < shiftIsoDate(today, -14)) err = 'Time can only be logged for the last 14 days.'
+    setHoursError(err)
+    if (err) {
+      toast({ title: 'Time not logged', description: err, variant: 'destructive' })
       return
     }
     setBusy(true)
@@ -80,16 +94,17 @@ export function TaskTimeLog({
       staff_id: staffId,
       task_id: taskId,
       hours: Math.round(h * 100) / 100,
-      entry_date: entryDate || today,
+      entry_date: day,
       note: note.trim() || null,
       source: 'manual',
     })
     setBusy(false)
     if (error) {
-      toast({ title: 'Could not log time', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not log time', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     setHours('')
+    setHoursError(null)
     setNote('')
     setEntryDate(today)
     toast({ title: 'Time logged' })
@@ -105,7 +120,7 @@ export function TaskTimeLog({
       staff_id: staffId,
       task_id: taskId,
       hours: null,
-      entry_date: nowIso.slice(0, 10),
+      entry_date: today,
       source: 'timer',
       started_at: nowIso,
     })
@@ -117,7 +132,7 @@ export function TaskTimeLog({
         title: 'Could not start timer',
         description: /uniq_running_timer/.test(error.message)
           ? 'You already have a timer running. Stop it first.'
-          : error.message,
+          : dbErrorMessage(error),
         variant: 'destructive',
       })
       await load()
@@ -138,7 +153,7 @@ export function TaskTimeLog({
       .eq('id', running.id)
     setBusy(false)
     if (error) {
-      toast({ title: 'Could not stop timer', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not stop timer', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     toast({ title: `Timer stopped — ${formatHours(computed)} logged` })
@@ -151,7 +166,7 @@ export function TaskTimeLog({
     const { error } = await supabase.from('time_entries').delete().eq('id', entry.id)
     setBusy(false)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not delete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     await load()
@@ -200,12 +215,11 @@ export function TaskTimeLog({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Input
           label="Hours"
-          type="number"
-          min="0"
-          step="0.25"
+          type="text"
           inputMode="decimal"
           placeholder="e.g. 2.5"
           value={hours}
+          error={hoursError ?? undefined}
           onChange={(e) => setHours(e.target.value)}
         />
         <DateField label="Date" value={entryDate} onChange={setEntryDate} />

@@ -24,7 +24,15 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { formatCurrency, formatDate, cn, UK_TIME_ZONE } from '@/lib/utils'
+import {
+  dbErrorCode,
+  dbErrorMessage,
+  isHttpUrl,
+  isHttpUrlOrPath,
+  isValidEmail,
+  parsePoundsInput,
+} from '@/lib/form-validation'
 import {
   Loader2,
   Plus,
@@ -102,13 +110,24 @@ const REFERRAL_STATUS_OPTIONS = [
   { value: 'paid', label: 'Paid' },
 ]
 
-// Pounds string → integer pence (null when blank).
-function poundsToPence(v: string): number | null {
-  const cleaned = v.replace(/[£,\s]/g, '').trim()
-  if (!cleaned) return null
-  const n = Number(cleaned)
-  if (Number.isNaN(n)) return null
-  return Math.round(n * 100)
+// Today's date in UK time as YYYY-MM-DD (for comparing with valid_until).
+function ukToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: UK_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+function isValidPhone(v: string): boolean {
+  return /^\+?[\d\s()-]{7,20}$/.test(v.trim())
+}
+
+// A paid referral already billed in Xero is part of the commission ledger —
+// it can't be changed or removed here.
+function isLockedReferral(r: ReferralRow | null | undefined): boolean {
+  return !!r && r.status === 'paid' && !!r.xero_bill_id
 }
 function penceToPounds(pence: number | null): string {
   if (pence == null) return ''
@@ -362,13 +381,50 @@ export function RewardsPage() {
       toast({ title: 'Name required', variant: 'destructive' })
       return
     }
+    // "acme.co.uk" → "https://acme.co.uk" rather than refusing the save.
+    const rawWebsite = partnerForm.website_url.trim()
+    const website =
+      rawWebsite && !/^[a-z][a-z0-9+.-]*:/i.test(rawWebsite) && /^[^\s/]+\.[^\s]+$/.test(rawWebsite)
+        ? `https://${rawWebsite}`
+        : rawWebsite
+    if (website && !isHttpUrl(website)) {
+      toast({ title: 'Check the website', description: 'Enter a full web address starting with https://', variant: 'destructive' })
+      return
+    }
+    const logo = partnerForm.logo_url.trim()
+    if (logo && !isHttpUrlOrPath(logo)) {
+      toast({ title: 'Check the logo', description: 'The logo must be an uploaded image or an https:// link.', variant: 'destructive' })
+      return
+    }
+    const email = partnerForm.contact_email.trim()
+    if (email && !isValidEmail(email)) {
+      toast({ title: 'Check the contact email', description: `"${email}" is not a valid email address.`, variant: 'destructive' })
+      return
+    }
+    const phone = partnerForm.contact_phone.trim()
+    if (phone && !isValidPhone(phone)) {
+      toast({ title: 'Check the contact phone', description: 'Use digits, spaces and an optional + only.', variant: 'destructive' })
+      return
+    }
+    const duplicate = partners.find(
+      (p) => p.id !== editingPartner && p.name.trim().toLowerCase() === name.toLowerCase(),
+    )
+    if (duplicate) {
+      const ok = await confirm({
+        title: 'A partner with this name already exists',
+        description: `"${duplicate.name}" is already in the directory. Save another partner with the same name?`,
+        confirmLabel: 'Save anyway',
+        tone: 'warning',
+      })
+      if (!ok) return
+    }
     setSavingPartner(true)
     const payload = {
       name,
       category: partnerForm.category,
       description: partnerForm.description.trim() || null,
       logo_url: partnerForm.logo_url.trim() || null,
-      website_url: partnerForm.website_url.trim() || null,
+      website_url: website || null,
       contact_name: partnerForm.contact_name.trim() || null,
       contact_email: partnerForm.contact_email.trim() || null,
       contact_phone: partnerForm.contact_phone.trim() || null,
@@ -380,7 +436,7 @@ export function RewardsPage() {
       : await supabase.from('reward_partners').insert(payload)
     setSavingPartner(false)
     if (res.error) {
-      toast({ title: 'Could not save partner', description: res.error.message, variant: 'destructive' })
+      toast({ title: 'Could not save partner', description: dbErrorMessage(res.error), variant: 'destructive' })
       return
     }
     toast({ title: editingPartner ? 'Partner updated' : 'Partner created' })
@@ -389,6 +445,16 @@ export function RewardsPage() {
   }
   async function deletePartner() {
     if (!editingPartner) return
+    const partnerOfferIds = new Set(offers.filter((o) => o.partner_id === editingPartner).map((o) => o.id))
+    const hasClaims = claims.some((c) => partnerOfferIds.has(c.offer_id))
+    if (hasClaims) {
+      toast({
+        title: "Can't delete this partner",
+        description: "Members have claimed this partner's offers — switch the partner off (Active) instead of deleting it, so their claim history is kept.",
+        variant: 'destructive',
+      })
+      return
+    }
     const ok = await confirm({
       title: 'Delete this partner?',
       description: 'The partner and all its offers are permanently removed. This cannot be undone.',
@@ -398,7 +464,11 @@ export function RewardsPage() {
     if (!ok) return
     const { error } = await supabase.from('reward_partners').delete().eq('id', editingPartner)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({
+        title: dbErrorCode(error) === 'PARTNER_HAS_CLAIMS' ? "Can't delete this partner" : 'Could not delete',
+        description: dbErrorMessage(error),
+        variant: 'destructive',
+      })
       return
     }
     setPartnerModal(false)
@@ -434,6 +504,26 @@ export function RewardsPage() {
       toast({ title: 'Title required', variant: 'destructive' })
       return
     }
+    const bookingUrl = offerForm.booking_url.trim()
+    if (bookingUrl && !isHttpUrl(bookingUrl)) {
+      toast({ title: 'Check the booking link', description: 'Enter a full web address starting with https://', variant: 'destructive' })
+      return
+    }
+    const original = editingOffer ? offers.find((o) => o.id === editingOffer) : null
+    if (
+      offerForm.valid_until &&
+      offerForm.valid_until < ukToday() &&
+      offerForm.is_active &&
+      (!original || original.valid_until !== offerForm.valid_until)
+    ) {
+      const ok = await confirm({
+        title: 'This offer has already expired',
+        description: `"Valid until" is ${formatDate(offerForm.valid_until)}, which is in the past — members won't be able to claim it. Save anyway?`,
+        confirmLabel: 'Save anyway',
+        tone: 'warning',
+      })
+      if (!ok) return
+    }
     setSavingOffer(true)
     const payload = {
       partner_id: offersFor.id,
@@ -452,7 +542,7 @@ export function RewardsPage() {
       : await supabase.from('reward_offers').insert(payload)
     setSavingOffer(false)
     if (res.error) {
-      toast({ title: 'Could not save offer', description: res.error.message, variant: 'destructive' })
+      toast({ title: 'Could not save offer', description: dbErrorMessage(res.error), variant: 'destructive' })
       return
     }
     toast({ title: editingOffer ? 'Offer updated' : 'Offer created' })
@@ -461,6 +551,14 @@ export function RewardsPage() {
   }
   async function deleteOffer() {
     if (!editingOffer) return
+    if (claims.some((c) => c.offer_id === editingOffer)) {
+      toast({
+        title: "Can't delete this offer",
+        description: 'Members have claimed this offer — switch it off (Active) instead of deleting it, so their claim history is kept.',
+        variant: 'destructive',
+      })
+      return
+    }
     const ok = await confirm({
       title: 'Delete this offer?',
       description: 'The offer is permanently removed. This cannot be undone.',
@@ -470,7 +568,11 @@ export function RewardsPage() {
     if (!ok) return
     const { error } = await supabase.from('reward_offers').delete().eq('id', editingOffer)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({
+        title: dbErrorCode(error) === 'OFFER_HAS_CLAIMS' ? "Can't delete this offer" : 'Could not delete',
+        description: dbErrorMessage(error),
+        variant: 'destructive',
+      })
       return
     }
     setOfferModal(false)
@@ -490,10 +592,15 @@ export function RewardsPage() {
   }
   async function saveClaim() {
     if (!editingClaim) return
+    const valueRes = parsePoundsInput(claimForm.value, { label: 'Value' })
+    if (valueRes.error) {
+      toast({ title: 'Check the value', description: valueRes.error, variant: 'destructive' })
+      return
+    }
     setSavingClaim(true)
     const payload = {
       status: claimForm.status,
-      value_pence: poundsToPence(claimForm.value),
+      value_pence: valueRes.pence ?? null,
       notes: claimForm.notes.trim() || null,
       redeemed_at:
         claimForm.status === 'redeemed'
@@ -503,7 +610,7 @@ export function RewardsPage() {
     const { error } = await supabase.from('reward_claims').update(payload).eq('id', editingClaim.id)
     setSavingClaim(false)
     if (error) {
-      toast({ title: 'Could not save claim', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not save claim', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     toast({ title: 'Claim updated' })
@@ -519,7 +626,7 @@ export function RewardsPage() {
       .update({ status, redeemed_at })
       .eq('id', c.id)
     if (error) {
-      toast({ title: 'Could not update status', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update status', description: dbErrorMessage(error), variant: 'destructive' })
       load()
     }
   }
@@ -527,7 +634,7 @@ export function RewardsPage() {
   // ── Referral CRUD ────────────────────────────────────────
   function openNewReferral() {
     setEditingReferral(null)
-    setReferralForm({ ...emptyReferral, member_id: members[0]?.id ?? '' })
+    setReferralForm({ ...emptyReferral })
     setReferralModal(true)
   }
   function openEditReferral(r: ReferralRow) {
@@ -547,13 +654,38 @@ export function RewardsPage() {
       toast({ title: 'Member required', variant: 'destructive' })
       return
     }
+    if (isLockedReferral(referrals.find((r) => r.id === editingReferral))) {
+      toast({ title: 'Referral locked', description: 'This commission is paid and billed in Xero, so it can no longer be changed.', variant: 'destructive' })
+      return
+    }
+    const revenueRes = parsePoundsInput(referralForm.revenue, { label: 'Revenue' })
+    if (revenueRes.error) {
+      toast({ title: 'Check the revenue', description: revenueRes.error, variant: 'destructive' })
+      return
+    }
+    const commissionRes = parsePoundsInput(referralForm.commission, { label: 'Commission' })
+    if (commissionRes.error) {
+      toast({ title: 'Check the commission', description: commissionRes.error, variant: 'destructive' })
+      return
+    }
+    const revenuePence = revenueRes.pence ?? null
+    const commissionPence = commissionRes.pence ?? null
+    if (revenuePence != null && commissionPence != null && commissionPence > revenuePence) {
+      const ok = await confirm({
+        title: 'Commission is more than the revenue',
+        description: `A commission of ${formatCurrency(commissionPence)} on revenue of ${formatCurrency(revenuePence)} looks wrong. Save anyway?`,
+        confirmLabel: 'Save anyway',
+        tone: 'warning',
+      })
+      if (!ok) return
+    }
     setSavingReferral(true)
     const payload = {
       member_id: referralForm.member_id,
       description: referralForm.description.trim() || null,
       referred_name: referralForm.referred_name.trim() || null,
-      revenue_pence: poundsToPence(referralForm.revenue),
-      commission_pence: poundsToPence(referralForm.commission),
+      revenue_pence: revenuePence,
+      commission_pence: commissionPence,
       status: referralForm.status,
     }
     const res = editingReferral
@@ -561,7 +693,7 @@ export function RewardsPage() {
       : await supabase.from('reward_referrals').insert(payload)
     setSavingReferral(false)
     if (res.error) {
-      toast({ title: 'Could not save referral', description: res.error.message, variant: 'destructive' })
+      toast({ title: 'Could not save referral', description: dbErrorMessage(res.error), variant: 'destructive' })
       return
     }
     toast({ title: editingReferral ? 'Referral updated' : 'Referral created' })
@@ -570,6 +702,10 @@ export function RewardsPage() {
   }
   async function deleteReferral() {
     if (!editingReferral) return
+    if (isLockedReferral(referrals.find((r) => r.id === editingReferral))) {
+      toast({ title: 'Referral locked', description: 'This commission is paid and billed in Xero, so it can’t be deleted.', variant: 'destructive' })
+      return
+    }
     const ok = await confirm({
       title: 'Delete this referral?',
       description: 'The referral is permanently removed. This cannot be undone.',
@@ -579,13 +715,15 @@ export function RewardsPage() {
     if (!ok) return
     const { error } = await supabase.from('reward_referrals').delete().eq('id', editingReferral)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not delete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     setReferralModal(false)
     toast({ title: 'Referral deleted' })
     load()
   }
+
+  const referralLocked = isLockedReferral(referrals.find((r) => r.id === editingReferral))
 
   const partnerOffers = useMemo(
     () => (offersFor ? offers.filter((o) => o.partner_id === offersFor.id) : []),
@@ -1242,6 +1380,12 @@ export function RewardsPage() {
         size="md"
       >
         <div className="space-y-4">
+          {referralLocked && (
+            <p className="rounded-lg border border-border bg-surface-2 p-3 text-sm text-text-muted">
+              This commission is paid and billed in Xero, so it can no longer be edited or deleted.
+            </p>
+          )}
+          <fieldset disabled={referralLocked} className="space-y-4 disabled:opacity-70">
           <SelectMenu
             label="Referring member"
             value={referralForm.member_id || 'none'}
@@ -1282,9 +1426,10 @@ export function RewardsPage() {
               options={REFERRAL_STATUS_OPTIONS}
             />
           </div>
+          </fieldset>
 
           <div className="flex items-center justify-between pt-2">
-            {editingReferral ? (
+            {editingReferral && !referralLocked ? (
               <Button variant="ghost" icon={<Trash2 size={14} />} className="text-accent-warm" onClick={deleteReferral}>
                 Delete
               </Button>
@@ -1295,7 +1440,7 @@ export function RewardsPage() {
               <Button variant="ghost" onClick={() => setReferralModal(false)}>
                 Cancel
               </Button>
-              <Button loading={savingReferral} onClick={saveReferral}>
+              <Button loading={savingReferral} onClick={saveReferral} disabled={referralLocked}>
                 {editingReferral ? 'Save changes' : 'Create referral'}
               </Button>
             </div>

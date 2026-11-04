@@ -1,10 +1,12 @@
 'use client'
 
+import { vatSuffix } from '@/lib/events/vat'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase/client'
-import { formatDate, formatCurrency } from '@/lib/utils'
+import { formatDateTime, formatCurrency } from '@/lib/utils'
+import { fetchSeatsTaken } from '@/components/portal/portal-utils'
 import { ArrowUpRight, Calendar, MapPin, Users } from 'lucide-react'
 import {
   PortalBadge,
@@ -27,9 +29,10 @@ interface PublicEvent {
   venue_name: string | null
   venue_city: string | null
   member_price_pence: number
+  vat_mode?: string | null
+  vat_rate?: number | null
   capacity: number | null
   cover_image_url: string | null
-  bookings: { count: number }[]
 }
 
 const typeLabels: Record<EventType, string> = {
@@ -46,6 +49,9 @@ const typeVariant: Record<EventType, PortalBadgeVariant> = {
 
 export function PortalEventsPage() {
   const [events, setEvents] = useState<PublicEvent[]>([])
+  // Seats taken per event — counted server-side (RLS hides other members'
+  // bookings, so a client-side count would always read 0 or 1).
+  const [seats, setSeats] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -56,13 +62,16 @@ export function PortalEventsPage() {
     const { data } = await supabase
       .from('events')
       .select(
-        'id, title, slug, description, event_type, start_date, venue_name, venue_city, member_price_pence, capacity, cover_image_url, bookings(count)',
+        'id, title, slug, description, event_type, start_date, venue_name, venue_city, member_price_pence, capacity, cover_image_url, vat_mode, vat_rate',
       )
       .in('status', ['published', 'live'])
       .gte('start_date', new Date().toISOString())
       .order('start_date', { ascending: true })
 
-    if (data) setEvents(data as unknown as PublicEvent[])
+    const list = (data ?? []) as unknown as PublicEvent[]
+    setEvents(list)
+    const withCapacity = list.filter((e) => e.capacity != null).map((e) => e.id)
+    if (withCapacity.length > 0) setSeats(await fetchSeatsTaken(withCapacity))
     setLoading(false)
   }
 
@@ -91,8 +100,11 @@ export function PortalEventsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
           {events.map((event) => {
-            const bookingCount = event.bookings?.[0]?.count ?? 0
-            const spotsRemaining = event.capacity ? event.capacity - bookingCount : null
+            const taken = seats[event.id]
+            const spotsRemaining =
+              event.capacity && typeof taken === 'number'
+                ? Math.max(0, event.capacity - taken)
+                : null
             const isComplimentary = event.member_price_pence === 0
 
             return (
@@ -148,7 +160,10 @@ export function PortalEventsPage() {
                   <ul className="mt-5 space-y-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.22em] text-slate-haze">
                     <li className="flex items-center gap-2.5">
                       <Calendar size={12} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
-                      <span>{formatDate(event.start_date)}</span>
+                      <span>
+                        {formatDateTime(event.start_date)}
+                        <span className="text-slate-dim"> UK time</span>
+                      </span>
                     </li>
                     {event.venue_name && (
                       <li className="flex items-center gap-2.5">
@@ -176,7 +191,7 @@ export function PortalEventsPage() {
                     <span className="font-[family-name:var(--font-display)] text-[15.5px] text-bronze-light tabular-nums">
                       {isComplimentary
                         ? 'Complimentary'
-                        : formatCurrency(event.member_price_pence)}
+                        : `${formatCurrency(event.member_price_pence)}${vatSuffix(event) ? ` ${vatSuffix(event)}` : ''}`}
                     </span>
                     <span className="inline-flex items-center gap-1.5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-ivory-soft group-hover:text-bronze-light transition-colors">
                       Details

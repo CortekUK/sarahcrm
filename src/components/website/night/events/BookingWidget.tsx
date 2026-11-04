@@ -1,9 +1,10 @@
 'use client'
 
-import { forwardRef, useState, type FormEvent } from 'react'
+import { eventVat, vatOnTop, vatSuffix } from '@/lib/events/vat'
+import { forwardRef, useId, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, Check, Lock } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────
 // Public-side event booking widget — used on /events/[slug].
@@ -37,6 +38,8 @@ export interface EventForBooking {
   accommodation_available?: boolean | null
   accommodation_price_pence?: number | null
   auto_confirm?: boolean | null
+  vat_mode?: string | null
+  vat_rate?: number | null
 }
 
 export interface SponsorBooking {
@@ -54,6 +57,9 @@ interface BookingWidgetProps {
   // (?s=<token>). Switches the widget to the sponsor's negotiated price and
   // pre-fills their contact details.
   sponsor?: SponsorBooking | null
+  // True when the visitor has just come back from a cancelled Stripe
+  // Checkout (cancel_url sets ?cancelled=1).
+  paymentCancelled?: boolean
 }
 
 function formatGBP(pence: number | null | undefined) {
@@ -62,23 +68,36 @@ function formatGBP(pence: number | null | undefined) {
   return new Intl.NumberFormat('en-GB', {
     style: 'currency',
     currency: 'GBP',
-    minimumFractionDigits: 0,
+    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
   }).format(pence / 100)
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   })
+  const time = d.toLocaleTimeString('en-GB', {
+    timeZone: UK_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return `${date} · ${time} UK time`
 }
 
-export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
+export function BookingWidget({ event, sponsor, paymentCancelled = false }: BookingWidgetProps) {
   const isSponsor = !!sponsor
   const [step, setStep] = useState<'idle' | 'receipt' | 'submitting'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [showCancelled, setShowCancelled] = useState(paymentCancelled)
+  // Synchronous guard — state updates land a render later, so a fast
+  // double-click could otherwise fire two checkout requests.
+  const submittingRef = useRef(false)
   const [addAccommodation, setAddAccommodation] = useState(false)
   const [form, setForm] = useState({
     guest_name: sponsor?.name ?? '',
@@ -93,29 +112,45 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
   // Sponsors pay their own negotiated rate; the public guest path uses the
   // event's guest price. The "seat" price the widget quotes follows suit.
   const seatPrice = isSponsor ? sponsor!.price_pence : guestPrice
-  const bookable = seatPrice > 0
+  // Mirrors /api/events/checkout: an event with no guest AND no member
+  // price is a free event guests can book at £0 (no Stripe step).
+  const isFreeEvent =
+    !isSponsor && (event.guest_price_pence ?? 0) <= 0 && (event.member_price_pence ?? 0) <= 0
+  const bookable = seatPrice > 0 || isFreeEvent
   const accommodationPrice = event.accommodation_price_pence ?? 0
   const accommodationAvailable = event.accommodation_available === true && accommodationPrice > 0
   // When the event isn't auto-confirm, the card is held (not charged) until
   // the team approves the booking.
   const holdOnly = event.auto_confirm === false
-  const total = seatPrice + (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
+  const subtotal = seatPrice + (addAccommodation && accommodationAvailable ? accommodationPrice : 0)
+  // Same rule as /api/events/checkout, so the total shown is what is charged.
+  const vat = vatOnTop(subtotal, event)
+  const total = subtotal + vat
+  const priceVatSuffix = vatSuffix(event)
 
   function update<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }))
+    // Clear a validation message as soon as the visitor edits a field.
+    if (error) setError(null)
   }
 
   function onContinue(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!form.guest_name.trim()) return setError('Please enter your name.')
-    if (!form.guest_email.trim() || !form.guest_email.includes('@'))
+    const name = form.guest_name.replace(/\s+/g, ' ').trim()
+    const email = form.guest_email.trim()
+    if (name.length < 2) return setError('Please enter your name.')
+    if (!/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(email))
       return setError('Please enter a valid email.')
+    setForm((f) => ({ ...f, guest_name: name, guest_email: email }))
     setStep('receipt')
   }
 
   async function onConfirmPay() {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setError(null)
+    setShowCancelled(false)
     setStep('submitting')
     try {
       const res = await fetch('/api/events/checkout', {
@@ -132,17 +167,25 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
           sponsor_token: sponsor?.token ?? null,
         }),
       })
-      const json = (await res.json()) as { url?: string; error?: string }
+      const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
       if (!res.ok || !json.url) {
-        setError(json.error || 'Could not open checkout.')
+        setError(
+          json.error ||
+            (res.status === 409
+              ? 'This booking could not be made — the event may be full, or you may already be booked.'
+              : 'Could not open checkout. Please try again.'),
+        )
         setStep('receipt')
+        submittingRef.current = false
         return
       }
+      // Keep the button locked while the browser navigates away.
       window.location.href = json.url
     } catch (err) {
       console.error(err)
       setError('Something went wrong. Please try again.')
       setStep('receipt')
+      submittingRef.current = false
     }
   }
 
@@ -181,15 +224,34 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
         </div>
       )}
 
+      {showCancelled && (
+        <div
+          role="status"
+          className="mb-6 -mt-1 px-4 py-3 rounded-xl border border-bronze/40 bg-bronze/10"
+        >
+          <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light">
+            Payment cancelled
+          </p>
+          <p className="font-[family-name:var(--font-editorial)] text-[13.5px] text-ivory mt-1">
+            You have not been charged. You can try again below whenever you&apos;re ready.
+          </p>
+        </div>
+      )}
+
       {/* Header — price + member rate hint */}
       <div className="flex items-baseline justify-between gap-4 pb-6 border-b border-graphite-line/50">
         <div>
           <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light">
-            {isSponsor ? 'Sponsor rate' : 'Per seat'}
+            {isSponsor ? 'Sponsor rate' : isFreeEvent ? 'Admission' : 'Per seat'}
           </p>
           <p className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,3vw,2.75rem)] leading-none text-ivory tabular-nums mt-3">
             {formatGBP(seatPrice)}
           </p>
+          {priceVatSuffix && seatPrice > 0 && (
+            <p className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze mt-2">
+              {priceVatSuffix}
+            </p>
+          )}
         </div>
         {!isSponsor && memberPrice > 0 && memberPrice < guestPrice && (
           <div className="text-right">
@@ -258,7 +320,11 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
             </label>
           )}
 
-          {error && <p className="text-[12.5px] text-bronze-light italic">{error}</p>}
+          {error && (
+            <p role="alert" className="text-[12.5px] text-bronze-light italic">
+              {error}
+            </p>
+          )}
 
           <button type="submit" className="w-full group/btn relative inline-block mt-2">
             <span className="block relative px-7 py-4 border border-bronze rounded-full overflow-hidden transition-colors duration-700">
@@ -318,6 +384,7 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
             {addAccommodation && accommodationAvailable && (
               <Row label="Accommodation" value={formatGBP(accommodationPrice)} />
             )}
+            {vat > 0 && <Row label={`VAT (${eventVat(event).rate}%)`} value={formatGBP(vat)} />}
           </div>
 
           <div className="h-px bg-bronze/25" />
@@ -325,7 +392,7 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
           {/* Total */}
           <div className="flex items-baseline justify-between">
             <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-bronze-light">
-              {holdOnly ? 'Total (held)' : 'Due today'}
+              {total === 0 ? 'Total' : holdOnly ? 'Total (held)' : 'Due today'}
             </p>
             <p className="font-[family-name:var(--font-display)] text-[26px] text-ivory leading-none tabular-nums">
               {formatGBP(total)}
@@ -333,12 +400,20 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
           </div>
 
           <p className="font-[family-name:var(--font-editorial)] italic text-[11.5px] text-slate-haze text-center pt-1">
-            {holdOnly
+            {total === 0
+              ? holdOnly
+                ? 'No payment needed. Your place is confirmed once the team approves the booking.'
+                : 'No payment needed — your place is confirmed straight away.'
+              : holdOnly
               ? 'Your card is securely held — nothing is charged until your booking is approved. If it isn’t, no payment is taken.'
               : 'You’ll be taken to Stripe to complete payment securely.'}
           </p>
 
-          {error && <p className="text-[12.5px] text-bronze-light italic text-center">{error}</p>}
+          {error && (
+            <p role="alert" className="text-[12.5px] text-bronze-light italic text-center">
+              {error}
+            </p>
+          )}
 
           <button
             type="button"
@@ -360,11 +435,11 @@ export function BookingWidget({ event, sponsor }: BookingWidgetProps) {
               />
               <span className="relative z-10 flex items-center justify-center gap-3 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.32em] text-ivory group-hover/btn:text-ink transition-colors duration-700">
                 {step === 'submitting' ? (
-                  'Opening checkout…'
+                  total === 0 ? 'Booking…' : 'Opening checkout…'
                 ) : (
                   <>
                     <Check size={13} strokeWidth={1.8} />
-                    {holdOnly ? 'Confirm booking' : 'Confirm and Pay'}
+                    {holdOnly || total === 0 ? 'Confirm booking' : 'Confirm and Pay'}
                   </>
                 )}
               </span>
@@ -411,16 +486,21 @@ interface FieldProps {
 
 const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
   ({ label, value, onChange, type = 'text', autoComplete, as = 'input', rows = 3 }, ref) => {
+    const id = useId()
     const cls =
       'w-full px-0 py-2.5 bg-transparent border-b border-graphite-line/80 focus:border-bronze focus:outline-none text-[14px] text-ivory placeholder:text-slate-dim transition-colors'
     return (
       <div>
-        <label className="block font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze mb-2">
+        <label
+          htmlFor={id}
+          className="block font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze mb-2"
+        >
           {label}
         </label>
         {as === 'textarea' ? (
           <textarea
             ref={ref as React.Ref<HTMLTextAreaElement>}
+            id={id}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             rows={rows}
@@ -429,6 +509,7 @@ const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
         ) : (
           <input
             ref={ref as React.Ref<HTMLInputElement>}
+            id={id}
             type={type}
             autoComplete={autoComplete}
             value={value}

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { RichTextRenderer } from '@/components/sops/RichText'
 import { Loader2, BookOpen, Search, ChevronRight, ChevronDown } from 'lucide-react'
 import { groupByCategory, toPlainText, type SopRow } from '@/lib/sops'
+import { normaliseSopCategories } from '@/components/accountability/sop-categories'
 
 // Staff "Playbook" panel at /team — read-only browse of PUBLISHED SOPs by
 // category. RLS ("Staff read published sops") guarantees drafts are never
@@ -32,7 +33,7 @@ export function StaffSopPanel() {
       .eq('status', 'published')
       .order('category', { ascending: true })
       .order('title', { ascending: true })
-    setSops((data as SopRow[]) ?? [])
+    setSops(normaliseSopCategories((data as SopRow[]) ?? []))
     setLoading(false)
   }
 

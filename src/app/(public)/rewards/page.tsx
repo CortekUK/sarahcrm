@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
@@ -6,6 +7,17 @@ import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, Gift } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Rewards & Benefits | The Club by Sarah Restrick',
+  description:
+    "The Club's Rewards & Benefits partner network — offers and privileges from partner brands for members.",
+  openGraph: {
+    title: 'Rewards & Benefits | The Club by Sarah Restrick',
+    description:
+      "The Club's Rewards & Benefits partner network — offers and privileges from partner brands for members.",
+  },
+}
 
 export const revalidate = 60
 

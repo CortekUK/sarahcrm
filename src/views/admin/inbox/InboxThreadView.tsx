@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
-import { ImageOff, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { ImageOff, ArrowDownLeft, ArrowUpRight, Loader2 } from 'lucide-react'
 import { sanitizeEmailHtml } from '@/lib/inbox/sanitize-email'
 import {
   type InboxMessage,
@@ -153,13 +153,16 @@ export function InboxThreadView({
           {subject || '(no subject)'}
         </h3>
         <p className="text-xs text-text-dim">
-          {messages.length} message{messages.length === 1 ? '' : 's'}
+          {loading ? 'Loading…' : `${messages.length} message${messages.length === 1 ? '' : 's'}`}
         </p>
       </div>
 
       <div className="flex-1 min-h-0 space-y-4 overflow-y-auto bg-surface-2/40 px-6 py-5">
         {loading ? (
-          <p className="py-8 text-center text-sm text-text-dim">Loading thread…</p>
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-text-dim" role="status">
+            <Loader2 size={22} className="animate-spin text-gold" />
+            Opening conversation…
+          </div>
         ) : messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-text-dim">This thread has no messages.</p>
         ) : (

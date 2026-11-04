@@ -33,6 +33,17 @@ import { formatEnrichmentSource } from '@/lib/enrichment/source-label'
 import { companyExtrasFromRaw } from '@/lib/enrichment/company-extras'
 import { formatDate, formatDateTime, formatCurrency, cn } from '@/lib/utils'
 import { MemberMatchesPanel } from './MemberMatchesPanel'
+import {
+  requiredName,
+  emailField,
+  phoneField,
+  urlField,
+  linkedinField,
+  shortText,
+  longText,
+  readJson,
+  apiErrorText,
+} from './memberValidation'
 import { MemberDocumentsPanel } from './MemberDocumentsPanel'
 import { GmailThreadPanel } from './GmailThreadPanel'
 import { MemberRoiPanel } from '@/components/admin/MemberRoiPanel'
@@ -185,52 +196,51 @@ interface PaymentRow {
 }
 
 const editSchema = z.object({
-  first_name: z.string().min(1),
-  last_name: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().optional(),
-  job_title: z.string().optional(),
-  bio: z.string().optional(),
-  linkedin_url: z.string().optional(),
-  website_url: z.string().optional(),
-  company_name: z.string().optional(),
-  company_description: z.string().optional(),
-  company_website: z.string().optional(),
+  first_name: requiredName('First name'),
+  last_name: requiredName('Last name'),
+  email: emailField,
+  phone: phoneField,
+  job_title: shortText,
+  bio: longText,
+  linkedin_url: linkedinField,
+  website_url: urlField,
+  company_name: shortText,
+  company_description: longText,
+  company_website: urlField,
   // The plan IS the tier; membership_type is derived from it on save.
   membership_tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
   membership_status: z.enum(['active', 'pending', 'expired', 'cancelled', 'paused']),
   showcase_enabled: z.boolean(),
-  notes: z.string().optional(),
+  notes: longText,
   // ── Relationship intelligence (Spec §4) — curated high-value fields ──
-  sector: z.string().optional(),
-  sub_sector: z.string().optional(),
-  employee_count: z.string().optional(),
-  annual_turnover: z.string().optional(),
-  estimated_profit: z.string().optional(),
-  company_address: z.string().optional(),
-  invoice_address: z.string().optional(),
+  sector: shortText,
+  sub_sector: shortText,
+  employee_count: shortText,
+  annual_turnover: shortText,
+  estimated_profit: shortText,
+  company_address: longText,
+  invoice_address: longText,
   // Accounts & finance contacts (Phase 1)
-  accounts_contact_name: z.string().optional(),
+  accounts_contact_name: shortText,
   accounts_contact_email: z
     .string()
+    .trim()
+    .max(254, 'Email is too long')
     .email('Enter a valid email address')
     .or(z.literal(''))
     .optional(),
-  accounts_contact_phone: z
-    .string()
-    .regex(/^[0-9+()\s-]*$/, 'Digits and + ( ) - only')
-    .optional(),
-  invoice_chaser_contact: z.string().optional(),
-  fd_contact: z.string().optional(),
-  intro_target_types: z.string().optional(),
-  intro_target_criteria: z.string().optional(),
-  dream_introductions: z.string().optional(),
-  what_they_can_offer: z.string().optional(),
-  business_objectives: z.string().optional(),
-  budgets: z.string().optional(),
-  dietary_requirements: z.string().optional(),
-  partner_name: z.string().optional(),
-  assistant_name: z.string().optional(),
+  accounts_contact_phone: phoneField,
+  invoice_chaser_contact: shortText,
+  fd_contact: shortText,
+  intro_target_types: shortText,
+  intro_target_criteria: longText,
+  dream_introductions: longText,
+  what_they_can_offer: longText,
+  business_objectives: longText,
+  budgets: longText,
+  dietary_requirements: longText,
+  partner_name: shortText,
+  assistant_name: shortText,
 })
 type EditFormData = z.infer<typeof editSchema>
 
@@ -552,76 +562,148 @@ export function MemberDetailPage() {
 
   async function onSave(data: EditFormData) {
     if (!member || !id) return
+
+    // ── Email: must be unique, and changing it here does NOT change the
+    //    address they sign in with (QA #40). Check + warn before writing.
+    const newEmail = data.email.trim().toLowerCase()
+    const oldEmail = (member.profiles.email ?? '').trim().toLowerCase()
+    if (newEmail !== oldEmail) {
+      const { data: clash, error: clashErr } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name')
+        .ilike('email', newEmail.replace(/[\\%_]/g, (c) => `\\${c}`))
+        .neq('id', member.profile_id)
+        .limit(1)
+      if (clashErr) {
+        toast({
+          title: 'Could not check the email',
+          description: clashErr.message,
+          variant: 'destructive',
+        })
+        return
+      }
+      if (clash && clash.length > 0) {
+        const who = `${clash[0].first_name ?? ''} ${clash[0].last_name ?? ''}`.trim()
+        form.setError('email', {
+          message: `This email is already used by ${who || 'another account'}.`,
+        })
+        return
+      }
+      const ok = await confirm({
+        title: 'Change the contact email?',
+        description: (
+          <span>
+            This updates the email the CRM shows and uses for messages. It does{' '}
+            <strong>not</strong> change the address they sign in with — they will keep
+            logging in as <strong>{member.profiles.email ?? 'their current email'}</strong>.
+          </span>
+        ),
+        confirmLabel: 'Change email',
+        tone: 'neutral',
+      })
+      if (!ok) return
+    }
+
     setSaving(true)
+    try {
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .update({
+          first_name: data.first_name,
+          last_name: data.last_name,
+          email: data.email.trim(),
+          phone: data.phone || null,
+          job_title: data.job_title || null,
+          bio: data.bio || null,
+          linkedin_url: data.linkedin_url || null,
+          website_url: data.website_url || null,
+        })
+        .eq('id', member.profile_id)
+      if (profileErr) {
+        toast({
+          title: 'Could not save profile',
+          description: profileErr.code === '23505'
+            ? 'That email is already used by another account.'
+            : profileErr.message,
+          variant: 'destructive',
+        })
+        return
+      }
 
-    await supabase
-      .from('profiles')
-      .update({
-        first_name: data.first_name,
-        last_name: data.last_name,
-        email: data.email,
-        phone: data.phone || null,
-        job_title: data.job_title || null,
-        bio: data.bio || null,
-        linkedin_url: data.linkedin_url || null,
-        website_url: data.website_url || null,
+      // If the plan (tier) changed, reset the monthly intro quota to that
+      // plan's allowance. Only on change, so a manual per-member override
+      // isn't clobbered every time the form is saved.
+      const tierChanged = data.membership_tier !== member.membership_tier
+      const quotaUpdate = tierChanged
+        ? { monthly_intro_quota: await introQuotaForTier(supabase, data.membership_tier as PlanTier) }
+        : {}
+
+      const { error: memberErr } = await supabase
+        .from('members')
+        .update({
+          // membership_type follows the tier (the plan) — kept in lock-step
+          // so the two columns can't drift apart.
+          membership_type: planForTier(data.membership_tier as PlanTier).membershipType,
+          membership_tier: data.membership_tier,
+          ...quotaUpdate,
+          membership_status: data.membership_status,
+          showcase_enabled: data.showcase_enabled,
+          company_name: data.company_name || null,
+          company_description: data.company_description || null,
+          company_website: data.company_website || null,
+          notes: data.notes || null,
+          // Relationship intelligence
+          sector: data.sector || null,
+          sub_sector: data.sub_sector || null,
+          employee_count: data.employee_count || null,
+          annual_turnover: data.annual_turnover || null,
+          estimated_profit: data.estimated_profit || null,
+          company_address: data.company_address || null,
+          invoice_address: data.invoice_address || null,
+          accounts_contact_name: data.accounts_contact_name || null,
+          accounts_contact_email: data.accounts_contact_email || null,
+          accounts_contact_phone: data.accounts_contact_phone || null,
+          invoice_chaser_contact: data.invoice_chaser_contact || null,
+          fd_contact: data.fd_contact || null,
+          intro_target_types: data.intro_target_types || null,
+          intro_target_criteria: data.intro_target_criteria || null,
+          dream_introductions: data.dream_introductions || null,
+          what_they_can_offer: data.what_they_can_offer || null,
+          business_objectives: data.business_objectives || null,
+          budgets: data.budgets || null,
+          dietary_requirements: data.dietary_requirements || null,
+          partner_name: data.partner_name || null,
+          assistant_name: data.assistant_name || null,
+        })
+        .eq('id', id)
+      if (memberErr) {
+        // The profile half already saved — say so, so the admin knows the
+        // record is partly updated and can retry the membership part.
+        toast({
+          title: 'Profile saved, but membership details did not save',
+          description: memberErr.message,
+          variant: 'destructive',
+        })
+        fetchAll(id)
+        return
+      }
+
+      // NOTE: tags are managed independently (persist instantly via toggleTag /
+      // addQuickTag), so the profile/member Save no longer writes member_tags.
+
+      toast({ title: 'Member saved' })
+      setEditing(false)
+      setRefreshKey((k) => k + 1)
+      fetchAll(id)
+    } catch (e) {
+      toast({
+        title: 'Could not save member',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
       })
-      .eq('id', member.profile_id)
-
-    // If the plan (tier) changed, reset the monthly intro quota to that
-    // plan's allowance. Only on change, so a manual per-member override
-    // isn't clobbered every time the form is saved.
-    const tierChanged = data.membership_tier !== member.membership_tier
-    const quotaUpdate = tierChanged
-      ? { monthly_intro_quota: await introQuotaForTier(supabase, data.membership_tier as PlanTier) }
-      : {}
-
-    await supabase
-      .from('members')
-      .update({
-        // membership_type follows the tier (the plan) — kept in lock-step
-        // so the two columns can't drift apart.
-        membership_type: planForTier(data.membership_tier as PlanTier).membershipType,
-        membership_tier: data.membership_tier,
-        ...quotaUpdate,
-        membership_status: data.membership_status,
-        showcase_enabled: data.showcase_enabled,
-        company_name: data.company_name || null,
-        company_description: data.company_description || null,
-        company_website: data.company_website || null,
-        notes: data.notes || null,
-        // Relationship intelligence
-        sector: data.sector || null,
-        sub_sector: data.sub_sector || null,
-        employee_count: data.employee_count || null,
-        annual_turnover: data.annual_turnover || null,
-        estimated_profit: data.estimated_profit || null,
-        company_address: data.company_address || null,
-        invoice_address: data.invoice_address || null,
-        accounts_contact_name: data.accounts_contact_name || null,
-        accounts_contact_email: data.accounts_contact_email || null,
-        accounts_contact_phone: data.accounts_contact_phone || null,
-        invoice_chaser_contact: data.invoice_chaser_contact || null,
-        fd_contact: data.fd_contact || null,
-        intro_target_types: data.intro_target_types || null,
-        intro_target_criteria: data.intro_target_criteria || null,
-        dream_introductions: data.dream_introductions || null,
-        what_they_can_offer: data.what_they_can_offer || null,
-        business_objectives: data.business_objectives || null,
-        budgets: data.budgets || null,
-        dietary_requirements: data.dietary_requirements || null,
-        partner_name: data.partner_name || null,
-        assistant_name: data.assistant_name || null,
-      })
-      .eq('id', id)
-
-    // NOTE: tags are managed independently (persist instantly via toggleTag /
-    // addQuickTag), so the profile/member Save no longer writes member_tags.
-
-    setSaving(false)
-    setEditing(false)
-    setRefreshKey((k) => k + 1)
-    fetchAll(id)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Tags persist immediately (the Tags card is always editable, not gated
@@ -806,6 +888,14 @@ export function MemberDetailPage() {
 
   async function handleResendInvite() {
     if (!member) return
+    if (member.membership_status === 'cancelled') {
+      toast({
+        title: 'Membership is cancelled',
+        description: 'Reactivate the membership before sending login details.',
+        variant: 'destructive',
+      })
+      return
+    }
     const name =
       `${member.profiles.first_name ?? ''} ${member.profiles.last_name ?? ''}`.trim() ||
       'this member'
@@ -828,13 +918,22 @@ export function MemberDetailPage() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ member_id: member.id }),
     })
-    const json = await res.json()
+    const json = await readJson(res)
     setActionPending(null)
     if (!res.ok) {
-      toast({ title: 'Could not send', description: json.error, variant: 'destructive' })
+      toast({
+        title: 'Could not send',
+        description: apiErrorText(res, json, 'Could not send the login email'),
+        variant: 'destructive',
+      })
       return
     }
-    toast({ title: 'Login details sent', description: json.email })
+    toast({
+      title: 'Login details sent',
+      description: `${name} has been emailed their login details at ${
+        typeof json.email === 'string' ? json.email : member.profiles.email ?? 'their email'
+      }.`,
+    })
   }
 
   if (loading || !member) {
@@ -922,6 +1021,8 @@ export function MemberDetailPage() {
               icon={<Mail size={14} />}
               size="sm"
               loading={actionPending === 'resend'}
+              disabled={isCancelled}
+              title={isCancelled ? 'Cancelled members cannot be sent login details' : undefined}
               onClick={handleResendInvite}
             >
               Resend login
@@ -962,7 +1063,14 @@ export function MemberDetailPage() {
               icon={<Save size={14} />}
               size="sm"
               loading={saving}
-              onClick={form.handleSubmit(onSave)}
+              onClick={form.handleSubmit(onSave, (errors) => {
+                const fields = Object.keys(errors).map((k) => k.replace(/_/g, ' '))
+                toast({
+                  title: 'Not saved — please fix these fields',
+                  description: fields.join(', '),
+                  variant: 'destructive',
+                })
+              })}
             >
               Save changes
             </Button>
@@ -1099,24 +1207,61 @@ export function MemberDetailPage() {
                   error={form.formState.errors.last_name?.message}
                   {...form.register('last_name')}
                 />
-                <Input label="Email" type="email" {...form.register('email')} />
-                <Input label="Phone" {...form.register('phone')} />
-                <Input label="Job title" {...form.register('job_title')} />
-                <Input label="LinkedIn URL" {...form.register('linkedin_url')} />
+                <Input
+                  label="Email"
+                  type="email"
+                  error={form.formState.errors.email?.message}
+                  hint="Contact email only — it doesn't change the address they sign in with."
+                  {...form.register('email')}
+                />
+                <Input
+                  label="Phone"
+                  type="tel"
+                  error={form.formState.errors.phone?.message}
+                  {...form.register('phone')}
+                />
+                <Input
+                  label="Job title"
+                  error={form.formState.errors.job_title?.message}
+                  {...form.register('job_title')}
+                />
+                <Input
+                  label="LinkedIn URL"
+                  placeholder="https://www.linkedin.com/in/…"
+                  error={form.formState.errors.linkedin_url?.message}
+                  {...form.register('linkedin_url')}
+                />
                 <Input
                   label="Website URL"
+                  placeholder="https://"
                   className="sm:col-span-2"
+                  error={form.formState.errors.website_url?.message}
                   {...form.register('website_url')}
                 />
               </div>
-              <Textarea label="Bio" rows={3} {...form.register('bio')} />
+              <Textarea
+                label="Bio"
+                rows={3}
+                error={form.formState.errors.bio?.message}
+                {...form.register('bio')}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input label="Company name" {...form.register('company_name')} />
-                <Input label="Company website" {...form.register('company_website')} />
+                <Input
+                  label="Company name"
+                  error={form.formState.errors.company_name?.message}
+                  {...form.register('company_name')}
+                />
+                <Input
+                  label="Company website"
+                  placeholder="https://"
+                  error={form.formState.errors.company_website?.message}
+                  {...form.register('company_website')}
+                />
               </div>
               <Textarea
                 label="Company description"
                 rows={2}
+                error={form.formState.errors.company_description?.message}
                 {...form.register('company_description')}
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1140,7 +1285,12 @@ export function MemberDetailPage() {
                   </span>
                 </span>
               </label>
-              <Textarea label="Notes" rows={2} {...form.register('notes')} />
+              <Textarea
+                label="Notes"
+                rows={2}
+                error={form.formState.errors.notes?.message}
+                {...form.register('notes')}
+              />
             </div>
           )}
         </CardContent>
@@ -1210,6 +1360,7 @@ export function MemberDetailPage() {
                           label={f.label}
                           rows={2}
                           className="sm:col-span-2"
+                          error={form.formState.errors[f.name]?.message as string | undefined}
                           {...form.register(f.name)}
                         />
                       )

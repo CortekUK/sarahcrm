@@ -17,6 +17,7 @@ import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, Quote, MessageSquareQuote } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { dbErrorMessage } from '@/lib/form-validation'
 
 type Testimonial = Database['public']['Tables']['testimonials']['Row']
 
@@ -140,7 +141,7 @@ export function TestimonialsPage() {
       fetchItems()
       flushHomepageCache()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(dbErrorMessage(err, 'Failed to save'))
     } finally {
       setSaving(false)
     }

@@ -22,6 +22,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { toast } from '@/lib/hooks/use-toast'
+import { dbErrorMessage } from '@/lib/form-validation'
 import { Loader2, Plus, Users, Mail } from 'lucide-react'
 import { personName } from '@/lib/accountability'
 
@@ -55,16 +56,22 @@ function RateCell({
   const [value, setValue] = useState(initial != null ? String(initial) : '')
   const [saved, setSaved] = useState(initial != null ? String(initial) : '')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function save() {
-    if (value === saved) return
-    const trimmed = value.trim()
-    const rate = trimmed === '' ? null : Number(trimmed)
-    if (rate != null && (!Number.isFinite(rate) || rate < 0)) {
-      toast({ title: 'Enter a valid rate', variant: 'destructive' })
-      setValue(saved)
+    if (value === saved) {
+      setError(null)
       return
     }
+    const parsed = parseNonNegative(value, 'Hourly rate')
+    if (parsed.error) {
+      // Keep what they typed on screen with the reason, rather than clearing it.
+      setError(parsed.error)
+      toast({ title: 'Rate not saved', description: parsed.error, variant: 'destructive' })
+      return
+    }
+    setError(null)
+    const rate = parsed.value
     setBusy(true)
     const { error } = await supabase.from('staff_rates').upsert(
       {
@@ -77,7 +84,7 @@ function RateCell({
     )
     setBusy(false)
     if (error) {
-      toast({ title: 'Could not save rate', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not save rate', description: dbErrorMessage(error), variant: 'destructive' })
       setValue(saved)
       return
     }
@@ -88,13 +95,13 @@ function RateCell({
   return (
     <div className="w-28">
       <Input
-        type="number"
-        min="0"
-        step="0.5"
+        type="text"
         inputMode="decimal"
+        aria-label="Hourly rate"
         prefix="£"
         placeholder="—"
         value={value}
+        error={error ?? undefined}
         disabled={busy}
         onChange={(e) => setValue(e.target.value)}
         onBlur={save}
@@ -222,7 +229,7 @@ export function TeamMembersPage() {
       .update({ staff_status: status })
       .eq('id', s.id)
     if (error) {
-      toast({ title: 'Could not update', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update', description: dbErrorMessage(error), variant: 'destructive' })
       load()
     }
   }
@@ -409,4 +416,15 @@ export function TeamMembersPage() {
       </Modal>
     </div>
   )
+}
+
+// Parse a non-negative number typed into a text field. Kept as a text input
+// (not type="number") so letters / "-5" reach us and get a visible message
+// instead of the browser silently blanking the value.
+function parseNonNegative(raw: string, label: string): { value: number | null; error?: string } {
+  const s = raw.trim().replace(/^£/, '').replace(/,/g, '')
+  if (s === '') return { value: null }
+  if (s.startsWith('-')) return { value: null, error: `${label} can’t be negative.` }
+  if (!/^\d+(\.\d+)?$/.test(s)) return { value: null, error: `${label} must be a number.` }
+  return { value: Number(s) }
 }

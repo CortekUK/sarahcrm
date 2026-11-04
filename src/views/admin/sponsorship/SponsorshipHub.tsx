@@ -16,6 +16,7 @@ import {
 } from '@/components/ui'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/lib/hooks/use-toast'
+import { UK_TIME_ZONE } from '@/lib/utils'
 import { ProspectsView, QueueLink } from './ProspectsView'
 
 interface EventOption {
@@ -33,6 +34,7 @@ interface MatchCounts {
 function fmtDate(iso: string): string {
   try {
     return new Intl.DateTimeFormat('en-GB', {
+      timeZone: UK_TIME_ZONE,
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -59,24 +61,38 @@ export function SponsorshipHub() {
   const [outreachCount, setOutreachCount] = useState<number | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Load events for the picker (same source as MarketingPage).
-  useEffect(() => {
-    supabase
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState<string | null>(null)
+
+  // Load events for the picker (same source as MarketingPage). A failed load
+  // shows an error with Retry — never a misleading "No events found".
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true)
+    setEventsError(null)
+    const { data, error } = await supabase
       .from('events')
       .select('id, title, start_date')
       .order('start_date', { ascending: false })
       .limit(100)
-      .then(({ data }) => {
-        const list = (data ?? []) as EventOption[]
-        setEvents(list)
-        // Preselect from ?event_id= (deep-link from the event's Sponsors panel).
-        const fromQuery = searchParams.get('event_id')
-        if (fromQuery && list.some((e) => e.id === fromQuery)) {
-          setEventId(fromQuery)
-        }
-      })
+    if (error) {
+      setEventsError(error.message || 'Could not load events.')
+      setEventsLoading(false)
+      return
+    }
+    const list = (data ?? []) as EventOption[]
+    setEvents(list)
+    // Preselect from ?event_id= (deep-link from the event's Sponsors panel).
+    const fromQuery = searchParams.get('event_id')
+    if (fromQuery && list.some((e) => e.id === fromQuery)) {
+      setEventId((cur) => cur || fromQuery)
+    }
+    setEventsLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
 
   const loadOutreachCount = useCallback(async () => {
     if (!eventId) {
@@ -178,7 +194,15 @@ export function SponsorshipHub() {
         <div className="max-w-md">
           <Select
             label="Event"
-            placeholder={events.length ? 'Choose an event…' : 'No events found'}
+            placeholder={
+              eventsLoading
+                ? 'Loading events…'
+                : eventsError
+                  ? 'Events could not be loaded'
+                  : events.length
+                    ? 'Choose an event…'
+                    : 'No events found'
+            }
             options={events.map((ev) => ({
               value: ev.id,
               label: ev.start_date ? `${ev.title} · ${fmtDate(ev.start_date)}` : ev.title,
@@ -186,6 +210,16 @@ export function SponsorshipHub() {
             value={eventId}
             onChange={(e) => setEventId(e.target.value)}
           />
+          {eventsError && (
+            <div className="mt-2 flex items-center gap-3">
+              <p className="text-xs text-accent-warm">
+                Couldn’t load events: {eventsError}
+              </p>
+              <Button size="sm" variant="secondary" onClick={loadEvents} loading={eventsLoading}>
+                Retry
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 

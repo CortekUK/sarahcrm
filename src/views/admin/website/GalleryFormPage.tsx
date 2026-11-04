@@ -14,10 +14,16 @@ import { ImageUpload } from '@/components/ui/ImageUpload'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { Save, Send } from 'lucide-react'
 import { slugify } from '@/lib/utils'
+import { toast } from '@/lib/hooks/use-toast'
+import { dbErrorMessage, isValidSlug } from '@/lib/form-validation'
 
 const gallerySchema = z.object({
   title: z.string().min(1, 'Title is required'),
-  slug: z.string().min(1, 'Slug is required'),
+  slug: z
+    .string()
+    .trim()
+    .min(1, 'Slug is required')
+    .refine(isValidSlug, 'Lowercase letters, numbers and hyphens only (e.g. summer-party-2026)'),
   category: z.string().optional(),
   cover_image_url: z.string().optional(),
   event_date: z.string().optional(),
@@ -115,18 +121,41 @@ export function GalleryFormPage() {
           .update(payload)
           .eq('id', id)
         if (err) throw err
+        toast({ title: 'Gallery saved', description: data.title })
         router.push(`/dashboard/website/galleries/${id}`)
       } else {
         const { data: created, error: err } = await supabase
           .from('galleries')
           .insert(payload)
           .select('id')
-          .single()
+          .maybeSingle()
         if (err) throw err
-        router.push(`/dashboard/website/galleries/${created.id}`)
+        // If the insert worked but the row didn't come back, find it by slug
+        // so the admin lands on the new gallery instead of an empty form.
+        let newId = created?.id ?? null
+        if (!newId) {
+          const { data: found } = await supabase
+            .from('galleries')
+            .select('id')
+            .eq('slug', payload.slug)
+            .maybeSingle()
+          newId = found?.id ?? null
+        }
+        toast({
+          title: publish ? 'Gallery published' : 'Draft saved',
+          description: publish ? data.title : `${data.title} — add photos, then publish.`,
+        })
+        router.replace(newId ? `/dashboard/website/galleries/${newId}` : '/dashboard/website/galleries')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save gallery')
+      const code = (err as { code?: string } | null)?.code
+      const msg =
+        code === '23505'
+          ? 'Another gallery already uses this slug — pick a different one.'
+          : dbErrorMessage(err, 'Failed to save gallery')
+      if (code === '23505') form.setError('slug', { message: msg })
+      setError(msg)
+      toast({ title: 'Gallery not saved', description: msg, variant: 'destructive' })
       setSaving(false)
     }
   }

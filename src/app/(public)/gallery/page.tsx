@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
@@ -8,6 +9,17 @@ import {
 } from '@/components/website/night/gallery/GalleriesBrowser'
 import { FeaturedGalleryCarousel } from '@/components/website/night/gallery/FeaturedGalleryCarousel'
 import { getPageHero } from '@/lib/cms/heroes'
+
+export const metadata: Metadata = {
+  title: 'Gallery | The Club by Sarah Restrick',
+  description:
+    "Photographs and films from The Club's dinners, events and retreats.",
+  openGraph: {
+    title: 'Gallery | The Club by Sarah Restrick',
+    description:
+      "Photographs and films from The Club's dinners, events and retreats.",
+  },
+}
 
 export const revalidate = 60
 

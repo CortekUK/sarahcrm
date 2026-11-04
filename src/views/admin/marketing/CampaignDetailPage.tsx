@@ -39,7 +39,7 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Button, Badge, Card, Textarea, Input, Select, Modal } from '@/components/ui'
 import { MediaPicker } from '@/components/ui/MediaPicker'
 import { DateTimeField } from '@/components/ui/DateTimeField'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 import { apiClient, getApiErrorMessage } from '@/lib/http'
 import { toast } from '@/lib/hooks/use-toast'
 import {
@@ -273,7 +273,7 @@ function websiteInfo(
 
 function fmtDateTime(iso: string): string {
   try {
-    return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+    return new Intl.DateTimeFormat('en-GB', { timeZone: UK_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
   } catch {
     return iso
   }
@@ -440,7 +440,13 @@ function AssetCard({
   const reelBlockReason = reelBlocked
     ? 'A reel needs its video before it can be approved — add it under “Reel video” above.'
     : null
+  // Nothing to publish — the server refuses an empty post, so say why up front.
+  const emptyBlocked = !published && asset.channel !== 'newsletter' && !(body ?? '').trim()
+  const emptyBlockReason = emptyBlocked
+    ? 'This post has no text — edit it and add the copy before approving.'
+    : null
   const approveBlockReason =
+    emptyBlockReason ??
     carouselBlockReason ??
     reelBlockReason ??
     (graphicBusy && !published ? 'Wait for the graphic to finish rendering, then approve.' : null)
@@ -488,7 +494,14 @@ function AssetCard({
       onChange(json.asset as Asset)
       if (action === 'save') setEditing(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed')
+      const msg = e instanceof Error ? e.message : 'Update failed'
+      // Inline (stays until the next action) + a toast so it's noticed.
+      setError(msg)
+      toast({
+        title: action === 'approve' ? 'Not approved' : 'Not saved',
+        description: msg,
+        variant: 'destructive',
+      })
     } finally {
       setBusy(null)
     }
@@ -953,7 +966,7 @@ function AssetCard({
               icon={<Check size={14} />}
               loading={busy === 'approve'}
               onClick={() => patch('approve')}
-              disabled={published || carouselBlocked || reelBlocked || graphicBusy}
+              disabled={published || emptyBlocked || carouselBlocked || reelBlocked || graphicBusy}
               title={approveBlockReason ?? undefined}
             >
               {metricool

@@ -37,20 +37,34 @@ function SuccessInner() {
   const applicationId = searchParams.get('application_id')
   const sessionId = searchParams.get('session_id')
   const isDirectDebit = searchParams.get('method') === 'bacs_debit' && !!sessionId
+  // Stripe sets redirect_status=failed when the SetupIntent didn't succeed.
+  const setupFailed = !!setupIntent && searchParams.get('redirect_status') === 'failed'
   const [confirmState, setConfirmState] = useState<'idle' | 'confirming' | 'done' | 'failed'>(
     'idle',
   )
 
   useEffect(() => {
-    if (!setupIntent && !sessionId && !applicationId) return
+    // The application has been handed to Stripe — drop the saved form
+    // draft (same key as ../page.tsx) so the next visit starts clean.
+    if (!setupFailed) {
+      try {
+        window.sessionStorage.removeItem('theclub:membership-application-draft')
+      } catch {
+        /* storage blocked — nothing to clear */
+      }
+    }
+    // The confirm route requires the Stripe reference (setup_intent for a
+    // card, session_id for Direct Debit) — an application_id alone is
+    // refused, so don't call it without one.
+    if ((!setupIntent && !sessionId) || setupFailed) return
     setConfirmState('confirming')
     fetch('/api/membership-application/confirm', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        setup_intent: setupIntent,
-        application_id: applicationId,
-        ...(isDirectDebit ? { session_id: sessionId } : {}),
+        ...(setupIntent ? { setup_intent: setupIntent } : {}),
+        ...(sessionId ? { session_id: sessionId } : {}),
+        ...(applicationId ? { application_id: applicationId } : {}),
       }),
     })
       .then(async (res) => {
@@ -66,7 +80,33 @@ function SuccessInner() {
         console.warn('[application-success] confirm request failed', err)
         setConfirmState('failed')
       })
-  }, [setupIntent, applicationId, sessionId, isDirectDebit])
+  }, [setupIntent, applicationId, sessionId, setupFailed])
+
+  if (setupFailed) {
+    return (
+      <section className="relative min-h-[80vh] bg-ink flex items-center justify-center px-6 py-24">
+        <div className="max-w-xl w-full text-center border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16 day:bg-white day:shadow-lg day:border-bronze/30">
+          <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
+            Card not saved
+          </p>
+          <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.4vw,2.8rem)] leading-[1.1] text-ivory mb-6">
+            We couldn&apos;t save your card.
+          </h1>
+          <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-[1.7]">
+            Nothing has been charged. Please go back to the application and try again with another
+            card, or contact the team and we&apos;ll help.
+          </p>
+          <Link
+            href="/membership-application"
+            className="mt-10 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.32em] text-bronze-light hover:text-ivory transition-colors duration-300"
+          >
+            Back to the application
+            <ArrowUpRight size={13} strokeWidth={1.5} />
+          </Link>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="relative min-h-[80vh] bg-ink flex items-center justify-center px-6 py-24">

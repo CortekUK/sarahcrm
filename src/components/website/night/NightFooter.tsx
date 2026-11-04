@@ -83,12 +83,14 @@ export function NightFooter() {
               // viewport and create body-level horizontal scroll.
               <div key={col.label} className="min-w-0">
                 <p className="eyebrow-quiet mb-5">{col.label}</p>
-                <ul className="space-y-3">
+                {/* Phones: each link is a 44px-tall tap target (spacing comes
+                    from the link height). sm+ keeps the original rhythm. */}
+                <ul className="space-y-0 sm:space-y-3">
                   {col.links.map((link) => (
                     <li key={link.href} className="min-w-0">
                       <Link
                         href={link.href}
-                        className="block break-words font-[family-name:var(--font-sans)] text-[14px] font-light text-ivory-soft hover:text-bronze-light transition-colors duration-300"
+                        className="flex items-center min-h-[44px] sm:block sm:min-h-0 break-words font-[family-name:var(--font-sans)] text-[14px] font-light text-ivory-soft hover:text-bronze-light transition-colors duration-300"
                       >
                         {link.text}
                       </Link>

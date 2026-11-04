@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { Controller, useForm } from 'react-hook-form'
@@ -56,13 +56,17 @@ interface EventOption {
 }
 
 const reviewSchema = z.object({
-  first_name: z.string().min(1, 'Required'),
-  last_name: z.string().min(1, 'Required'),
-  email: z.string().email('Please enter a valid email'),
+  first_name: z.string().trim().min(1, 'Required').max(100, 'That name is too long'),
+  last_name: z.string().trim().min(1, 'Required').max(100, 'That name is too long'),
+  email: z.string().trim().email('Please enter a valid email'),
   company: z.string().optional(),
   title: z.string().optional(),
   event_id: z.string().optional(),
-  body: z.string().min(80, 'A few more lines, please — at least 80 characters'),
+  body: z
+    .string()
+    .trim()
+    .min(80, 'A few more lines, please — at least 80 characters')
+    .max(5000, 'Please keep your review under 5,000 characters'),
 })
 type ReviewData = z.infer<typeof reviewSchema>
 
@@ -148,7 +152,7 @@ export default function ShareYourExperiencePage() {
       // the RLS insert policy.
     })
     if (err) {
-      setError('Something went wrong. Please try again, or email us directly.')
+      setError(reviewErrorMessage(err.message))
       return
     }
     setSubmitted(true)
@@ -300,6 +304,15 @@ export default function ShareYourExperiencePage() {
       </Chapter>
     </>
   )
+}
+
+// The DB validates reviews and raises `REVIEW_INVALID: <reason>` or
+// `REVIEW_RATE_LIMITED: <reason>` — show the human part of those.
+function reviewErrorMessage(raw: string | undefined): string {
+  const m = /REVIEW_(?:INVALID|RATE_LIMITED):\s*(.+)/.exec(raw ?? '')
+  const msg = m?.[1].trim()
+  if (msg) return msg.charAt(0).toUpperCase() + msg.slice(1)
+  return 'Something went wrong. Please try again, or email us directly.'
 }
 
 // ─── SuccessPanel ────────────────────────────────────────────────────
@@ -601,17 +614,24 @@ interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement | HTMLTe
 }
 
 const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
-  ({ label, error, as = 'input', rows, ...rest }, ref) => {
+  ({ label, error, as = 'input', rows, id, ...rest }, ref) => {
+    const autoId = useId()
+    const fieldId = id ?? autoId
     const inputClass =
       'w-full px-0 py-3 bg-transparent border-b border-graphite-line/80 focus:border-bronze focus:outline-none text-[15px] text-ivory placeholder:text-slate-dim transition-colors'
     return (
       <div>
-        <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+        <label
+          htmlFor={fieldId}
+          className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3"
+        >
           {label}
         </label>
         {as === 'textarea' ? (
           <textarea
             ref={ref as React.Ref<HTMLTextAreaElement>}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
             rows={rows ?? 5}
             className={inputClass + ' resize-none'}
             {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
@@ -619,6 +639,8 @@ const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
         ) : (
           <input
             ref={ref as React.Ref<HTMLInputElement>}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
             className={inputClass}
             {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
           />

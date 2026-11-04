@@ -16,6 +16,7 @@ import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { Plus, Pencil, Trash2, Check, Minus, Table2 } from 'lucide-react'
+import { dbErrorMessage } from '@/lib/form-validation'
 
 // /dashboard/website/membership-comparison
 //
@@ -108,7 +109,7 @@ export function MembershipComparisonPage() {
     if (err) {
       toast({
         title: 'Failed to load comparison rows',
-        description: err.message,
+        description: dbErrorMessage(err),
         variant: 'destructive',
       })
     } else if (data) {
@@ -178,7 +179,7 @@ export function MembershipComparisonPage() {
         description: data.label,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(dbErrorMessage(err, 'Failed to save'))
     } finally {
       setSaving(false)
     }
@@ -202,7 +203,7 @@ export function MembershipComparisonPage() {
       .delete()
       .eq('id', row.id)
     if (err) {
-      toast({ title: 'Delete failed', description: err.message, variant: 'destructive' })
+      toast({ title: 'Delete failed', description: dbErrorMessage(err), variant: 'destructive' })
       return
     }
     toast({ title: 'Row deleted', description: row.label })
@@ -219,7 +220,7 @@ export function MembershipComparisonPage() {
       .eq('id', row.id)
     if (err) {
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, is_active: !next } : r)))
-      toast({ title: 'Toggle failed', description: err.message, variant: 'destructive' })
+      toast({ title: 'Toggle failed', description: dbErrorMessage(err), variant: 'destructive' })
       return
     }
     void flushPublicCache()

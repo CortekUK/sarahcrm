@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui-shadcn/button'
 import { ScrollArea } from '@/components/ui-shadcn/scroll-area'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 import {
   ACCEPT_ATTRIBUTE,
   MAX_ATTACHMENTS,
@@ -462,7 +462,7 @@ export function AiPromptPanel({
                         {c.title || 'Untitled chat'}
                       </p>
                       <p className="text-xs text-slate-haze">
-                        {new Date(c.updated_at).toLocaleString()}
+                        {new Date(c.updated_at).toLocaleString('en-GB', { timeZone: UK_TIME_ZONE })}
                       </p>
                     </div>
                     <button

@@ -18,6 +18,8 @@ export interface ThreadRow {
   internal_date: string | number | null
   message_count: number
   unread: boolean
+  /** Optional: the other party of the conversation, when the API provides it. */
+  counterparty_email?: string | null
 }
 
 // A single message inside an open thread (from GET /thread/<id>).
@@ -60,20 +62,32 @@ export function formatRelativeDate(raw: string | number | null | undefined): str
   if (hr < 24) return `${hr}h`
   const day = Math.floor(hr / 24)
   if (day < 7) return `${day}d`
-  return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return new Date(then).toLocaleDateString('en-GB', {
+    timeZone: 'Europe/London',
+    day: 'numeric',
+    month: 'short',
+  })
 }
 
 // Full date-time for a message header (e.g. "12 Mar 2026, 14:32").
 export function formatFullDate(raw: string | number | null | undefined): string {
   const then = toMillis(raw)
   if (then == null) return ''
-  return new Date(then).toLocaleString(undefined, {
+  return new Date(then).toLocaleString('en-GB', {
+    timeZone: 'Europe/London',
     day: 'numeric',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+// Bare address from "Name <addr@x>" or "addr@x" (lower-cased).
+export function bareAddress(raw: string | null | undefined): string {
+  const s = (raw ?? '').trim()
+  const m = /<([^>]+)>/.exec(s)
+  return (m ? m[1] : s).trim().toLowerCase()
 }
 
 // Normalise to_emails (string | string[] | null) into a display string.

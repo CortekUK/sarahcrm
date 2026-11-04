@@ -19,6 +19,7 @@ import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, Sparkles, ExternalLink } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { dbErrorMessage, isHttpUrlOrPath } from '@/lib/form-validation'
 
 type Experience = Database['public']['Tables']['curated_experiences']['Row']
 
@@ -26,7 +27,11 @@ const schema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional(),
   image_url: z.string().optional(),
-  link_url: z.string().optional(),
+  link_url: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || isHttpUrlOrPath(v), 'Enter a full link starting with https:// (or a site path like /contact-us)'),
   display_order: z.coerce.number().int().min(0),
   is_active: z.boolean(),
 })
@@ -119,7 +124,7 @@ export function ExperiencesPage() {
       setEditingItem(null)
       fetchItems()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(dbErrorMessage(err, 'Failed to save'))
     } finally {
       setSaving(false)
     }
@@ -306,7 +311,12 @@ export function ExperiencesPage() {
             folder="experiences"
             aspect="4 / 3"
           />
-          <Input label="Link URL" placeholder="https://" {...form.register('link_url')} />
+          <Input
+            label="Link URL"
+            placeholder="https://"
+            error={form.formState.errors.link_url?.message}
+            {...form.register('link_url')}
+          />
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"

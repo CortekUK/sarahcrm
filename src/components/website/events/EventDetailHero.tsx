@@ -7,6 +7,7 @@ import { useTheme, themeColors } from '../ThemeContext'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import type { Database } from '@/types/database'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -147,7 +148,7 @@ export function EventDetailHero({ event }: EventDetailHeroProps) {
           style={{ opacity: 0 }}
         >
           {eventDate
-            ? eventDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+            ? eventDate.toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
             : 'Date to be confirmed'}
         </span>
         <h1

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowUpRight, ImageIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────
 // Galleries browser — filter chips + paginated bento grid.
@@ -50,6 +50,7 @@ function formatCategory(c: string | null) {
 function formatDate(iso: string | null) {
   if (!iso) return null
   return new Date(iso).toLocaleDateString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     day: 'numeric',
     month: 'long',
     year: 'numeric',

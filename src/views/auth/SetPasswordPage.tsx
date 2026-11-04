@@ -74,6 +74,11 @@ export function SetPasswordPage() {
   // the user can visually confirm WHO they're setting a password for
   // (so a "wait that's not me" mistake is caught before submit).
   const [inviteEmail, setInviteEmail] = useState<string | null>(null)
+  // Staff (admin / team_member / freelancer) also land here for invites and
+  // resets — keep the copy neutral for them and send them to their own home.
+  const [accountRole, setAccountRole] = useState<string | null>(null)
+  const isStaff =
+    accountRole === 'admin' || accountRole === 'team_member' || accountRole === 'freelancer'
   const initRanRef = useRef(false)
 
   const {
@@ -149,12 +154,26 @@ export function SetPasswordPage() {
       handleSessionReady(data.session.user)
     }
 
-    function handleSessionReady(user: { email?: string | null; user_metadata?: unknown }) {
+    async function handleSessionReady(user: {
+      id: string
+      email?: string | null
+      user_metadata?: unknown
+    }) {
       const meta = (user.user_metadata ?? {}) as Record<string, unknown>
       const first = typeof meta.first_name === 'string' ? meta.first_name : null
       setMemberName(first)
       setInviteEmail(user.email ?? null)
-      setAuthState('ready')
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle()
+        if (mounted) setAccountRole((profile?.role as string | undefined) ?? null)
+      } catch {
+        /* role is only used for copy + redirect — fall back to member copy */
+      }
+      if (mounted) setAuthState('ready')
     }
 
     init()
@@ -182,9 +201,24 @@ export function SetPasswordPage() {
       setError(err.message)
       return
     }
+    // One-time link: kill every other session (including the refresh token
+    // carried in the invite / reset link) so the same email link can't be
+    // replayed to sign in or change the password again. This tab keeps
+    // its own fresh session.
+    try {
+      await supabase.auth.signOut({ scope: 'others' })
+    } catch {
+      /* non-fatal — the password is already set */
+    }
     setAuthState('done')
+    const home =
+      accountRole === 'admin'
+        ? '/dashboard'
+        : accountRole === 'team_member' || accountRole === 'freelancer'
+          ? '/team'
+          : '/portal'
     // Brief celebration screen before the router push.
-    setTimeout(() => router.replace('/portal'), 1500)
+    setTimeout(() => router.replace(home), 1500)
   }
 
   // No invite token in URL — bookmark / expired link case
@@ -195,8 +229,9 @@ export function SetPasswordPage() {
           <BrandHeader />
           <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-[var(--shadow-lg)] p-8 mt-10">
             <p className="text-sm text-text-muted mb-5">
-              This password-set link is no longer active. Invitation links expire after a short
-              window — open the most recent invitation email, or sign in with an existing password.
+              This password-set link is no longer active. Links can only be used once and expire
+              after a short window. Please ask the team to send you a new invitation (or request a
+              new password reset), or sign in with your existing password.
             </p>
             <Button onClick={() => router.replace('/login')} className="w-full" size="lg">
               Go to sign in
@@ -225,10 +260,12 @@ export function SetPasswordPage() {
               <CheckCircle2 size={26} strokeWidth={1.5} className="text-bronze-light" />
             </div>
             <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold text-text mb-2">
-              Welcome to The Club.
+              {isStaff ? 'Password set.' : 'Welcome to The Club.'}
             </h2>
             <p className="text-sm text-text-muted">
-              Your password is set. Taking you to your members area…
+              {isStaff
+                ? 'Your password is set. Taking you to your workspace…'
+                : 'Your password is set. Taking you to your members area…'}
             </p>
           </div>
         </div>
@@ -249,7 +286,9 @@ export function SetPasswordPage() {
             {memberName ? `Welcome, ${memberName}` : 'Set your password'}
           </h2>
           <p className="text-sm text-text-muted text-center mb-1">
-            Choose a password to finish setting up your members account.
+            {isStaff
+              ? 'Choose a password to finish setting up your account.'
+              : 'Choose a password to finish setting up your members account.'}
           </p>
           {/* Surface the invitee's email so they can visually confirm
              they're setting the password for the right account — and
@@ -310,8 +349,9 @@ export function SetPasswordPage() {
           </form>
 
           <p className="mt-6 pt-5 border-t border-border text-center text-[11px] text-text-dim leading-relaxed">
-            By setting a password you confirm you&apos;re the named applicant. The Club&apos;s
-            membership terms apply.
+            {isStaff
+              ? 'Keep your password private — it gives access to member data.'
+              : 'By setting a password you confirm you’re the named applicant. The Club’s membership terms apply.'}
           </p>
         </div>
       </div>

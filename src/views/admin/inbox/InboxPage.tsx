@@ -18,7 +18,7 @@ const ALL = 'all'
 // Gmail-style two-pane admin inbox. Left: thread list for the active mailbox
 // (or "All"), filtered by search + noise toggle. Right: the selected thread's
 // messages, each body rendered in a locked-down sandboxed iframe.
-export function InboxPage() {
+export function InboxPage({ className }: { className?: string } = {}) {
   // Account/mailbox state.
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
@@ -167,7 +167,7 @@ export function InboxPage() {
   const noAccess = mailboxesLoaded && mailboxes.length === 0
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className={cn('flex h-screen overflow-hidden', className)}>
       {/* Left pane */}
       <div className="flex h-full w-[360px] shrink-0 flex-col border-r border-border bg-surface">
         {/* Header + controls */}

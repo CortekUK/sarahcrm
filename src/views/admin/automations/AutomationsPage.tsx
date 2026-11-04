@@ -99,7 +99,7 @@ export function AutomationsPage() {
     const ok = await confirm({
       title: 'Send automated emails now?',
       description:
-        'This sends real emails to everyone currently due (renewals, failed payments, post-event, etc.). Anyone already emailed is skipped automatically. Preview first if unsure.',
+        'This sends real emails to everyone currently due (renewals, failed payments, post-event, etc.). Anyone already emailed is skipped automatically. Check the list below first if unsure.',
       confirmLabel: 'Send now',
     })
     if (ok) call(false)
@@ -109,7 +109,7 @@ export function AutomationsPage() {
     <div className="p-4 md:p-8">
       <AdminPageHeader
         title="Automations"
-        description="Scheduled lifecycle emails — renewal reminders, failed-payment notices, post-event follow-ups, guest nurture, invoice chasing and introduction notifications. These run automatically every day; you can preview or run them here anytime."
+        description="Scheduled lifecycle emails — renewal reminders, failed-payment notices, post-event follow-ups, guest nurture, invoice chasing and introduction notifications. These run automatically every day; you can see who is due or run them here anytime."
         actions={
           <div className="flex gap-2">
             <Button
@@ -139,9 +139,9 @@ export function AutomationsPage() {
               <span className="text-text font-medium">
                 Runs daily at {String(sendHour).padStart(2, '0')}:00 (UK).
               </span>{' '}
-              Use{' '}
-              <span className="text-text">Preview</span> to see exactly who would be emailed without
-              sending anything, then <span className="text-text">Run now</span> to send. Each person
+              The list below shows exactly who would be emailed right now — nothing is sent until you
+              press <span className="text-text">Run now</span> (<span className="text-text">Refresh</span>{' '}
+              updates the list). Each person
               is only emailed once per situation — running again is always safe.
             </p>
           </div>

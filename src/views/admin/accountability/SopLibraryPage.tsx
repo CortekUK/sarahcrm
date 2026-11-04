@@ -15,6 +15,12 @@ import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { RichTextEditor, RichTextRenderer } from '@/components/sops/RichText'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDateTime } from '@/lib/utils'
+import { dbErrorMessage } from '@/lib/form-validation'
+import {
+  buildCategoryCanon,
+  categoryKey,
+  normaliseSopCategories,
+} from '@/components/accountability/sop-categories'
 import { Loader2, BookOpen, Plus, Pencil, Trash2, Eye, Search } from 'lucide-react'
 import {
   STATUS_META,
@@ -56,6 +62,7 @@ export function SopLibraryPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [newCategoryMode, setNewCategoryMode] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [formErrors, setFormErrors] = useState<{ title?: string; category?: string; body?: string }>({})
   const [preview, setPreview] = useState<SopRow | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<SopRow | null>(null)
 
@@ -69,7 +76,8 @@ export function SopLibraryPage() {
       .from('sops')
       .select('*')
       .order('updated_at', { ascending: false })
-    setSops((data as SopRow[]) ?? [])
+    // "General" and "general" are one category — show a single spelling.
+    setSops(normaliseSopCategories((data as SopRow[]) ?? []))
     setLoading(false)
   }
 
@@ -101,6 +109,7 @@ export function SopLibraryPage() {
   function openCreate() {
     // If categories exist, start with the dropdown (nothing preselected);
     // otherwise there's nothing to pick, so go straight to new-category entry.
+    setFormErrors({})
     setForm({ ...EMPTY_FORM, category: '' })
     setNewCategoryMode(categories.length === 0)
     setModalOpen(true)
@@ -108,6 +117,7 @@ export function SopLibraryPage() {
 
   function openEdit(s: SopRow) {
     const cat = s.category?.trim() || 'General'
+    setFormErrors({})
     setForm({
       id: s.id,
       title: s.title,
@@ -121,17 +131,30 @@ export function SopLibraryPage() {
   }
 
   async function save(nextStatus?: SopStatus) {
-    if (!form.title.trim()) {
-      toast({ title: 'Title is required', variant: 'destructive' })
+    const status = nextStatus ?? form.status
+    const errs: typeof formErrors = {}
+    if (!form.title.trim()) errs.title = 'A title is required.'
+    if (!form.category.trim()) errs.category = 'Choose a category (or add a new one).'
+    if (status === 'published' && !toPlainText(form.body).trim())
+      errs.body = 'Write the procedure before publishing — the body is empty.'
+    setFormErrors(errs)
+    if (Object.keys(errs).length) {
+      toast({
+        title: status === 'published' ? 'Can’t publish yet' : 'Can’t save yet',
+        description: Object.values(errs)[0],
+        variant: 'destructive',
+      })
       return
     }
     setSaving(true)
-    const status = nextStatus ?? form.status
+    // Reuse an existing category's spelling when it only differs by case.
+    const canon = buildCategoryCanon(sops.map((x) => x.category))
+    const category = canon.get(categoryKey(form.category)) ?? form.category.trim().replace(/\s+/g, ' ')
     // Sanitize the body before storing (defence in depth — it is sanitized
     // again on every render).
     const payload = {
       title: form.title.trim(),
-      category: form.category.trim() || 'General',
+      category,
       body: sanitizeSopHtml(form.body),
       status,
       updated_by: profile?.id ?? null,
@@ -155,7 +178,7 @@ export function SopLibraryPage() {
     } catch (e) {
       toast({
         title: 'Could not save',
-        description: e instanceof Error ? e.message : 'Unknown error',
+        description: dbErrorMessage(e, 'Unknown error'),
         variant: 'destructive',
       })
     } finally {
@@ -170,7 +193,7 @@ export function SopLibraryPage() {
       .update({ status: next, updated_by: profile?.id ?? null })
       .eq('id', s.id)
     if (error) {
-      toast({ title: 'Could not update', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     toast({ title: next === 'published' ? 'SOP published' : 'SOP unpublished' })
@@ -182,7 +205,7 @@ export function SopLibraryPage() {
     const { error } = await supabase.from('sops').delete().eq('id', confirmDelete.id)
     setConfirmDelete(null)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not delete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     toast({ title: 'SOP deleted' })
@@ -326,6 +349,7 @@ export function SopLibraryPage() {
             label="Title"
             placeholder="e.g. New Member Onboarding"
             value={form.title}
+            error={formErrors.title}
             onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
           />
           <div className="space-y-2">
@@ -350,10 +374,14 @@ export function SopLibraryPage() {
             {newCategoryMode && (
               <Input
                 placeholder="New category name"
+                aria-label="New category name"
                 value={form.category}
                 autoFocus
                 onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
               />
+            )}
+            {formErrors.category && (
+              <p className="text-xs text-accent-warm">{formErrors.category}</p>
             )}
           </div>
           <div>
@@ -364,6 +392,7 @@ export function SopLibraryPage() {
               value={form.body}
               onChange={(html) => setForm((f) => ({ ...f, body: html }))}
             />
+            {formErrors.body && <p className="mt-1.5 text-xs text-accent-warm">{formErrors.body}</p>}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2">

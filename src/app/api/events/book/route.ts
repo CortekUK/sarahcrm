@@ -25,6 +25,7 @@
 // Body: { event_id, bring_guest?, guest_name?, add_accommodation? }
 
 import { NextRequest, NextResponse } from 'next/server'
+import { withEventVat } from '@/lib/events/vat'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     const { data: event } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, venue_name, member_price_pence, guest_price_pence, sponsor_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm',
+        'id, slug, title, status, start_date, venue_name, member_price_pence, guest_price_pence, sponsor_price_pence, accommodation_available, accommodation_price_pence, capacity, auto_confirm, vat_mode, vat_rate',
       )
       .eq('id', body.event_id)
       .maybeSingle()
@@ -168,10 +169,13 @@ export async function POST(req: NextRequest) {
       body.add_accommodation === true &&
       event.accommodation_available === true &&
       (event.accommodation_price_pence ?? 0) > 0
-    const amount =
+    // Plus VAT on top when the event is set to add it (events.vat_mode).
+    const amount = withEventVat(
       ticketPrice +
-      (wantsGuest ? (event.guest_price_pence ?? 0) : 0) +
-      (wantsAccommodation ? (event.accommodation_price_pence ?? 0) : 0)
+        (wantsGuest ? (event.guest_price_pence ?? 0) : 0) +
+        (wantsAccommodation ? (event.accommodation_price_pence ?? 0) : 0),
+      event,
+    )
 
     // Capacity pre-check (seats = booker + guests). The trigger is the
     // authoritative, race-free check.

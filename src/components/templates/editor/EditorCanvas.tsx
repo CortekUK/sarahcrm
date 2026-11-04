@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 import { renderBlocksToHTML } from '@/lib/templates/render-html'
+import { sanitizeCanvasHtml } from './sanitize-canvas'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
 import type {
   EditorBlock,
@@ -111,7 +112,7 @@ export function EditorCanvas({
       // Pull out just the body cell content (between the inner content cell and the footer)
       const match = html.match(/<td class="club-content-cell"[^>]*>([\s\S]*?)<\/td>\s*<\/tr>\s*<tr>/)
       const inner = match ? match[1] : html
-      return replaceMergeTags(inner, SAMPLE_DATA)
+      return sanitizeCanvasHtml(replaceMergeTags(inner, SAMPLE_DATA))
     })
   }, [blocks, theme])
 
@@ -353,7 +354,7 @@ function InlineTextBlock({
   // changed (e.g. AI rewrite, undo/redo). If we wrote innerHTML on
   // every render the user's caret would reset mid-type.
   if (ref.current && content.html !== lastHtmlRef.current && ref.current.innerHTML !== content.html) {
-    ref.current.innerHTML = content.html
+    ref.current.innerHTML = sanitizeCanvasHtml(content.html)
     lastHtmlRef.current = content.html
   }
 
@@ -398,7 +399,7 @@ function InlineTextBlock({
         minHeight: 24,
         cursor: 'text',
       }}
-      dangerouslySetInnerHTML={{ __html: content.html }}
+      dangerouslySetInnerHTML={{ __html: sanitizeCanvasHtml(content.html) }}
     />
   )
 }

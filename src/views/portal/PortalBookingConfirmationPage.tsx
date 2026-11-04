@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
-import { ArrowLeft, Calendar, CheckCircle2, Download, MapPin } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Calendar, CalendarPlus, CheckCircle2, Download, MapPin } from 'lucide-react'
 import {
   PortalButton,
   PortalCard,
@@ -16,6 +16,40 @@ import type { Database } from '@/types/database'
 
 type EventRow = Database['public']['Tables']['events']['Row']
 type BookingRow = Database['public']['Tables']['bookings']['Row']
+
+// Bookings sent to Stripe Checkout and not yet paid carry this marker (they're
+// released automatically after ~35 minutes).
+const AWAITING_CHECKOUT = 'Awaiting Stripe Checkout'
+// Events with no end time are assumed to run three hours.
+const DEFAULT_DURATION_MS = 3 * 60 * 60 * 1000
+
+// UTC calendar stamp, e.g. 20261119T100000Z (used by .ics and Google Calendar).
+function utcStamp(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
+}
+
+// Escape a value for an iCalendar TEXT property (RFC 5545 §3.3.11).
+function icsText(v: string): string {
+  return v.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
+}
+
+function eventTimes(event: EventRow): { start: Date; end: Date } | null {
+  if (!event.start_date) return null
+  const start = new Date(event.start_date)
+  const endRaw = event.end_date ? new Date(event.end_date) : null
+  const end =
+    endRaw && endRaw.getTime() > start.getTime()
+      ? endRaw
+      : new Date(start.getTime() + DEFAULT_DURATION_MS)
+  return { start, end }
+}
+
+function eventLocation(event: EventRow): string {
+  return [event.venue_name, event.venue_address, event.venue_city, event.venue_postcode]
+    .filter(Boolean)
+    .join(', ')
+}
 
 export function PortalBookingConfirmationPage() {
   const { id: eventId } = useParams<{ id: string }>()
@@ -33,12 +67,13 @@ export function PortalBookingConfirmationPage() {
   const sessionId = searchParams.get('session_id')
   const bookingId = searchParams.get('booking_id')
 
+  const userId = user?.id
   useEffect(() => {
-    if (eventId && user) fetchData()
+    if (eventId && userId) fetchData()
     return () => {
       if (pollTimer.current) clearTimeout(pollTimer.current)
     }
-  }, [eventId, user]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [eventId, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Generate a check-in QR once the booking is confirmed. The QR encodes the
   // admin check-in URL (/checkin/<bookingId>) that the team scans at the door.
@@ -114,9 +149,21 @@ export function PortalBookingConfirmationPage() {
 
     if (bookingId) query = query.eq('id', bookingId)
 
-    const { data } = await query.maybeSingle()
+    const { data } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (data) {
       setBooking(data)
+      // Back from Stripe but the webhook / sync hasn't finalised it yet —
+      // keep checking for a few seconds before showing "not completed".
+      if (
+        sessionId &&
+        data.status === 'pending' &&
+        data.charge_error === AWAITING_CHECKOUT &&
+        pollCount.current < 5
+      ) {
+        pollCount.current += 1
+        pollTimer.current = setTimeout(() => findBooking(memberId), 2000)
+        return
+      }
       setLoading(false)
       return
     }
@@ -132,30 +179,23 @@ export function PortalBookingConfirmationPage() {
   }
 
   function downloadIcs() {
-    if (!event || !event.start_date) return
-    const start = new Date(event.start_date)
-    const end = event.end_date
-      ? new Date(event.end_date)
-      : new Date(start.getTime() + 2 * 60 * 60 * 1000)
-    const pad = (n: number) => n.toString().padStart(2, '0')
-    const formatIcsDate = (d: Date) =>
-      `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
-    const location = [event.venue_name, event.venue_address, event.venue_city, event.venue_postcode]
-      .filter(Boolean)
-      .join(', ')
+    if (!event) return
+    const times = eventTimes(event)
+    if (!times) return
+    const location = eventLocation(event)
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//The Club by Sarah Restrick//EN',
+      'CALSCALE:GREGORIAN',
       'BEGIN:VEVENT',
-      `DTSTART:${formatIcsDate(start)}`,
-      `DTEND:${formatIcsDate(end)}`,
-      `SUMMARY:${event.title}`,
-      location ? `LOCATION:${location}` : '',
-      event.description
-        ? `DESCRIPTION:${event.description.slice(0, 200).replace(/\n/g, '\\n')}`
-        : '',
-      `UID:${event.id}@theclub.sarahrestrick.com`,
+      `UID:${event.id}@theclubgroup.co`,
+      `DTSTAMP:${utcStamp(new Date())}`,
+      `DTSTART:${utcStamp(times.start)}`,
+      `DTEND:${utcStamp(times.end)}`,
+      `SUMMARY:${icsText(event.title)}`,
+      location ? `LOCATION:${icsText(location)}` : '',
+      event.description ? `DESCRIPTION:${icsText(event.description.slice(0, 500))}` : '',
       'END:VEVENT',
       'END:VCALENDAR',
     ]
@@ -168,9 +208,23 @@ export function PortalBookingConfirmationPage() {
     a.download = `${event.title
       .replace(/[^a-zA-Z0-9 ]/g, '')
       .replace(/\s+/g, '-')
-      .toLowerCase()}.ics`
+      .toLowerCase() || 'event'}.ics`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function googleCalendarUrl(): string | null {
+    if (!event) return null
+    const times = eventTimes(event)
+    if (!times) return null
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: event.title,
+      dates: `${utcStamp(times.start)}/${utcStamp(times.end)}`,
+      details: event.description ? event.description.slice(0, 1000) : '',
+      location: eventLocation(event),
+    })
+    return `https://calendar.google.com/calendar/render?${params.toString()}`
   }
 
   if (loading) {
@@ -202,24 +256,69 @@ export function PortalBookingConfirmationPage() {
     )
   }
 
+  // What state is this booking really in?
+  const isFree = (booking?.amount_pence ?? 0) === 0
+  const awaitingCheckout =
+    booking?.status === 'pending' && booking.charge_error === AWAITING_CHECKOUT
+  const pendingApproval = booking?.status === 'pending' && !awaitingCheckout
+  const isConfirmed = booking?.status === 'confirmed'
+  const isPaid = isConfirmed && !isFree
+
+  const eyebrow = awaitingCheckout
+    ? 'Payment not completed'
+    : pendingApproval
+      ? 'Booking received'
+      : 'Reserved with thanks'
+  const heading = awaitingCheckout
+    ? 'Payment not completed.'
+    : pendingApproval
+      ? 'Your request is in.'
+      : 'You’re confirmed.'
+  const lede = awaitingCheckout
+    ? 'You haven’t been charged and your seat isn’t confirmed yet. Return to the event to finish payment — an unfinished checkout is released after about half an hour.'
+    : pendingApproval
+      ? isFree
+        ? 'We’ll confirm your place once the team approves it.'
+        : 'Nothing has been charged yet. We’ll confirm your place once the team approves it, and only then take payment. If it isn’t approved, no payment is taken.'
+      : 'We’ll be in touch in the days leading up to the event with the practicalities.'
+
+  const amountLabel = isFree
+    ? 'Ticket'
+    : isPaid
+      ? 'Amount paid'
+      : awaitingCheckout
+        ? 'Amount due'
+        : 'Charged on approval'
+
+  const googleUrl = googleCalendarUrl()
+
   return (
     <div className="max-w-[700px] mx-auto px-6 lg:px-10 py-16">
-      {/* Success mark — bronze ring with checkmark */}
+      {/* Status mark — bronze ring with checkmark (or alert if unpaid) */}
       <div className="text-center mb-10">
         <div className="w-16 h-16 mx-auto rounded-full border border-bronze/55 bg-bronze/10 flex items-center justify-center text-bronze-light mb-7">
-          <CheckCircle2 size={28} strokeWidth={1.5} />
+          {awaitingCheckout ? (
+            <AlertCircle size={28} strokeWidth={1.5} />
+          ) : (
+            <CheckCircle2 size={28} strokeWidth={1.5} />
+          )}
         </div>
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-5">
-          {booking?.status === 'pending' ? 'Booking received' : 'Reserved with thanks'}
+          {eyebrow}
         </p>
         <h1 className="font-[family-name:var(--font-display)] text-[clamp(1.875rem,3vw,2.5rem)] leading-[1.1] text-ivory">
-          {booking?.status === 'pending' ? 'Your request is in.' : 'Your seat is held.'}
+          {heading}
         </h1>
         <p className="mt-5 font-[family-name:var(--font-editorial)] italic text-[15.5px] text-ivory-soft/90 leading-[1.7] max-w-md mx-auto">
-          {booking?.status === 'pending'
-            ? 'Your card is securely held — nothing has been charged. We’ll confirm your place once the team approves it, and only then take payment. If it isn’t approved, no payment is taken.'
-            : 'We’ll be in touch in the days leading up to the evening with the practicalities.'}
+          {lede}
         </p>
+        {awaitingCheckout && (
+          <div className="mt-6 flex justify-center">
+            <Link href={`/portal/events/${eventId}`}>
+              <PortalButton>Finish booking</PortalButton>
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* Event summary */}
@@ -231,7 +330,16 @@ export function PortalBookingConfirmationPage() {
         <ul className="space-y-3 font-[family-name:var(--font-meta)] text-[11px] uppercase tracking-[0.22em] text-ivory-soft">
           <li className="flex items-center gap-2.5">
             <Calendar size={13} strokeWidth={1.5} className="text-bronze-light/85 shrink-0" />
-            <span>{event.start_date ? formatDateTime(event.start_date) : 'Date to be confirmed'}</span>
+            <span>
+              {event.start_date ? (
+                <>
+                  {formatDateTime(event.start_date)}
+                  <span className="text-slate-haze"> (UK time)</span>
+                </>
+              ) : (
+                'Date to be confirmed'
+              )}
+            </span>
           </li>
           {event.venue_name && (
             <li className="flex items-center gap-2.5">
@@ -247,7 +355,7 @@ export function PortalBookingConfirmationPage() {
         {booking && (
           <div className="mt-6 pt-5 border-t border-graphite-line/45 flex items-baseline justify-between gap-4">
             <span className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze">
-              {booking.status === 'pending' ? 'Amount (held)' : 'Amount paid'}
+              {amountLabel}
             </span>
             <span className="font-[family-name:var(--font-display)] text-[18px] text-bronze-light tabular-nums">
               {booking.amount_pence === 0 ? 'Complimentary' : formatCurrency(booking.amount_pence)}
@@ -274,14 +382,29 @@ export function PortalBookingConfirmationPage() {
 
       {/* Actions */}
       <div className="space-y-3">
-        <PortalButton
-          variant="secondary"
-          className="w-full justify-center"
-          icon={<Download size={13} strokeWidth={1.5} />}
-          onClick={downloadIcs}
-        >
-          Add to calendar
-        </PortalButton>
+        {event.start_date && !awaitingCheckout && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <PortalButton
+              variant="secondary"
+              className="w-full justify-center"
+              icon={<Download size={13} strokeWidth={1.5} />}
+              onClick={downloadIcs}
+            >
+              Add to calendar
+            </PortalButton>
+            {googleUrl && (
+              <a href={googleUrl} target="_blank" rel="noopener noreferrer" className="block">
+                <PortalButton
+                  variant="secondary"
+                  className="w-full justify-center"
+                  icon={<CalendarPlus size={13} strokeWidth={1.5} />}
+                >
+                  Add to Google Calendar
+                </PortalButton>
+              </a>
+            )}
+          </div>
+        )}
 
         <Link href="/portal/events" className="block">
           <PortalButton

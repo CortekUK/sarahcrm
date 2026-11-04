@@ -19,12 +19,17 @@ export function formatCurrency(pence: number): string {
   }).format(pounds)
 }
 
+// Every date/time in the app is shown in UK time (the club and its venues
+// are in the UK), whatever time zone the viewer's device is in.
+export const UK_TIME_ZONE = 'Europe/London'
+
 /**
  * Format date to UK format (e.g. "16 Feb 2026")
  */
 export function formatDate(date: string | Date): string {
   const d = typeof date === 'string' ? new Date(date) : date
   return new Intl.DateTimeFormat('en-GB', {
+    timeZone: UK_TIME_ZONE,
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -37,9 +42,22 @@ export function formatDate(date: string | Date): string {
 export function formatDateTime(date: string | Date): string {
   const d = typeof date === 'string' ? new Date(date) : date
   return new Intl.DateTimeFormat('en-GB', {
+    timeZone: UK_TIME_ZONE,
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
+}
+
+/**
+ * Format just the time in UK time (e.g. "14:30")
+ */
+export function formatTime(date: string | Date): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: UK_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
   }).format(d)

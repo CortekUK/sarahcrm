@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { KenBurnsImage } from '@/components/website/night/primitives/MediaBlocks'
@@ -12,6 +13,17 @@ import {
 import { InstagramChapter } from '@/components/website/night/home/InstagramChapter'
 import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Events | The Club by Sarah Restrick',
+  description:
+    "Upcoming members' evenings, curated luxury experiences and retreats from The Club in Manchester, Leeds and London.",
+  openGraph: {
+    title: 'Events | The Club by Sarah Restrick',
+    description:
+      "Upcoming members' evenings, curated luxury experiences and retreats from The Club in Manchester, Leeds and London.",
+  },
+}
 
 export const revalidate = 60
 
@@ -39,7 +51,7 @@ export default async function EventsPage() {
     supabase
       .from('events')
       .select(
-        'id, slug, title, start_date, end_date, doors_open, event_type, venue_name, venue_city, cover_image_url, description, guest_price_pence, member_price_pence',
+        'id, slug, title, start_date, end_date, doors_open, event_type, venue_name, venue_city, cover_image_url, description, guest_price_pence, member_price_pence, vat_mode, vat_rate',
       )
       .in('status', ['published', 'live', 'completed'])
       .order('start_date', { ascending: true }),

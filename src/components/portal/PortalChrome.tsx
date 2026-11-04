@@ -1,8 +1,18 @@
 'use client'
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 
 // Shared visual primitives for the member portal — night palette,
 // editorial vocabulary matching the public site. Used by every page
@@ -369,21 +379,44 @@ interface PortalFieldProps {
   label: string
   hint?: string
   error?: string
+  /** id of the control the label is for. Defaults to the child's own id,
+   *  or a generated one that is passed down to a single child control. */
+  htmlFor?: string
   children: ReactNode
 }
 
-export function PortalField({ label, hint, error, children }: PortalFieldProps) {
+export function PortalField({ label, hint, error, htmlFor, children }: PortalFieldProps) {
+  const autoId = useId()
+  // Link the <label> to its control (and the hint/error to it via
+  // aria-describedby) so screen readers announce them and clicking the
+  // label focuses the input.
+  const child = isValidElement<{ id?: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean }>(children)
+    ? children
+    : null
+  const controlId = htmlFor ?? child?.props.id ?? `field-${autoId}`
+  const noteId = `${controlId}-note`
+  const hasNote = !!error || !!hint
+  const control = child
+    ? cloneElement(child, {
+        id: controlId,
+        ...(hasNote ? { 'aria-describedby': child.props['aria-describedby'] ?? noteId } : {}),
+        ...(error ? { 'aria-invalid': true } : {}),
+      })
+    : children
   return (
     <div>
-      <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze mb-3">
+      <label
+        htmlFor={controlId}
+        className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze mb-3"
+      >
         {label}
       </label>
-      {children}
+      {control}
       {hint && !error && (
-        <p className="mt-2 text-[11.5px] text-slate-dim italic">{hint}</p>
+        <p id={noteId} className="mt-2 text-[11.5px] text-slate-dim italic">{hint}</p>
       )}
       {error && (
-        <p className="mt-2 text-[11.5px] text-bronze-light italic">{error}</p>
+        <p id={noteId} role="alert" className="mt-2 text-[11.5px] text-bronze-light italic">{error}</p>
       )}
     </div>
   )
@@ -444,11 +477,44 @@ export function PortalModal({
   className,
 }: PortalModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Move keyboard focus into the dialog when it opens (and back to whatever
+  // opened it when it closes), so keyboard / screen-reader users land in the
+  // pop-up instead of behind it.
+  useEffect(() => {
+    if (!open) return
+    const opener = document.activeElement as HTMLElement | null
+    const t = setTimeout(() => dialogRef.current?.focus(), 0)
+    return () => {
+      clearTimeout(t)
+      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus()
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
+      // Keep Tab inside the dialog.
+      if (e.key === 'Tab' && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        )
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement
+        if (e.shiftKey && (active === first || active === dialogRef.current)) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
     }
     document.addEventListener('keydown', handleKey)
     const prev = document.body.style.overflow
@@ -471,13 +537,15 @@ export function PortalModal({
     >
       <div
         className={cn(
-          'relative w-full bg-graphite border border-bronze/35 shadow-[0_30px_60px_-12px_rgba(0,0,0,0.7)] flex flex-col max-h-[calc(100vh-2rem)]',
+          'relative w-full bg-graphite border border-bronze/35 shadow-[0_30px_60px_-12px_rgba(0,0,0,0.7)] flex flex-col max-h-[calc(100vh-2rem)] focus:outline-none',
           modalSize[size],
           className,
         )}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Bronze corner brackets — same motif as the editorial cards
@@ -516,4 +584,26 @@ export function PortalModal({
       </div>
     </div>
   )
+}
+
+// ─── Avatar with a broken-image fallback ────────────────────────────
+//
+// The house Avatar shows initials only when there's no src. Members' photo
+// URLs can go stale (deleted upload, expired link), which left an empty
+// broken-image circle — this checks the image loads and falls back to the
+// initials when it doesn't.
+
+export function PortalAvatar(props: ComponentProps<typeof Avatar>) {
+  const { src, ...rest } = props
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  useEffect(() => {
+    if (!src) return
+    const img = new window.Image()
+    img.onerror = () => setFailedSrc(src)
+    img.src = src
+    return () => {
+      img.onerror = null
+    }
+  }, [src])
+  return <Avatar {...rest} src={src && failedSrc !== src ? src : null} />
 }

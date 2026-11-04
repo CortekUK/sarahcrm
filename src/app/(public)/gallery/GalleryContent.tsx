@@ -9,6 +9,7 @@ import { MagneticButton } from '@/components/website/MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { usePageHero } from '@/components/website/usePageHero'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -316,7 +317,7 @@ export function GalleryContent({ galleries }: GalleryContentProps) {
                               <p className="text-[0.65rem] text-white/40 mt-0.5">
                                 {new Date(gallery.event_date).toLocaleDateString(
                                   'en-GB',
-                                  { day: 'numeric', month: 'short', year: 'numeric' }
+                                  { timeZone: UK_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' }
                                 )}
                               </p>
                             )}

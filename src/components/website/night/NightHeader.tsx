@@ -232,7 +232,7 @@ export function NightHeader() {
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="inline-flex items-center gap-2 p-2 -mr-2 text-ivory/85 hover:text-bronze-light transition-colors"
+              className="inline-flex items-center justify-center gap-2 p-2 -mr-2 min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 text-ivory/85 hover:text-bronze-light transition-colors"
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             >
               <span className="hidden lg:inline font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.24em]">
@@ -299,7 +299,9 @@ export function NightHeader() {
           <Link
             href="/login"
             className={cn(
-              'mt-2 font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory/70 hover:text-bronze-light transition-all duration-500',
+              // min-h 44px on phones = comfortable tap target; desktop keeps
+              // the original slim text-link look.
+              'mt-2 inline-flex items-center justify-center min-h-[44px] px-4 lg:min-h-0 lg:px-0 font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] text-ivory/70 hover:text-bronze-light transition-all duration-500',
               menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
             )}
             style={{ transitionDelay: menuOpen ? `${LINKS.length * 60 + 240}ms` : '0ms' }}

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
 import { KenBurnsImage, FullBleed } from '@/components/website/night/primitives/MediaBlocks'
@@ -7,6 +8,17 @@ import { PullQuote } from '@/components/website/night/primitives/PullQuote'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, MapPin, Train } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'One London Road | The Club by Sarah Restrick',
+  description:
+    "One London Road — The Club's home venue for members' dining and private events.",
+  openGraph: {
+    title: 'One London Road | The Club by Sarah Restrick',
+    description:
+      "One London Road — The Club's home venue for members' dining and private events.",
+  },
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // One London Road — the venue page. Atmospheric portrait of a single

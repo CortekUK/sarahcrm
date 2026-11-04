@@ -25,6 +25,7 @@ import {
   uploadAccAttachment,
   accSignedUrl,
 } from '@/lib/accountability'
+import { dbErrorMessage } from '@/lib/form-validation'
 
 interface TaskCollabProps {
   taskId: string
@@ -107,7 +108,7 @@ export function TaskCollab({
       .single()
     setPosting(false)
     if (error) {
-      toast({ title: 'Could not add comment', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not add comment', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     if (data) setComments((c) => [...c, data])
@@ -146,7 +147,7 @@ export function TaskCollab({
       .delete()
       .eq('id', att.id)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not delete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     await supabase.storage.from('accountability-files').remove([att.file_path])

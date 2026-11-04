@@ -9,7 +9,7 @@ import { MagneticButton } from '@/components/website/MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { ArrowLeft, X, ChevronLeft, ChevronRight, MapPin, Calendar, Maximize2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -221,6 +221,7 @@ export function GalleryDetailContent({
               <span className="inline-flex items-center gap-1.5">
                 <Calendar size={13} className="text-[#B8975A]" />
                 {new Date(gallery.event_date).toLocaleDateString('en-GB', {
+                  timeZone: UK_TIME_ZONE,
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric',

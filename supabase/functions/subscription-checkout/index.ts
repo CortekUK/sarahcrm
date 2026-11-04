@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     // Get member record
     const { data: member, error: memberError } = await supabaseAdmin
       .from('members')
-      .select('id, membership_tier, membership_type, stripe_customer_id, stripe_subscription_id')
+      .select('id, membership_tier, membership_type, stripe_customer_id, stripe_subscription_id, payment_frequency')
       .eq('profile_id', user.id)
       .single()
 
@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
     // tier_classification. (The old membership_tiers table is gone.)
     const { data: plan, error: planError } = await supabaseAdmin
       .from('membership_plans')
-      .select('id, name, monthly_price_pence, is_active')
+      .select('id, name, monthly_price_pence, annual_price_pence, is_active')
       .eq('tier_classification', member.membership_tier)
       .eq('is_active', true)
       .order('display_order', { ascending: true })
@@ -87,25 +87,53 @@ Deno.serve(async (req) => {
       )
     }
 
-    if (!plan.monthly_price_pence || plan.monthly_price_pence <= 0) {
+    // Cadence: the member record first (set on approval), then their approved
+    // application's preference, else monthly. Annual members must not be put
+    // on a monthly subscription.
+    const toCadence = (v: string | null | undefined): 'annual' | 'monthly' | null => {
+      const t = (v ?? '').toLowerCase()
+      if (/annual|year/.test(t)) return 'annual'
+      if (/month/.test(t)) return 'monthly'
+      return null
+    }
+    let cadence = toCadence(member.payment_frequency)
+    if (!cadence) {
+      const { data: app } = await supabaseAdmin
+        .from('membership_applications')
+        .select('payment_preference')
+        .eq('email', (user.email ?? '').toLowerCase())
+        .eq('status', 'approved')
+        .order('reviewed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      cadence = toCadence(app?.payment_preference)
+    }
+    cadence = cadence ?? 'monthly'
+
+    const netPence = cadence === 'annual' ? plan.annual_price_pence : plan.monthly_price_pence
+    if (!netPence || netPence <= 0) {
       return new Response(
-        JSON.stringify({ error: 'Monthly pricing not configured for this plan. Please contact support.' }),
+        JSON.stringify({ error: `${cadence === 'annual' ? 'Annual' : 'Monthly'} pricing not configured for this plan. Please contact support.` }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+    // membership_plans stores prices before VAT; members pay the VAT-inclusive
+    // amount — the same rule as admin approval (approve route: net + 20%).
+    const VAT_RATE = 0.2
+    const grossPence = netPence + Math.round(netPence * VAT_RATE)
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
       apiVersion: '2024-12-18.acacia',
     })
 
-    // Create the recurring price on the fly from the plan's live monthly
-    // amount, so checkout always charges what membership_plans says (no
-    // stale pre-stored price IDs to drift out of sync).
+    // Create the recurring price on the fly from the plan's live amount, so
+    // checkout always charges what membership_plans says (no stale
+    // pre-stored price IDs to drift out of sync).
     const price = await stripe.prices.create({
       currency: 'gbp',
-      unit_amount: plan.monthly_price_pence,
-      recurring: { interval: 'month' },
-      product_data: { name: `${plan.name.replace(/\s*membership$/i, '')} Membership` },
+      unit_amount: grossPence,
+      recurring: { interval: cadence === 'annual' ? 'year' : 'month' },
+      product_data: { name: `${plan.name.replace(/\s*membership$/i, '')} Membership (incl. VAT)` },
     })
 
     // Create or reuse Stripe Customer

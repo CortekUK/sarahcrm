@@ -12,15 +12,50 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
-import { CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Loader2, XCircle } from 'lucide-react'
+import { formatCurrency, formatDateTime, formatTime, formatDate } from '@/lib/utils'
+import { eventErrorMessage } from '@/views/admin/events/eventErrors'
 
-type Phase = 'loading' | 'not_admin' | 'not_found' | 'ready' | 'done' | 'error'
+type Phase = 'loading' | 'not_admin' | 'not_found' | 'ready' | 'refused' | 'done' | 'error'
+
+type BookingStatus = 'confirmed' | 'pending' | 'cancelled' | 'refunded'
 
 interface BookingInfo {
   id: string
   name: string
   eventTitle: string
+  eventStart: string | null
+  eventStatus: string | null
+  status: BookingStatus
+  amountPence: number
+  paid: boolean
+  checkedInAt: string | null
   alreadyIn: boolean
+}
+
+const STATUS_LABEL: Record<BookingStatus, string> = {
+  confirmed: 'Confirmed',
+  pending: 'Pending — not confirmed',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+}
+
+// Why a booking can't be checked in, in words for the door team.
+function refusalReason(b: BookingInfo): string | null {
+  if (b.status === 'cancelled') return 'This booking was cancelled. Do not admit on this pass.'
+  if (b.status === 'refunded') return 'This booking was refunded. Do not admit on this pass.'
+  if (b.status === 'pending')
+    return b.amountPence > 0
+      ? 'This booking is still pending — payment has not been taken. Ask the guest to speak to the team.'
+      : 'This booking is still pending approval. Ask the guest to speak to the team.'
+  if (b.eventStatus === 'cancelled') return 'This event has been cancelled.'
+  return null
+}
+
+function paymentLine(b: BookingInfo): string {
+  if (b.amountPence <= 0) return 'Complimentary'
+  if (b.paid) return `Paid ${formatCurrency(b.amountPence)}`
+  return `Not paid (${formatCurrency(b.amountPence)} due)`
 }
 
 export default function CheckinPage() {
@@ -28,6 +63,7 @@ export default function CheckinPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [booking, setBooking] = useState<BookingInfo | null>(null)
   const [saving, setSaving] = useState(false)
+  const [errorText, setErrorText] = useState<string | null>(null)
 
   useEffect(() => {
     if (bookingId) load()
@@ -54,7 +90,7 @@ export default function CheckinPage() {
     const { data, error } = await supabase
       .from('bookings')
       .select(
-        'id, checked_in, attendance, is_guest, guest_name, members(profiles(first_name, last_name)), events(title)',
+        'id, status, amount_pence, stripe_payment_intent_id, payment_method, checked_in, checked_in_at, attendance, is_guest, guest_name, members(profiles(first_name, last_name)), events(title, start_date, status)',
       )
       .eq('id', bookingId)
       .maybeSingle()
@@ -71,33 +107,92 @@ export default function CheckinPage() {
         : (member as Record<string, unknown>).profiles
       : null
     const p = prof as { first_name?: string; last_name?: string } | null
-    const ev = Array.isArray(row.events) ? row.events[0] : row.events
+    const ev = (Array.isArray(row.events) ? row.events[0] : row.events) as {
+      title?: string
+      start_date?: string | null
+      status?: string | null
+    } | null
     const name = row.is_guest
       ? (row.guest_name as string) || 'Guest'
       : `${p?.first_name ?? ''} ${p?.last_name ?? ''}`.trim() || 'Member'
-    setBooking({
+    const status = row.status as BookingStatus
+    const amountPence = Number(row.amount_pence ?? 0)
+    const info: BookingInfo = {
       id: row.id as string,
       name,
-      eventTitle: (ev as { title?: string } | null)?.title || 'the event',
-      alreadyIn: row.checked_in === true || row.attendance === 'attended',
-    })
-    setPhase(row.checked_in === true ? 'done' : 'ready')
+      eventTitle: ev?.title || 'the event',
+      eventStart: ev?.start_date ?? null,
+      eventStatus: ev?.status ?? null,
+      status,
+      amountPence,
+      // A confirmed paid booking has been charged (card/Stripe or settled by
+      // the team); a pending one has not.
+      paid: amountPence > 0 && (status === 'confirmed' || status === 'refunded') &&
+        (Boolean(row.stripe_payment_intent_id) || row.payment_method != null),
+      checkedInAt: (row.checked_in_at as string | null) ?? null,
+      alreadyIn: row.checked_in === true,
+    }
+    setBooking(info)
+    if (info.alreadyIn) setPhase('done')
+    else if (refusalReason(info)) setPhase('refused')
+    else setPhase('ready')
   }
 
   async function checkIn() {
-    if (!booking) return
+    if (!booking || refusalReason(booking)) return
     setSaving(true)
-    const { error } = await supabase
+    setErrorText(null)
+    const now = new Date().toISOString()
+    const { data: updated, error } = await supabase
       .from('bookings')
       .update({
         checked_in: true,
-        checked_in_at: new Date().toISOString(),
+        checked_in_at: now,
         attendance: 'attended',
       })
       .eq('id', booking.id)
+      // Only flip a booking that is still confirmed and not yet in — a pass
+      // scanned twice at once can't double up.
+      .eq('status', 'confirmed')
+      .eq('checked_in', false)
+      .select('id')
     setSaving(false)
-    setPhase(error ? 'error' : 'done')
+    if (error) {
+      setErrorText(eventErrorMessage(error, 'Please try again.'))
+      setPhase('error')
+      return
+    }
+    if (!updated || updated.length === 0) {
+      // Someone else checked them in (or the booking changed) meanwhile —
+      // re-read and show the real state.
+      setPhase('loading')
+      await load()
+      return
+    }
+    setBooking({ ...booking, alreadyIn: false, checkedInAt: now })
+    setPhase('done')
   }
+
+  const details = booking && (
+    <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-left text-sm">
+      <dt className="text-text-dim">Event date</dt>
+      <dd className="text-text">
+        {booking.eventStart ? `${formatDateTime(booking.eventStart)} (UK)` : 'Date TBC'}
+      </dd>
+      <dt className="text-text-dim">Booking</dt>
+      <dd className={booking.status === 'confirmed' ? 'text-text' : 'text-accent-warm font-medium'}>
+        {STATUS_LABEL[booking.status] ?? booking.status}
+      </dd>
+      <dt className="text-text-dim">Payment</dt>
+      <dd
+        className={
+          booking.amountPence > 0 && !booking.paid ? 'text-accent-warm font-medium' : 'text-text'
+        }
+      >
+        {paymentLine(booking)}
+      </dd>
+    </dl>
+  )
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-6 py-16">
@@ -140,25 +235,64 @@ export default function CheckinPage() {
           </div>
         )}
 
+        {phase === 'refused' && booking && (
+          <div className="rounded-[var(--radius-md)] border border-accent-warm/40 bg-surface p-8">
+            <XCircle size={30} className="mx-auto text-accent-warm mb-4" />
+            <p className="font-[family-name:var(--font-heading)] text-xl text-text mb-1">
+              {booking.name}
+            </p>
+            <p className="text-sm text-text-muted">{booking.eventTitle}</p>
+            <p className="mt-4 text-sm font-medium text-accent-warm">Can’t check in</p>
+            <p className="text-sm text-text-muted mt-1">{refusalReason(booking)}</p>
+            {details}
+          </div>
+        )}
+
         {(phase === 'ready' || phase === 'done') && booking && (
           <div className="rounded-[var(--radius-md)] border border-border bg-surface p-8">
             {phase === 'done' ? (
-              <>
-                <CheckCircle2 size={30} className="mx-auto text-accent mb-4" />
-                <p className="text-text font-medium text-lg mb-1">{booking.name}</p>
-                <p className="text-sm text-text-muted mb-1">is checked in.</p>
-                <p className="text-xs text-text-dim">{booking.eventTitle}</p>
-              </>
+              booking.alreadyIn ? (
+                <>
+                  <AlertTriangle size={30} className="mx-auto text-accent-warm mb-4" />
+                  <p className="text-text font-medium text-lg mb-1">{booking.name}</p>
+                  <p className="text-sm font-medium text-accent-warm mb-1">
+                    {booking.checkedInAt
+                      ? `Already checked in at ${formatTime(booking.checkedInAt)} (UK)${
+                          booking.eventStart &&
+                          formatDate(booking.checkedInAt) !== formatDate(booking.eventStart)
+                            ? ` on ${formatDate(booking.checkedInAt)}`
+                            : ''
+                        }`
+                      : 'Already checked in'}
+                  </p>
+                  <p className="text-xs text-text-muted">
+                    This pass has been used. If this isn’t the same guest, check with the team.
+                  </p>
+                  <p className="text-xs text-text-dim mt-2">{booking.eventTitle}</p>
+                  {details}
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={30} className="mx-auto text-accent mb-4" />
+                  <p className="text-text font-medium text-lg mb-1">{booking.name}</p>
+                  <p className="text-sm text-text-muted mb-1">
+                    is checked in
+                    {booking.checkedInAt ? ` at ${formatTime(booking.checkedInAt)} (UK)` : ''}.
+                  </p>
+                  <p className="text-xs text-text-dim">{booking.eventTitle}</p>
+                </>
+              )
             ) : (
               <>
                 <p className="font-[family-name:var(--font-heading)] text-xl text-text mb-1">
                   {booking.name}
                 </p>
-                <p className="text-sm text-text-muted mb-6">{booking.eventTitle}</p>
+                <p className="text-sm text-text-muted">{booking.eventTitle}</p>
+                {details}
                 <button
                   onClick={checkIn}
                   disabled={saving}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-gold px-8 py-3 text-[11px] font-medium uppercase tracking-[0.2em] text-white disabled:opacity-60"
+                  className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-gold px-8 py-3 text-[11px] font-medium uppercase tracking-[0.2em] text-white disabled:opacity-60"
                 >
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                   Check in
@@ -172,7 +306,7 @@ export default function CheckinPage() {
           <div className="rounded-[var(--radius-md)] border border-border bg-surface p-8">
             <AlertTriangle size={26} className="mx-auto text-accent-warm mb-4" />
             <p className="text-text font-medium">Couldn’t check in</p>
-            <p className="text-sm text-text-muted mt-2">Please try again.</p>
+            <p className="text-sm text-text-muted mt-2">{errorText ?? 'Please try again.'}</p>
           </div>
         )}
       </div>

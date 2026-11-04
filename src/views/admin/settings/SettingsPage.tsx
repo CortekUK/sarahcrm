@@ -92,6 +92,8 @@ const TEAM = [
   { name: 'Leanne', email: 'leanne@sarahrestrick.com', role: 'Admin', initials: 'L' },
 ]
 
+const CLUB_DETAILS_KEY = 'club_details'
+
 export function SettingsPage() {
   const [clubName, setClubName] = useState('The Club by Sarah Restrick')
   const [contactEmail, setContactEmail] = useState('hello@sarahrestrick.com')
@@ -102,6 +104,38 @@ export function SettingsPage() {
   )
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [detailsLoading, setDetailsLoading] = useState(true)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [detailsFieldErrors, setDetailsFieldErrors] = useState<Record<string, string>>({})
+
+  // Club Details persist in app_settings under key 'club_details' (same
+  // key/value table as enquiry_routing; admin RLS allows read/write).
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', CLUB_DETAILS_KEY)
+        .maybeSingle()
+      if (!active) return
+      if (error) {
+        setDetailsError(`Could not load saved club details: ${error.message}`)
+      } else if (data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
+        const v = data.value as Record<string, unknown>
+        const str = (x: unknown) => (typeof x === 'string' ? x : null)
+        if (str(v.club_name) !== null) setClubName(str(v.club_name)!)
+        if (str(v.contact_email) !== null) setContactEmail(str(v.contact_email)!)
+        if (str(v.phone) !== null) setPhone(str(v.phone)!)
+        if (str(v.website) !== null) setWebsite(str(v.website)!)
+        if (str(v.description) !== null) setDescription(str(v.description)!)
+      }
+      setDetailsLoading(false)
+    })()
+    return () => {
+      active = false
+    }
+  }, [])
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   const [integrations, setIntegrations] = useState<IntegrationState | null>(null)
@@ -310,14 +344,55 @@ export function SettingsPage() {
     }
   }, [])
 
-  function handleSave() {
-    setSaving(true)
+  async function handleSave() {
     setSaved(false)
-    setTimeout(() => {
-      setSaving(false)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    }, 600)
+    setDetailsError(null)
+    const value = {
+      club_name: clubName.trim(),
+      contact_email: contactEmail.trim(),
+      phone: phone.trim(),
+      website: website.trim(),
+      description: description.trim(),
+    }
+    const errs: Record<string, string> = {}
+    if (!value.club_name) errs.club_name = 'Club name is required'
+    else if (value.club_name.length > 150) errs.club_name = 'Keep it under 150 characters'
+    if (value.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.contact_email)) {
+      errs.contact_email = 'Enter a valid email address'
+    }
+    if (value.phone && !/^[0-9+()\s.-]{6,30}$/.test(value.phone)) {
+      errs.phone = 'Enter a valid phone number'
+    }
+    if (value.website) {
+      let ok = false
+      try {
+        const u = new URL(value.website)
+        ok = u.protocol === 'https:' || u.protocol === 'http:'
+      } catch {
+        ok = false
+      }
+      if (!ok) errs.website = 'Enter a full link starting with https://'
+    }
+    if (value.description.length > 2000) errs.description = 'Keep it under 2,000 characters'
+    setDetailsFieldErrors(errs)
+    if (Object.keys(errs).length > 0) return
+
+    setSaving(true)
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert(
+        { key: CLUB_DETAILS_KEY, value, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      )
+    setSaving(false)
+    if (error) {
+      setDetailsError(error.message)
+      toast({ title: 'Could not save club details', description: error.message, variant: 'destructive' })
+      return
+    }
+    setSaved(true)
+    toast({ title: 'Club details saved' })
+    setTimeout(() => setSaved(false), 2500)
   }
 
   return (
@@ -340,24 +415,28 @@ export function SettingsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Input
               label="Club Name"
+              error={detailsFieldErrors.club_name}
               value={clubName}
               onChange={(e) => setClubName(e.target.value)}
             />
             <Input
               label="Contact Email"
               type="email"
+              error={detailsFieldErrors.contact_email}
               value={contactEmail}
               onChange={(e) => setContactEmail(e.target.value)}
             />
             <Input
               label="Phone Number"
               type="tel"
+              error={detailsFieldErrors.phone}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
             <Input
               label="Website URL"
               type="url"
+              error={detailsFieldErrors.website}
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
             />
@@ -365,18 +444,21 @@ export function SettingsPage() {
           <div className="mt-5">
             <Textarea
               label="Club Description"
+              error={detailsFieldErrors.description}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
             />
           </div>
           <div className="mt-5 flex items-center gap-3">
-            <Button onClick={handleSave} loading={saving}>
+            <Button onClick={handleSave} loading={saving} disabled={detailsLoading}>
               Save Changes
             </Button>
+            {detailsLoading && <span className="text-sm text-text-muted">Loading…</span>}
             {saved && (
               <span className="text-sm text-accent">Changes saved</span>
             )}
+            {detailsError && <span className="text-sm text-accent-warm">{detailsError}</span>}
           </div>
         </CardContent>
       </Card>

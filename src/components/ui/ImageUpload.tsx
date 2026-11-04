@@ -130,7 +130,9 @@ export function ImageUpload({
 
   const onDragLeave = useCallback(() => setDragOver(false), [])
 
-  const displayedError = error ?? internalError
+  // The upload's own refusal (too large, failed) is the newest news — show it
+  // ahead of a stale form error such as "Please upload an image".
+  const displayedError = internalError ?? error
   const hasImage = !!value
 
   return (

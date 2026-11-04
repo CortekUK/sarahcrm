@@ -31,6 +31,10 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
+// Statuses that count as "in progress" for a pair (matches the server's
+// /api/admin/introductions/create check).
+const IN_FLIGHT_STATUSES = ['suggested', 'approved', 'sent', 'scheduled', 'accepted'] as const
+
 interface CreateIntroductionModalProps {
   open: boolean
   onClose: () => void
@@ -213,6 +217,29 @@ export function CreateIntroductionModal({
         ? [data.member_a_id, data.member_b_id]
         : [data.member_b_id, data.member_a_id]
 
+    // Block a second introduction while one for this pair is still in
+    // progress (the DB also enforces this — unique index
+    // introductions_one_in_flight_per_pair — mapped below).
+    const { data: inFlight, error: checkError } = await supabase
+      .from('introductions')
+      .select('id, status')
+      .eq('member_a_id', orderedA)
+      .eq('member_b_id', orderedB)
+      .in('status', IN_FLIGHT_STATUSES)
+      .limit(1)
+    if (checkError) {
+      setError(`Could not check for existing introductions: ${checkError.message}`)
+      setLoading(false)
+      return
+    }
+    if (inFlight && inFlight.length > 0) {
+      setError(
+        `These members already have an introduction in progress (status: ${inFlight[0].status}). Open that introduction instead of creating a new one.`,
+      )
+      setLoading(false)
+      return
+    }
+
     const { error: insertError } = await supabase.from('introductions').insert({
       member_a_id: orderedA,
       member_b_id: orderedB,
@@ -223,7 +250,11 @@ export function CreateIntroductionModal({
     })
 
     if (insertError) {
-      setError(insertError.message)
+      setError(
+        insertError.code === '23505' || insertError.message.includes('introductions_one_in_flight_per_pair')
+          ? 'These members already have an introduction in progress. Open that introduction instead of creating a new one.'
+          : `Could not create the introduction: ${insertError.message}`,
+      )
       setLoading(false)
       return
     }

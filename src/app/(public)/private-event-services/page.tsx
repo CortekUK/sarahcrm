@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/server'
@@ -11,7 +12,18 @@ import {
   type VideoEntry,
 } from '@/components/website/night/VideoGallery'
 import { getPageHero } from '@/lib/cms/heroes'
-import { ArrowUpRight, BookOpen, Mail, Phone } from 'lucide-react'
+import { ArrowUpRight, BookOpen, Download, FileText, Mail, Phone } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Private Events | The Club by Sarah Restrick',
+  description:
+    'Host a private dinner, launch or celebration with The Club — venue sourcing, curated guest lists and full event management.',
+  openGraph: {
+    title: 'Private Events | The Club by Sarah Restrick',
+    description:
+      'Host a private dinner, launch or celebration with The Club — venue sourcing, curated guest lists and full event management.',
+  },
+}
 
 export const revalidate = 60
 
@@ -37,10 +49,32 @@ const VISION_IMAGE = '/gallery/bigland.png' // PLACEHOLDER
 const CONTACT_EMAIL = 'events@theclubsarahrestrick.com'
 const CONTACT_PHONE = '+44 7880 351 645'
 
+// Documents are admin-entered links — only ever render http(s) ones.
+function safeHttpUrl(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null
+  } catch {
+    return null
+  }
+}
+
+// "…/Sample-Menu.pdf" → "PDF" for the small label under each title.
+function fileExtension(url: string): string {
+  try {
+    const last = new URL(url).pathname.split('/').pop() ?? ''
+    const dot = last.lastIndexOf('.')
+    return dot >= 0 ? last.slice(dot + 1).toUpperCase().slice(0, 5) : 'File'
+  } catch {
+    return 'File'
+  }
+}
+
 export default async function PrivateEventServicesPage() {
   const supabase = await createClient()
 
-  const [{ data: curated }, { data: videoRows }, hero] = await Promise.all([
+  const [{ data: curated }, { data: videoRows }, hero, { data: documentRows }] = await Promise.all([
     supabase
       .from('curated_experiences')
       .select('id, title, description, image_url, link_url')
@@ -60,7 +94,18 @@ export default async function PrivateEventServicesPage() {
       eyebrow: 'At The Club',
       headline: 'Private Events.',
     }),
+    // Downloads managed in /dashboard/website/documents (page slug
+    // 'private-event-services'). Active rows are publicly readable.
+    supabase
+      .from('documents')
+      .select('id, title, file_url')
+      .eq('page_slug', 'private-event-services')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(12),
   ])
+
+  const documents = (documentRows ?? []).filter((d) => safeHttpUrl(d.file_url))
 
   const videos: VideoEntry[] = (videoRows as VideoEntry[]) ?? []
 
@@ -240,6 +285,63 @@ export default async function PrivateEventServicesPage() {
               </Reveal>
             </div>
             <VideoGallery videos={videos} />
+          </div>
+        </Chapter>
+      )}
+
+      {/* ── 06b · Downloads — only renders if documents exist ── */}
+      {documents.length > 0 && (
+        <Chapter density="tight" bg="ink" className="relative">
+          <div className="relative z-10 max-w-[1100px] mx-auto">
+            <div className="text-center mb-12">
+              <Reveal type="up" delay={0}>
+                <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.42em] text-bronze-light mb-6">
+                  Downloads
+                </p>
+              </Reveal>
+              <Reveal type="clip" delay={150}>
+                <h2 className="font-[family-name:var(--font-display)] text-[clamp(1.75rem,2.6vw,2.5rem)] leading-tight text-ivory">
+                  Event brochures.
+                </h2>
+              </Reveal>
+              <Reveal type="up" delay={300}>
+                <p className="mt-5 font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft max-w-xl mx-auto">
+                  Sample menus, venue specifications and partner sheets — for a closer look before
+                  you enquire.
+                </p>
+              </Reveal>
+            </div>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {documents.map((d, i) => (
+                <li key={d.id}>
+                  <Reveal type="up" delay={Math.min(i, 6) * 80}>
+                    <a
+                      href={safeHttpUrl(d.file_url)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex items-center gap-5 min-h-[44px] border border-graphite-line/50 hover:border-bronze/60 bg-graphite/40 px-6 py-5 transition-colors duration-500"
+                    >
+                      <span className="w-11 h-11 shrink-0 rounded-full bg-bronze/10 border border-bronze/35 flex items-center justify-center text-bronze-light group-hover:bg-bronze group-hover:text-ink transition-colors duration-300">
+                        <FileText size={16} strokeWidth={1.5} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-[family-name:var(--font-display)] text-[17px] leading-snug text-ivory group-hover:text-bronze-light transition-colors duration-300 break-words">
+                          {d.title}
+                        </span>
+                        <span className="block mt-1 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-slate-haze">
+                          {fileExtension(d.file_url)} · Opens in a new tab
+                        </span>
+                      </span>
+                      <Download
+                        size={15}
+                        strokeWidth={1.5}
+                        className="shrink-0 text-bronze-light opacity-70 group-hover:opacity-100 transition-opacity"
+                      />
+                    </a>
+                  </Reveal>
+                </li>
+              ))}
+            </ul>
           </div>
         </Chapter>
       )}

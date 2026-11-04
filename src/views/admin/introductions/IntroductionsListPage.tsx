@@ -94,6 +94,20 @@ function memberName(profiles: { first_name: string | null; last_name: string | n
   return `${profiles.first_name ?? ''} ${profiles.last_name ?? ''}`.trim() || 'Unnamed'
 }
 
+/**
+ * A declined row that was never sent to either member and that neither member
+ * answered was closed by the Club (a dismissed suggestion, or a member's
+ * request the Club turned down) — not declined by the members (#30).
+ */
+function closedByClub(intro: Pick<IntroRow, 'status' | 'sent_at' | 'member_a_response' | 'member_b_response'>): boolean {
+  return (
+    intro.status === 'declined' &&
+    !intro.sent_at &&
+    intro.member_a_response === 'pending' &&
+    intro.member_b_response === 'pending'
+  )
+}
+
 function responseLabel(r: IntroResponse): string {
   return r === 'accepted' ? 'accepted' : r === 'declined' ? 'declined' : 'pending'
 }
@@ -370,7 +384,7 @@ export function IntroductionsListPage() {
             Introductions
           </h1>
           <p className="text-sm text-text-muted mt-1">
-            {intros.length} introduction{intros.length !== 1 ? 's' : ''} total
+            {report.totalIntroductions} introduction{report.totalIntroductions !== 1 ? 's' : ''} total
           </p>
         </div>
         <div className="flex gap-3">
@@ -680,6 +694,10 @@ export function IntroductionsListPage() {
                         <Badge variant="active" dot>
                           Ready to connect
                         </Badge>
+                      ) : closedByClub(intro) ? (
+                        <Badge variant="draft" dot>
+                          {intro.requested_by ? 'Request declined' : 'Dismissed'}
+                        </Badge>
                       ) : (
                         <Badge variant={introStatusBadge[intro.status]} dot>
                           {intro.status}
@@ -687,10 +705,11 @@ export function IntroductionsListPage() {
                       )}
                       {(intro.status === 'sent' ||
                         intro.status === 'accepted' ||
-                        intro.status === 'declined') && (
+                        intro.status === 'declined') &&
+                        !closedByClub(intro) && (
                         <p className="mt-1 text-[11px] text-text-dim">
-                          {nameA.split(' ')[0]}: {responseLabel(intro.member_a_response)} ·{' '}
-                          {nameB.split(' ')[0]}: {responseLabel(intro.member_b_response)}
+                          {nameA}: {responseLabel(intro.member_a_response)} ·{' '}
+                          {nameB}: {responseLabel(intro.member_b_response)}
                         </p>
                       )}
                     </TableCell>

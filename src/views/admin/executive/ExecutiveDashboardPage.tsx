@@ -606,7 +606,7 @@ export function ExecutiveDashboardPage() {
           href="/dashboard/members"
           linkLabel="View members"
           empty="No members flagged at risk."
-          footnote="Churn risk ≥ 60, from the last score recompute."
+          footnote="Churn score ≥ 60 out of 100, from the last score recompute."
         >
           {atRisk.map((m) => (
             <RecRow
@@ -614,7 +614,7 @@ export function ExecutiveDashboardPage() {
               href={`/dashboard/members/${m.id}`}
               primary={m.name}
               secondary={m.company}
-              trailing={`${m.score}`}
+              trailing={`${m.score}/100`}
               trailingVariant="urgent"
             />
           ))}

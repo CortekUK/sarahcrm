@@ -18,8 +18,10 @@ import {
 } from '@/components/ui/Table'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { dbErrorMessage } from '@/lib/form-validation'
 import { Loader2, Coins, ArrowDownLeft, ArrowUpRight, Check, Undo2 } from 'lucide-react'
 
 // ── Domain model ──────────────────────────────────────────
@@ -125,6 +127,7 @@ interface ReferralRow {
 
 export function CommissionsPage() {
   const router = useRouter()
+  const confirm = useConfirm()
   const [rows, setRows] = useState<CommissionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busyKey, setBusyKey] = useState<string | null>(null)
@@ -210,7 +213,12 @@ export function CommissionsPage() {
       href: `/dashboard/rewards`,
     }))
 
-    const all = [...introRows, ...conciergeRows, ...referralRows].sort((a, b) => {
+    // £0 commissions aren't money owed either way — leave them out of the
+    // ledger (they'd otherwise show as "Owed" with a Mark paid button).
+    // Negative amounts are kept but flagged (and excluded from the totals).
+    const all = [...introRows, ...conciergeRows, ...referralRows]
+      .filter((r) => r.commissionPence !== 0)
+      .sort((a, b) => {
       const at = a.date ? new Date(a.date).getTime() : 0
       const bt = b.date ? new Date(b.date).getTime() : 0
       return bt - at
@@ -226,6 +234,7 @@ export function CommissionsPage() {
     let payableOwed = 0
     let payablePaid = 0
     for (const r of rows) {
+      if (r.commissionPence < 0) continue
       if (r.direction === 'receivable') {
         if (r.status === 'owed') receivableOwed += r.commissionPence
         else receivableReceived += r.commissionPence
@@ -250,6 +259,21 @@ export function CommissionsPage() {
   // ORIGIN table. Optimistic update + toast; reload on error.
   async function togglePaid(row: CommissionRow) {
     const next: Status = row.status === 'paid' ? 'owed' : 'paid'
+    const amount = formatCurrency(row.commissionPence)
+    const ok = await confirm({
+      title: next === 'paid' ? `Mark ${amount} as paid?` : `Mark ${amount} as unpaid?`,
+      description:
+        row.direction === 'receivable'
+          ? next === 'paid'
+            ? `Records this ${SOURCE_META[row.source].label.toLowerCase()} commission from ${row.counterparty} as received by the Club.`
+            : `Moves this commission from ${row.counterparty} back to owed to the Club.`
+          : next === 'paid'
+            ? `Records this referral payout to ${row.counterparty} as paid out.`
+            : `Moves this referral payout to ${row.counterparty} back to owed.`,
+      confirmLabel: next === 'paid' ? 'Mark paid' : 'Mark unpaid',
+      tone: next === 'paid' ? 'neutral' : 'warning',
+    })
+    if (!ok) return
     setBusyKey(row.key)
     setRows((prev) => prev.map((x) => (x.key === row.key ? { ...x, status: next } : x)))
 
@@ -282,7 +306,7 @@ export function CommissionsPage() {
 
     setBusyKey(null)
     if (error) {
-      toast({ title: 'Could not update commission', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update commission', description: dbErrorMessage(error), variant: 'destructive' })
       load()
       return
     }
@@ -422,6 +446,9 @@ export function CommissionsPage() {
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-text">
                         {formatCurrency(r.commissionPence)}
+                        {r.commissionPence < 0 && (
+                          <p className="text-[11px] text-accent-warm">Negative — check amount</p>
+                        )}
                       </TableCell>
                       <TableCell className="text-text-muted">
                         {r.date ? formatDate(r.date) : '—'}

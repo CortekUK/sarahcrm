@@ -18,13 +18,18 @@ import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, ExternalLink, Handshake } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { dbErrorMessage, isHttpUrl } from '@/lib/form-validation'
 
 type PartnerLogo = Database['public']['Tables']['partner_logos']['Row']
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
-  image_url: z.string().url('Valid URL required'),
-  website_url: z.string().optional(),
+  image_url: z.string().url('Please upload a logo'),
+  website_url: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || isHttpUrl(v), 'Enter a full link starting with https://'),
   display_order: z.coerce.number().int().min(0),
   is_visible: z.boolean(),
 })
@@ -98,7 +103,7 @@ export function PartnersPage() {
       setEditingItem(null)
       fetchItems()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(dbErrorMessage(err, 'Failed to save'))
     } finally {
       setSaving(false)
     }
@@ -290,7 +295,12 @@ export function PartnersPage() {
             error={form.formState.errors.image_url?.message}
             hint="Transparent PNG recommended. The homepage strip shows logos in monochrome and lights up on hover."
           />
-          <Input label="Website URL" placeholder="https://" {...form.register('website_url')} />
+          <Input
+            label="Website URL"
+            placeholder="https://"
+            error={form.formState.errors.website_url?.message}
+            {...form.register('website_url')}
+          />
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"

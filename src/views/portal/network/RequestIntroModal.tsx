@@ -96,7 +96,7 @@ export function RequestIntroModal({ open, targetName, onClose, onSubmit }: Props
             Send request to The Club
           </PortalButton>
           {error && (
-            <p className="mt-2 text-center text-[12px] text-rose-300/90 day:text-rose-700">{error}</p>
+            <p role="alert" className="mt-2 text-center text-[12px] text-accent-warm">{error}</p>
           )}
         </div>
       </div>

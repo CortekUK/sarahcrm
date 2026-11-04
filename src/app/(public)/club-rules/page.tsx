@@ -1,9 +1,21 @@
+import type { Metadata } from 'next'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter, EditorialMeta } from '@/components/website/night/primitives/Chapter'
 import { TracingBeam } from '@/components/website/night/effects/TracingBeam'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 import { getPageHero } from '@/lib/cms/heroes'
+
+export const metadata: Metadata = {
+  title: 'Club Rules | The Club by Sarah Restrick',
+  description:
+    'The house rules and etiquette that keep The Club a considered, private space for members and their guests.',
+  openGraph: {
+    title: 'Club Rules | The Club by Sarah Restrick',
+    description:
+      'The house rules and etiquette that keep The Club a considered, private space for members and their guests.',
+  },
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Club Rules — the official member guidelines, set as an editorial

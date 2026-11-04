@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import type { Database } from '@/types/database'
@@ -33,30 +33,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // The profile row loaded (or loading) for this user id. getSession() and the
+  // INITIAL_SESSION event both report the same user, and TOKEN_REFRESHED fires
+  // hourly — none of those should refetch the profile or hand consumers a new
+  // user object (pages keyed on `user` would reload).
+  const profileFor = useRef<string | null>(null)
+
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    function apply(session: Session | null, event?: string) {
+      const next = session?.user ?? null
       setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchProfile(session.user.id)
-      } else {
+      setUser((prev) =>
+        prev && next && prev.id === next.id && event !== 'USER_UPDATED' ? prev : next,
+      )
+      if (!next) {
+        profileFor.current = null
+        setProfile(null)
         setLoading(false)
+        return
       }
-    })
+      if (profileFor.current !== next.id || event === 'USER_UPDATED') {
+        profileFor.current = next.id
+        fetchProfile(next.id)
+      }
+    }
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => apply(session))
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session)
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          fetchProfile(session.user.id)
-        } else {
-          setProfile(null)
-          setLoading(false)
-        }
-      }
+      (event, session) => apply(session, event),
     )
 
     return () => subscription.unsubscribe()
@@ -68,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .select('*')
       .eq('id', userId)
       .single()
+    if (profileFor.current !== userId) return
     setProfile(data)
     setLoading(false)
   }

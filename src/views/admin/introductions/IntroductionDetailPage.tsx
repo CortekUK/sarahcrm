@@ -203,6 +203,15 @@ export function IntroductionDetailPage() {
   const companyB = intro.member_b?.company_name ?? intro.member_b?.profiles?.company_name
   const currentOrder = STATUS_ORDER[intro.status]
   const isDeclined = intro.status === 'declined'
+  // Declined but never sent and never answered = closed by the Club
+  // (dismissed suggestion / turned-down request), not by the members (#30).
+  const closedByClub =
+    isDeclined &&
+    !intro.sent_at &&
+    !intro.email_a_sent_at &&
+    !intro.email_b_sent_at &&
+    intro.member_a_response === 'pending' &&
+    intro.member_b_response === 'pending'
   const isCompleted = intro.status === 'completed'
   const isTerminal = isCompleted || isDeclined
 
@@ -254,8 +263,8 @@ export function IntroductionDetailPage() {
             {/* Arrow */}
             <div className="flex flex-col items-center gap-2 shrink-0">
               <ArrowRight size={20} className="text-gold" />
-              <Badge variant={introStatusBadge[intro.status]} dot>
-                {intro.status}
+              <Badge variant={closedByClub ? 'draft' : introStatusBadge[intro.status]} dot>
+                {closedByClub ? 'dismissed' : intro.status}
               </Badge>
               {intro.match_score != null && (
                 <span className="text-sm font-medium text-gold">
@@ -303,7 +312,7 @@ export function IntroductionDetailPage() {
           {/* Member responses (notes are for The Club only) */}
           {(intro.status === 'sent' ||
             intro.status === 'accepted' ||
-            intro.status === 'declined' ||
+            (intro.status === 'declined' && !closedByClub) ||
             intro.status === 'completed') && (
             <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4">
               {(
@@ -384,8 +393,12 @@ export function IntroductionDetailPage() {
                 <XIcon size={16} className="text-accent-warm" />
               </div>
               <div>
-                <p className="font-medium text-accent-warm">Declined</p>
-                <p className="text-xs text-text-dim">This introduction was declined</p>
+                <p className="font-medium text-accent-warm">{closedByClub ? 'Dismissed' : 'Declined'}</p>
+                <p className="text-xs text-text-dim">
+                  {closedByClub
+                    ? 'Closed by the Club before it was sent — the members were not contacted.'
+                    : 'This introduction was declined'}
+                </p>
               </div>
             </div>
           ) : (
@@ -541,6 +554,7 @@ export function IntroductionDetailPage() {
             )}
             <IntroOutcomeForm
               introId={intro.id}
+              status={intro.status}
               initial={{
                 outcome: intro.outcome,
                 meeting_held_at: intro.meeting_held_at,

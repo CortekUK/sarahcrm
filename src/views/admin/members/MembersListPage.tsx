@@ -147,21 +147,33 @@ export function MembersListPage() {
   }, [])
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
+    // Accent-insensitive ("zoe" finds "Zoë") and phone-aware (digits only,
+    // so "07700 900" finds "+44 7700 900…").
+    const fold = (v: string | null | undefined) =>
+      (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const term = fold(search.trim())
+    const termDigits = term.replace(/\D/g, '')
     return members.filter((m) => {
       if (tierFilter !== 'all' && m.membership_tier !== tierFilter) return false
       if (statusFilter !== 'all' && m.membership_status !== statusFilter) return false
       if (tagFilter !== 'all' && !m.member_tags?.some((t) => t.tag_id === tagFilter)) return false
       if (!term) return true
-      const name = `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.toLowerCase()
-      const company = (m.company_name ?? m.profiles?.company_name ?? '').toLowerCase()
-      const email = (m.profiles?.email ?? '').toLowerCase()
-      const job = (m.profiles?.job_title ?? '').toLowerCase()
+      const name = fold(`${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`)
+      const company = fold(m.company_name ?? m.profiles?.company_name)
+      const email = fold(m.profiles?.email)
+      const job = fold(m.profiles?.job_title)
+      const phoneDigits = (m.profiles?.phone ?? '').replace(/\D/g, '')
+      const phoneHit =
+        termDigits.length >= 4 &&
+        (phoneDigits.includes(termDigits) ||
+          // UK numbers: "07700…" vs stored "+447700…"
+          (termDigits.startsWith('0') && phoneDigits.includes(termDigits.slice(1))))
       return (
         name.includes(term) ||
         company.includes(term) ||
         email.includes(term) ||
-        job.includes(term)
+        job.includes(term) ||
+        phoneHit
       )
     })
   }, [members, search, tierFilter, statusFilter, tagFilter])

@@ -11,6 +11,24 @@ import { Send, CalendarClock, Sparkles, Mail, AlertCircle, MousePointerClick, Ch
 import { DateTimeField } from '@/components/ui/DateTimeField'
 import { defaultIntroEmail } from '@/lib/introductions/intro-email'
 import { IntroHistoryBadge, useIntroHistory } from './IntroHistoryBadge'
+import { UK_TIME_ZONE } from '@/lib/utils'
+
+/** 'YYYY-MM-DD' or an ISO timestamp → UK-style "Tue 20 Oct 2026" (#31). */
+function ukSendDate(value: string): string {
+  if (!value) return ''
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
+  const d = new Date(dateOnly ? `${value}T12:00:00Z` : value)
+  if (Number.isNaN(d.getTime())) return value
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: UK_TIME_ZONE,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+    .format(d)
+    .replace(',', '')
+}
 
 export interface ComposeMember {
   id: string
@@ -184,7 +202,7 @@ export function IntroComposeModal({
         }
       } else {
         set((x) => ({ ...x, busy: false, result: 'scheduled', scheduledFor: s.date, showSchedule: false }))
-        toast({ title: 'Scheduled', description: `Will send on ${s.date}.` })
+        toast({ title: 'Scheduled', description: `Will send on ${ukSendDate(s.date)}.` })
       }
     } catch {
       set((x) => ({ ...x, busy: false }))
@@ -332,7 +350,7 @@ function SideEditor({
         ) : state.result === 'scheduled' ? (
           <div className="flex items-center justify-between gap-2 rounded-[var(--radius-md)] bg-gold-muted/50 border border-border-gold px-3 py-2.5">
             <span className="flex items-center gap-2 text-sm text-gold">
-              <CalendarClock size={15} /> Scheduled for {state.scheduledFor}
+              <CalendarClock size={15} /> Scheduled for {ukSendDate(state.scheduledFor)}
             </span>
             <button
               type="button"

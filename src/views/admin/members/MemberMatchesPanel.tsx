@@ -608,6 +608,7 @@ export function MemberMatchesPanel({
             </p>
             <IntroOutcomeForm
               introId={outcomeIntro.introId}
+              status={outcomeIntro.status}
               initial={{
                 outcome: outcomeIntro.outcome,
                 meeting_held_at: outcomeIntro.meetingHeldAt,

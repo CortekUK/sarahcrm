@@ -135,6 +135,23 @@ const INTENT_LABELS: Record<string, string> = {
   press: 'Press / media',
 }
 
+// Stored intent / source / status values come from public input, so a value
+// like '__proto__' or 'constructor' must never index straight into a plain
+// object — that returned Object.prototype and crashed the page (QA #44).
+function lookup(map: Record<string, string>, key: string | null | undefined): string | undefined {
+  if (!key || !Object.prototype.hasOwnProperty.call(map, key)) return undefined
+  return map[key]
+}
+function labelOf(map: Record<string, string>, key: string | null | undefined): string {
+  return lookup(map, key) ?? String(key ?? '')
+}
+
+function statusVariant(status: string | null | undefined) {
+  return status && Object.prototype.hasOwnProperty.call(statusBadge, status)
+    ? statusBadge[status as EnquiryStatus]
+    : 'draft'
+}
+
 function fullName(e: Pick<EnquiryRow, 'first_name' | 'last_name'>): string {
   return `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Unknown'
 }
@@ -368,14 +385,14 @@ export function EnquiriesListPage() {
         title="Enquiries"
         description="Notes from the public contact form. Read the brief, reply from your own email client — the row is marked replied automatically — and keep a private note for context."
         meta={
-          <span className="text-xs text-text-dim">
+          <span className="text-xs text-text-dim break-words min-w-0">
             {counts.total} total · {counts.new} new · {counts.replied} replied
           </span>
         }
       />
 
       {/* ── Stat tiles ─────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 [&>*]:min-w-0">
         <StatTile label="Total" value={counts.total} icon={<Inbox size={14} />} tone="neutral" />
         <StatTile
           label="New"
@@ -540,7 +557,7 @@ export function EnquiriesListPage() {
                       <TableCell>
                         {intent ? (
                           <Badge variant="info" className="whitespace-nowrap">
-                            {INTENT_LABELS[intent] ?? intent}
+                            {labelOf(INTENT_LABELS, intent)}
                           </Badge>
                         ) : (
                           <span className="text-text-dim text-xs">—</span>
@@ -550,7 +567,7 @@ export function EnquiriesListPage() {
                         <ScoreMeter score={e.lead_score} />
                       </TableCell>
                       <TableCell className="text-text-muted text-xs whitespace-nowrap">
-                        {e.source ? (SOURCE_LABELS[e.source] ?? e.source) : '—'}
+                        {e.source ? labelOf(SOURCE_LABELS, e.source) : '—'}
                       </TableCell>
                       {/* Owner dropdown — stop the row click from opening the modal */}
                       <TableCell onClick={(ev) => ev.stopPropagation()}>
@@ -571,7 +588,7 @@ export function EnquiriesListPage() {
                       </TableCell>
                       <TableCell>
                         <Badge
-                          variant={statusBadge[(e.status as EnquiryStatus) ?? 'new']}
+                          variant={statusVariant(e.status)}
                           dot
                           className="capitalize"
                         >
@@ -742,6 +759,7 @@ function EnquiryDetailModal({
   onDelete: () => void
   onEnrich: () => Promise<void>
 }) {
+  const confirm = useConfirm()
   const [notes, setNotes] = useState(enquiry.admin_notes ?? '')
   const [enriching, setEnriching] = useState(false)
   const status = (enquiry.status as EnquiryStatus) ?? 'new'
@@ -791,13 +809,13 @@ function EnquiryDetailModal({
         {/* Top row: status + meta */}
         <div className="flex flex-wrap items-center gap-3 justify-between">
           <div className="flex items-center gap-2">
-            <Badge variant={statusBadge[status]} dot className="capitalize">
+            <Badge variant={statusVariant(status)} dot className="capitalize">
               {status}
             </Badge>
             {intent && (
               <Badge variant="info">
                 <Tag size={10} className="mr-1" />
-                {INTENT_LABELS[intent] ?? intent}
+                {labelOf(INTENT_LABELS, intent)}
               </Badge>
             )}
           </div>
@@ -841,7 +859,7 @@ function EnquiryDetailModal({
               </span>
               {enquiry.source && (
                 <span className="ml-auto text-[11px] text-text-dim">
-                  via {SOURCE_LABELS[enquiry.source] ?? enquiry.source}
+                  via {labelOf(SOURCE_LABELS, enquiry.source)}
                 </span>
               )}
             </div>
@@ -876,7 +894,7 @@ function EnquiryDetailModal({
               </span>
               {enquiry.call_team && (
                 <span className="ml-auto text-[11px] text-text-dim">
-                  {CALL_TEAM_LABELS[enquiry.call_team] ?? enquiry.call_team}
+                  {labelOf(CALL_TEAM_LABELS, enquiry.call_team)}
                 </span>
               )}
             </div>
@@ -959,9 +977,21 @@ function EnquiryDetailModal({
             </Button>
           )}
           {status !== 'closed' && (
-            <Button variant="secondary" onClick={() => onStatusChange('closed')}>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: 'Mark this enquiry closed?',
+                  description:
+                    'It moves to the Closed tab and drops out of the New / Replied queues. You can reopen it later. (To just hide this panel, use “Close panel”.)',
+                  confirmLabel: 'Mark enquiry closed',
+                  tone: 'warning',
+                })
+                if (ok) onStatusChange('closed')
+              }}
+            >
               <Archive size={14} />
-              Close
+              Mark enquiry closed
             </Button>
           )}
           {status !== 'new' && (
@@ -969,10 +999,13 @@ function EnquiryDetailModal({
               Reopen
             </Button>
           )}
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" onClick={onDelete}>
               <Trash2 size={14} className="text-accent-warm" />
               Delete
+            </Button>
+            <Button variant="ghost" onClick={onClose}>
+              Close panel
             </Button>
           </div>
         </div>
@@ -1263,10 +1296,10 @@ function StatTile({
   }[tone]
   return (
     <Card>
-      <CardContent className="p-5">
-        <div className="flex items-center gap-1.5">
+      <CardContent className="p-4 md:p-5">
+        <div className="flex items-center gap-1.5 min-w-0">
           <span className={toneClass}>{icon}</span>
-          <p className="text-[10px] font-medium uppercase tracking-[0.15em] text-text-muted">
+          <p className="text-[10px] font-medium uppercase tracking-[0.15em] text-text-muted truncate">
             {label}
           </p>
         </div>

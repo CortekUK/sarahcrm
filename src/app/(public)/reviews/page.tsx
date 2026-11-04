@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
@@ -8,6 +9,17 @@ import { type CarouselTestimonial } from '@/components/website/night/home/Voices
 import { VoicesList } from '@/components/website/night/home/VoicesList'
 import { getPageHero } from '@/lib/cms/heroes'
 import { ArrowUpRight, Quote } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Reviews | The Club by Sarah Restrick',
+  description:
+    'What members and guests say about their evenings with The Club by Sarah Restrick.',
+  openGraph: {
+    title: 'Reviews | The Club by Sarah Restrick',
+    description:
+      'What members and guests say about their evenings with The Club by Sarah Restrick.',
+  },
+}
 
 export const revalidate = 60
 

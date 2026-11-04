@@ -1,21 +1,34 @@
 // Public unsubscribe landing. Hit by the footer link in every
-// campaign email — token comes from mailing_list.unsubscribe_token
-// (one per subscriber). Server component so we can update the DB
-// inline; no client JS needed.
+// campaign email. Two link types:
+//   ?token=<uuid>          — newsletter subscriber (mailing_list.unsubscribe_token)
+//   ?e=<b64 email>&sig=<…> — member link (HMAC-signed email)
 //
-// Idempotent — landing on the page twice with the same token sets
-// unsubscribed_at the first time and is a no-op the second time.
+// GET never changes anything: mail security scanners pre-open every link
+// in an email, so opening this page only *reads* who the link belongs to.
+// The visitor must press "Confirm unsubscribe", which POSTs to
+// /api/newsletter/unsubscribe.
 
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { Check, ArrowUpRight, AlertCircle } from 'lucide-react'
+import { verifyMemberUnsubscribe } from '@/lib/email/unsubscribe'
+import { ConfirmUnsubscribe } from './ConfirmUnsubscribe'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-interface PageProps {
-  searchParams: Promise<{ token?: string }>
+export const metadata: Metadata = {
+  title: 'Unsubscribe | The Club',
+  description: 'Manage your email preferences for The Club by Sarah Restrick.',
+  robots: { index: false, follow: false },
 }
+
+interface PageProps {
+  searchParams: Promise<{ token?: string; e?: string; sig?: string }>
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function getAdminDb() {
   return createAdminClient(
@@ -25,52 +38,62 @@ function getAdminDb() {
   )
 }
 
+// Masks the local part so a forwarded link doesn't fully expose the address.
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@')
+  if (!domain) return email
+  const visible = local.slice(0, Math.min(2, local.length))
+  return `${visible}${'•'.repeat(Math.max(1, local.length - visible.length))}@${domain}`
+}
+
 export default async function UnsubscribePage({ searchParams }: PageProps) {
-  const { token } = await searchParams
-  let state: 'ok' | 'already' | 'missing' | 'unknown' = 'missing'
+  const { token, e, sig } = await searchParams
+  let state: 'confirm' | 'already' | 'invalid' = 'invalid'
   let email: string | null = null
+  let body: { token: string } | { e: string; sig: string } | null = null
 
   if (token) {
-    const admin = getAdminDb()
-    const { data: row } = await admin
-      .from('mailing_list')
-      .select('id, email, unsubscribed_at')
-      .eq('unsubscribe_token', token)
-      .maybeSingle()
-    if (!row) {
-      state = 'unknown'
-    } else if (row.unsubscribed_at) {
-      state = 'already'
-      email = row.email
-    } else {
-      await admin
+    if (UUID_RE.test(token)) {
+      // Read-only lookup — no writes on GET.
+      const { data: row } = await getAdminDb()
         .from('mailing_list')
-        .update({ unsubscribed_at: new Date().toISOString() })
-        .eq('id', row.id)
-      state = 'ok'
-      email = row.email
+        .select('email, unsubscribed_at')
+        .eq('unsubscribe_token', token)
+        .maybeSingle()
+      if (row) {
+        email = row.email
+        state = row.unsubscribed_at ? 'already' : 'confirm'
+        body = { token }
+      }
+    }
+  } else if (e && sig) {
+    const verified = verifyMemberUnsubscribe(e, sig)
+    if (verified) {
+      email = verified
+      state = 'confirm'
+      body = { e, sig }
     }
   }
 
   return (
     <section className="relative min-h-[80vh] bg-ink flex items-center justify-center px-6 py-24">
       <div className="max-w-xl w-full text-center border border-bronze/40 bg-graphite/60 backdrop-blur-sm p-12 lg:p-16">
-        {state === 'ok' || state === 'already' ? (
+        {state === 'confirm' && body ? (
+          <ConfirmUnsubscribe body={body} displayEmail={email ? maskEmail(email) : null} />
+        ) : state === 'already' ? (
           <>
             <div className="w-16 h-16 mx-auto rounded-full bg-bronze/15 border border-bronze/40 flex items-center justify-center mb-7">
               <Check size={28} strokeWidth={1.5} className="text-bronze-light" />
             </div>
             <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
-              {state === 'already' ? 'Already removed' : 'Unsubscribed'}
+              Already removed
             </p>
             <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.4vw,2.8rem)] leading-[1.1] text-ivory mb-6">
-              {state === 'already'
-                ? "You're already off the list."
-                : 'You will no longer receive our notes.'}
+              You&apos;re already off the list.
             </h1>
             <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-[1.7]">
               {email
-                ? `We've removed ${email} from our newsletter. If this was a mistake, you're welcome back any time.`
+                ? `${maskEmail(email)} no longer receives our newsletter. If this was a mistake, you're welcome back any time.`
                 : 'If this was a mistake, you can resubscribe from the homepage.'}
             </p>
           </>
@@ -80,7 +103,7 @@ export default async function UnsubscribePage({ searchParams }: PageProps) {
               <AlertCircle size={28} strokeWidth={1.5} className="text-bronze-light" />
             </div>
             <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
-              {state === 'missing' ? 'No token' : 'Token not recognised'}
+              {token || e || sig ? 'Link not recognised' : 'No link'}
             </p>
             <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.4vw,2.8rem)] leading-[1.1] text-ivory mb-6">
               We couldn&apos;t find that link.

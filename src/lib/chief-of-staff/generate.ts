@@ -115,7 +115,7 @@ function templatedNarrative(d: ChiefOfStaffData): string {
     riskBits.push(
       `${d.risks.membersAtRisk.length} member${
         d.risks.membersAtRisk.length === 1 ? '' : 's'
-      } at risk (${d.risks.membersAtRisk.map((m) => `${m.name} ${m.churn}`).join(', ')})`,
+      } at risk (${d.risks.membersAtRisk.map((m) => `${m.name}, churn score ${m.churn}/100`).join(', ')})`,
     )
   }
   if (d.risks.sponsorAssetsMissing > 0)
@@ -128,7 +128,8 @@ function templatedNarrative(d: ChiefOfStaffData): string {
 }
 
 const SYSTEM_PROMPT =
-  "You are Sarah's chief of staff; write a crisp, warm, plain-English morning briefing highlighting only what needs her attention today, grouped: Memberships, Sales, Events, Team, Finance, Risks. British English. No fluff."
+  "You are Sarah's chief of staff; write a crisp, warm, plain-English morning briefing highlighting only what needs her attention today, grouped: Memberships, Sales, Events, Team, Finance, Risks. British English. No fluff. " +
+  "Each at-risk member's `churn` is a churn score from 0 to 100, not a percentage or probability — write it as 'churn score N/100'."
 
 export async function generateChiefOfStaffReport(
   admin: Admin,

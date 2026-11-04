@@ -38,6 +38,9 @@ interface MemberBilling {
   renewal_date: string | null
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+  // 'monthly' | 'annual' (from the approved application) — the member's
+  // real billing cadence.
+  payment_frequency: string | null
   // Set when this row is a rep under an organisation's primary account.
   // Reps don't carry their own Stripe fields — billing is the parent's.
   parent_member_id: string | null
@@ -51,8 +54,28 @@ interface PlanDisplay {
   name: string
   /** Amount charged this cadence in pence (annual or monthly). */
   amount_pence: number
-  /** Whether the amount is per month or per year. */
-  cadence: 'monthly' | 'annual'
+  /** Whether the amount is per month or per year (null = not on file). */
+  cadence: 'monthly' | 'annual' | null
+}
+
+// Normalise a stored cadence ('annual', 'Annually', 'yearly', 'monthly'…).
+function toCadence(v: string | null | undefined): 'monthly' | 'annual' | null {
+  const f = (v ?? '').trim().toLowerCase()
+  if (['annual', 'annually', 'yearly', 'year'].includes(f)) return 'annual'
+  if (['monthly', 'month'].includes(f)) return 'monthly'
+  return null
+}
+
+// Payment descriptions written by the server can carry internal Stripe ids,
+// e.g. "Membership — initial payment (sub sub_1Q…)". Members never need those.
+function cleanPaymentDescription(d: string | null): string {
+  const cleaned = (d ?? '')
+    .replace(/\(\s*(?:sub|subscription|invoice|pi|ch|in|cs|cus)?\s*(?:sub|in|pi|ch|cs|cus|seti|pm|py|price|prod|evt)_[A-Za-z0-9]+\s*\)/g, '')
+    .replace(/\b(?:sub|in|pi|ch|cs|cus|seti|pm|py|price|prod|evt)_[A-Za-z0-9]{6,}\b/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;:)])/g, '$1')
+    .trim()
+  return cleaned || 'Membership payment'
 }
 
 interface PaymentRow {
@@ -130,7 +153,7 @@ export function PortalBillingPage() {
     const { data: memberData } = await supabase
       .from('members')
       .select(
-        'id, membership_tier, membership_type, membership_status, renewal_date, stripe_customer_id, stripe_subscription_id, parent_member_id',
+        'id, membership_tier, membership_type, membership_status, renewal_date, stripe_customer_id, stripe_subscription_id, payment_frequency, parent_member_id',
       )
       .eq('profile_id', profileId)
       .single()
@@ -188,9 +211,10 @@ export function PortalBillingPage() {
         .limit(20),
     ])
 
-    const cadence: 'monthly' | 'annual' =
-      (appRes.data?.payment_preference as 'monthly' | 'annual' | undefined) ??
-      'monthly'
+    // Real cadence: the member record first (set on approval), then the
+    // approved application. Never assume monthly — an annual member was
+    // shown "Monthly £250/month".
+    const cadence = toCadence(memberData.payment_frequency) ?? toCadence(appRes.data?.payment_preference)
     const planSlug = appRes.data?.preferred_tier ?? null
 
     let plan: PlanDisplay | null = null
@@ -209,7 +233,9 @@ export function PortalBillingPage() {
           amount_pence:
             cadence === 'annual'
               ? planRow.annual_price_pence
-              : planRow.monthly_price_pence,
+              : cadence === 'monthly'
+                ? planRow.monthly_price_pence
+                : 0,
           cadence,
         }
       }
@@ -233,7 +259,9 @@ export function PortalBillingPage() {
           amount_pence:
             cadence === 'annual'
               ? byTier.annual_price_pence
-              : byTier.monthly_price_pence,
+              : cadence === 'monthly'
+                ? byTier.monthly_price_pence
+                : 0,
           cadence,
         }
       }
@@ -375,7 +403,7 @@ export function PortalBillingPage() {
   const isRep = !!member.parent_member_id
   // Members are charged net + 20% VAT (stored quoted_amount_pence = net*1.2).
   // The plan tables hold the NET price, so we gross it up for display.
-  const planAmountInclVat = planDisplay
+  const planAmountInclVat = planDisplay?.cadence
     ? Math.round(planDisplay.amount_pence * 1.2)
     : null
 
@@ -388,8 +416,8 @@ export function PortalBillingPage() {
       />
 
       {error && (
-        <div className="mb-6 px-5 py-4 border-l-2 border-rose-500/70 bg-rose-900/15">
-          <p className="font-[family-name:var(--font-editorial)] italic text-[13.5px] text-rose-200">
+        <div role="alert" className="mb-6 px-5 py-4 border-l-2 border-accent-warm/70 bg-accent-warm/10">
+          <p className="font-[family-name:var(--font-editorial)] italic text-[13.5px] text-ivory-soft">
             {error}
           </p>
         </div>
@@ -437,18 +465,25 @@ export function PortalBillingPage() {
               {planDisplay?.name ?? tierLabels[member.membership_tier]}
               <span className="text-ivory-soft font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] ml-2">
                 · {member.membership_type}
+                {planDisplay?.cadence ? ` · ${planDisplay.cadence === 'annual' ? 'Annual' : 'Monthly'}` : ''}
               </span>
             </dd>
           </div>
           <div>
             <dt className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.32em] text-bronze-light/85 mb-2">
-              {planDisplay?.cadence === 'annual' ? 'Annually' : 'Monthly'}
+              {planDisplay?.cadence === 'annual'
+                ? 'Annually'
+                : planDisplay?.cadence === 'monthly'
+                  ? 'Monthly'
+                  : 'Price'}
             </dt>
             <dd className="font-[family-name:var(--font-display)] text-[15px] text-ivory leading-tight tabular-nums">
               {planAmountInclVat != null ? formatCurrency(planAmountInclVat) : '—'}
-              <span className="text-slate-haze font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] ml-1">
-                / {planDisplay?.cadence === 'annual' ? 'year' : 'month'}
-              </span>
+              {planDisplay?.cadence && (
+                <span className="text-slate-haze font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.22em] ml-1">
+                  / {planDisplay.cadence === 'annual' ? 'year' : 'month'}
+                </span>
+              )}
               {planAmountInclVat != null && (
                 <span className="block mt-0.5 text-slate-haze font-[family-name:var(--font-meta)] text-[9px] uppercase tracking-[0.22em] normal-case">
                   incl. VAT
@@ -568,8 +603,32 @@ export function PortalBillingPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[640px]">
+          <>
+          {/* Mobile: stacked rows (the table was cut off on phones). */}
+          <ul className="sm:hidden divide-y divide-graphite-line/30 border-t border-graphite-line/55">
+            {payments.map((p) => (
+              <li key={p.id} className="py-4 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-[family-name:var(--font-editorial)] text-[13.5px] text-ivory-soft break-words">
+                    {cleanPaymentDescription(p.description)}
+                  </p>
+                  <p className="mt-1 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.22em] text-slate-haze">
+                    {p.paid_at ? formatDate(p.paid_at) : formatDate(p.created_at)}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right space-y-1.5">
+                  <p className="font-[family-name:var(--font-display)] text-[14px] text-ivory tabular-nums">
+                    {formatCurrency(p.amount_pence)}
+                  </p>
+                  <PortalBadge variant={paymentStatusVariant[p.status]} dot>
+                    {p.status}
+                  </PortalBadge>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[560px]">
               <thead>
                 <tr className="border-b border-graphite-line/55">
                   {['Description', 'Amount', 'Date', 'Status'].map((h) => (
@@ -589,7 +648,7 @@ export function PortalBillingPage() {
                     className="border-b border-graphite-line/30 hover:bg-graphite/30 transition-colors"
                   >
                     <td className="py-4 font-[family-name:var(--font-editorial)] text-[13.5px] text-ivory-soft">
-                      {p.description || 'Membership payment'}
+                      {cleanPaymentDescription(p.description)}
                     </td>
                     <td className="py-4 font-[family-name:var(--font-display)] text-[14px] text-ivory tabular-nums">
                       {formatCurrency(p.amount_pence)}
@@ -607,6 +666,7 @@ export function PortalBillingPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </PortalCard>
     </div>

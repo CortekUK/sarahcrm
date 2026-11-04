@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { forwardRef, useEffect, useId, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Controller, useForm } from 'react-hook-form'
@@ -62,6 +62,14 @@ import {
 // ─────────────────────────────────────────────────────────────────────
 
 const HERO_IMAGE = '/theclub-section.png'
+// Draft of the answers kept in sessionStorage so a refresh doesn't wipe
+// them (cleared on the success page). Card details never touch it —
+// they live inside Stripe Elements.
+// (Same key string is cleared in ./success/page.tsx.)
+const APPLICATION_DRAFT_KEY = 'theclub:membership-application-draft'
+const PHOTO_MAX_BYTES = 8 * 1024 * 1024
+const PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']
+const PHOTO_MIME = ['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 const PHOTO_BUCKET = 'content'
 const PHOTO_FOLDER = 'applicants'
 
@@ -277,15 +285,57 @@ const PAYMENTS = [
 ] as const
 
 // ─── Schema ────────────────────────────────────────────────────────────
+// `{ error }` on each base type replaces zod's generic "Invalid input"
+// message when a field has never been touched (value undefined).
+const required = (msg = 'Required') => z.string({ error: msg }).trim().min(1, msg)
+
+function isHttpUrl(v: string): boolean {
+  try {
+    const u = new URL(v)
+    return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.')
+  } catch {
+    return false
+  }
+}
+
+// Optional link — empty is fine, otherwise a full http(s) address.
+const optionalUrl = z
+  .string()
+  .trim()
+  .max(500, 'That link is too long')
+  .optional()
+  .refine((v) => !v || isHttpUrl(v), {
+    message: 'Please enter a full link starting with https:// (e.g. https://linkedin.com/in/you)',
+  })
+
+const BIO_MIN = 20
+const BIO_MAX = 2000
+
 const schema = z.object({
-  first_name: z.string().min(1, 'Required'),
-  last_name: z.string().min(1, 'Required'),
-  email: z.string().email('Please enter a valid email'),
-  phone: z.string().min(1, 'Required'),
-  address_line_1: z.string().min(1, 'Required'),
+  first_name: required().max(100, 'That name is too long'),
+  last_name: required().max(100, 'That name is too long'),
+  email: z
+    .string({ error: 'Please enter your email address' })
+    .trim()
+    .min(1, 'Please enter your email address')
+    .email('Please enter a valid email address, e.g. name@example.com'),
+  // PhoneField emits "+44 7700 900123" (or '' when empty).
+  phone: z
+    .string({ error: 'Please enter your phone number' })
+    .trim()
+    .min(1, 'Please enter your phone number')
+    .refine(
+      (v) => {
+        const national = v.replace(/^\+\d+\s*/, '').replace(/\D/g, '')
+        const all = v.replace(/\D/g, '')
+        return national.length >= 6 && all.length <= 15
+      },
+      { message: 'Please enter a valid phone number — digits only, e.g. 7700 900123' },
+    ),
+  address_line_1: required('Please enter the first line of your address'),
   address_line_2: z.string().optional(),
-  city: z.string().min(1, 'Required'),
-  postcode: z.string().min(1, 'Required'),
+  city: required('Please enter your town or city'),
+  postcode: required('Please enter your postcode').max(12, 'Please check your postcode'),
 
   preferred_location: z.enum(['Manchester', 'Leeds', 'London'], {
     error: 'Please choose a city',
@@ -298,21 +348,36 @@ const schema = z.object({
   nationality: z.string().optional(),
   identifies_as: z.string().optional(),
   pronouns: z.string().optional(),
-  bio: z.string().min(20, 'Please share a few lines about yourself'),
+  bio: z
+    .string({ error: 'Please share a few lines about yourself' })
+    .trim()
+    .min(BIO_MIN, `Please share a few lines about yourself (at least ${BIO_MIN} characters)`)
+    .max(BIO_MAX, `Please keep your bio under ${BIO_MAX.toLocaleString('en-GB')} characters`),
 
-  linkedin_url: z.string().optional(),
-  instagram_url: z.string().optional(),
-  x_url: z.string().optional(),
-  youtube_url: z.string().optional(),
-  tiktok_url: z.string().optional(),
-  website_url: z.string().optional(),
+  linkedin_url: optionalUrl,
+  instagram_url: optionalUrl,
+  x_url: optionalUrl,
+  youtube_url: optionalUrl,
+  tiktok_url: optionalUrl,
+  website_url: optionalUrl,
 
-  company: z.string().min(1, 'Required'),
-  industry: z.string().min(1, 'Required'),
-  position: z.string().min(1, 'Required'),
-  work_email: z.string().email('Please enter a valid work email').optional().or(z.literal('')),
-  annual_turnover: z.string().optional(),
-  employees: z.string().optional(),
+  company: required(),
+  industry: required(),
+  position: required(),
+  work_email: z
+    .string()
+    .trim()
+    .email('Please enter a valid work email, e.g. you@company.com')
+    .optional()
+    .or(z.literal('')),
+  annual_turnover: z.string().max(100, 'That is too long').optional(),
+  employees: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || /^\d{1,7}(\s*[-–]\s*\d{1,7}|\+)?$/.test(v.replace(/,/g, '').trim()), {
+      message: 'Please enter a number or a range, e.g. 12, 10-20 or 50+',
+    }),
   referral_source: z.string().optional(),
   referral_name: z.string().optional(),
   // Due-diligence / introduction strategy (Spec §2/§3). Optional so they
@@ -337,8 +402,8 @@ const FIELDS_BY_STEP: (keyof FormData)[][] = [
   ['preferred_location'],
   [], // interests — optional
   ['bio'],
-  [], // online profiles — all optional
-  ['company', 'industry', 'position'],
+  ['linkedin_url', 'instagram_url', 'x_url', 'youtube_url', 'tiktok_url', 'website_url'],
+  ['company', 'industry', 'position', 'work_email', 'annual_turnover', 'employees'],
   ['preferred_tier'],
   ['payment_preference'],
   [], // payment details — card handled by Stripe Elements, no RHF fields
@@ -464,6 +529,8 @@ export default function MembershipApplicationPage() {
     watch,
     setValue,
     getValues,
+    reset,
+    setError: setFieldError,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -481,6 +548,48 @@ export default function MembershipApplicationPage() {
       window.history.replaceState(null, '', window.location.pathname)
     }
   }, [])
+
+  // ── Draft: restore on mount, save on every change ──────────────────
+  // `draftVersion` bumps after a restore so controlled widgets that only
+  // read their value on mount (PhoneField) re-mount with the saved value.
+  const [draftVersion, setDraftVersion] = useState(0)
+  const draftReadyRef = useRef(false)
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(APPLICATION_DRAFT_KEY)
+      if (raw) {
+        const draft = JSON.parse(raw) as {
+          values?: Partial<FormData>
+          step?: number
+          applicationId?: string | null
+        }
+        if (draft.values && typeof draft.values === 'object') {
+          reset({ interests: [], personal_interests: [], ...draft.values })
+          // Never resume on the card page — its Stripe secret is gone.
+          const savedStep = Math.max(0, Math.min(STEPS.length - 2, Number(draft.step) || 0))
+          setStep(savedStep)
+          if (draft.applicationId) setApplicationId(draft.applicationId)
+          setDraftVersion((v) => v + 1)
+        }
+      }
+    } catch {
+      /* storage blocked or corrupt draft — start fresh */
+    }
+    draftReadyRef.current = true
+  }, [reset])
+
+  const watchedValues = watch()
+  useEffect(() => {
+    if (!draftReadyRef.current) return
+    try {
+      window.sessionStorage.setItem(
+        APPLICATION_DRAFT_KEY,
+        JSON.stringify({ values: watchedValues, step, applicationId }),
+      )
+    } catch {
+      /* storage full / blocked — the draft is a convenience only */
+    }
+  }, [watchedValues, step, applicationId])
 
   // If the applicant changes cadence after a SetupIntent was created, the
   // quoted amount we'll charge on approval is now stale — drop the card
@@ -504,6 +613,10 @@ export default function MembershipApplicationPage() {
   // /login rather than letting them sink time into the rest of the
   // 8-step wizard.
   const [checkingEmail, setCheckingEmail] = useState(false)
+  // Email that the server said already has an account — shown inline on
+  // the contact step (with a sign-in link) until the email is changed.
+  const [takenEmail, setTakenEmail] = useState<string | null>(null)
+  const currentEmail = (watchedValues.email ?? '').trim().toLowerCase()
   async function emailAlreadyHasAccount(email: string): Promise<boolean> {
     try {
       const res = await fetch('/api/check-member-email', {
@@ -546,6 +659,11 @@ export default function MembershipApplicationPage() {
         const taken = await emailAlreadyHasAccount(email)
         setCheckingEmail(false)
         if (taken) {
+          setTakenEmail(email.toLowerCase())
+          setFieldError('email', {
+            type: 'manual',
+            message: 'This email already has a Club account.',
+          })
           toast({
             title: 'Already a member',
             description:
@@ -554,6 +672,7 @@ export default function MembershipApplicationPage() {
           })
           return
         }
+        setTakenEmail(null)
       }
     }
 
@@ -736,9 +855,26 @@ export default function MembershipApplicationPage() {
               <form onSubmit={(e) => e.preventDefault()} noValidate>
                 {/* Per-step content. `key` resets reveal animations on
                     step change so each step's fields fade in cleanly. */}
-                <div key={`body-${step}`}>
+                <div key={`body-${step}-${draftVersion}`}>
                   {step === 0 && (
                     <ContactStep register={register} errors={errors} control={control} />
+                  )}
+                  {step === 0 && takenEmail && takenEmail === currentEmail && (
+                    <div
+                      role="alert"
+                      className="mt-8 px-5 py-4 border border-bronze/40 bg-bronze/10 text-[13.5px] text-ivory leading-relaxed"
+                    >
+                      An account already exists for <strong>{takenEmail}</strong>, so this
+                      application can&apos;t continue — members don&apos;t need to apply again.{' '}
+                      <Link
+                        href="/login"
+                        className="text-bronze-light underline decoration-bronze/40 underline-offset-4 hover:text-ivory"
+                      >
+                        Sign in to your account
+                      </Link>{' '}
+                      instead, or use a different email address if you&apos;re applying for
+                      someone new.
+                    </div>
                   )}
                   {step === 1 && (
                     <Controller
@@ -1299,6 +1435,7 @@ function ProfileStep({
           as="textarea"
           rows={6}
           placeholder="Tell us about you — how you got to where you are now in business, what you're looking for, what you currently do for networking."
+          maxLength={BIO_MAX}
           error={errors.bio?.message}
           {...register('bio')}
         />
@@ -1375,13 +1512,23 @@ function PhotoUploader({
 
   async function handle(file: File) {
     setErr(null)
-    if (file.size > 8 * 1024 * 1024) {
-      setErr('File is too large (max 8 MB).')
+    // Images only — the storage policy refuses any other extension, so
+    // check here and explain instead of surfacing a raw storage error.
+    const rawExt = file.name.includes('.') ? (file.name.split('.').pop() ?? '').toLowerCase() : ''
+    const typeOk = !file.type || PHOTO_MIME.includes(file.type.toLowerCase())
+    if (!PHOTO_EXTENSIONS.includes(rawExt) || !typeOk) {
+      setErr('Please choose a photo in JPG, PNG, WebP or HEIC format.')
+      return
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      setErr(
+        `That photo is ${(file.size / (1024 * 1024)).toFixed(1)} MB — please choose one under 8 MB.`,
+      )
       return
     }
     setUploading(true)
     try {
-      const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase()
+      const ext = rawExt
       const safe = file.name
         .replace(/\.[^.]+$/, '')
         .replace(/[^a-zA-Z0-9-_]/g, '-')
@@ -1393,11 +1540,17 @@ function PhotoUploader({
         .from(PHOTO_BUCKET)
         .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type })
       if (uploadErr) {
-        setErr(uploadErr.message)
+        console.warn('[membership-application] photo upload failed', uploadErr)
+        setErr(
+          'We couldn’t upload that photo. Please try a JPG, PNG, WebP or HEIC image under 8 MB — or skip it, the photo is optional.',
+        )
         return
       }
       const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path)
       onChange(data.publicUrl)
+    } catch (e) {
+      console.warn('[membership-application] photo upload error', e)
+      setErr('We couldn’t upload that photo. Please check your connection and try again.')
     } finally {
       setUploading(false)
     }
@@ -1452,17 +1605,22 @@ function PhotoUploader({
               Remove
             </button>
           )}
-          <p className="text-[11px] text-slate-dim">JPG, PNG or WebP — up to 8 MB. Optional.</p>
+          <p className="text-[11px] text-slate-dim">JPG, PNG, WebP or HEIC — up to 8 MB. Optional.</p>
         </div>
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
           onChange={onPick}
+          aria-label="Upload a profile photo"
           className="hidden"
         />
       </div>
-      {err && <p className="mt-3 text-[12px] text-bronze-light italic">{err}</p>}
+      {err && (
+        <p role="alert" className="mt-3 text-[12px] text-bronze-light italic">
+          {err}
+        </p>
+      )}
     </div>
   )
 }
@@ -1746,6 +1904,18 @@ function PaymentStep({
               <p className="font-[family-name:var(--font-editorial)] italic text-[14.5px] text-ivory-soft mt-3 leading-[1.6]">
                 {p.body}
               </p>
+              {/* Amount visible before choosing, so the two options can be
+                  compared at a glance. */}
+              {tierInfo && priceRow && (
+                <p className="mt-5 flex items-baseline gap-2">
+                  <span className="font-[family-name:var(--font-display)] text-[24px] text-ivory leading-none tabular-nums">
+                    {pence(total)}
+                  </span>
+                  <span className="font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.28em] text-slate-haze">
+                    {perLabel} incl. VAT
+                  </span>
+                </p>
+              )}
               <span
                 className={cn(
                   'mt-6 inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] transition-colors duration-500',
@@ -1772,7 +1942,7 @@ function PaymentStep({
                   <div className="flex items-baseline justify-between gap-4">
                     <div className="min-w-0">
                       <p className="font-[family-name:var(--font-display)] text-[20px] text-ivory leading-tight">
-                        {tierInfo.label} Membership
+                        {`${tierInfo.label.replace(/\s*membership\s*$/i, '')} Membership`}
                       </p>
                       <p className="font-[family-name:var(--font-editorial)] italic text-[12.5px] text-ivory-soft mt-1">
                         12 month contract · paid {p.value}
@@ -2066,17 +2236,26 @@ interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement | HTMLTe
 }
 
 const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
-  ({ label, error, as = 'input', rows, ...rest }, ref) => {
+  ({ label, error, as = 'input', rows, id, ...rest }, ref) => {
+    const autoId = useId()
+    const fieldId = id ?? autoId
+    const errorId = `${fieldId}-error`
     const inputClass =
       'w-full px-0 py-3 bg-transparent border-b border-graphite-line/80 focus:border-bronze focus:outline-none text-[15px] text-ivory placeholder:text-slate-dim transition-colors'
     return (
       <div>
-        <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+        <label
+          htmlFor={fieldId}
+          className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3"
+        >
           {label}
         </label>
         {as === 'textarea' ? (
           <textarea
             ref={ref as React.Ref<HTMLTextAreaElement>}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
             rows={rows ?? 5}
             className={inputClass + ' resize-none'}
             {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
@@ -2084,11 +2263,18 @@ const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
         ) : (
           <input
             ref={ref as React.Ref<HTMLInputElement>}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
             className={inputClass}
             {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
           />
         )}
-        {error && <p className="mt-2 text-[12px] text-bronze-light italic">{error}</p>}
+        {error && (
+          <p id={errorId} className="mt-2 text-[12px] text-bronze-light italic">
+            {error}
+          </p>
+        )}
       </div>
     )
   },
@@ -2110,6 +2296,8 @@ interface EditorialSelectProps {
 }
 
 function EditorialSelect({ label, value, onChange, options, error }: EditorialSelectProps) {
+  const labelId = useId()
+  const buttonId = useId()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -2160,11 +2348,19 @@ function EditorialSelect({ label, value, onChange, options, error }: EditorialSe
 
   return (
     <div className="relative" ref={wrapRef}>
-      <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+      <label
+        id={labelId}
+        htmlFor={buttonId}
+        className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3"
+      >
         {label}
       </label>
       <button
+        id={buttonId}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-labelledby={`${labelId} ${buttonId}`}
         onClick={() => setOpen((o) => !o)}
         className={cn(
           'w-full flex items-center justify-between gap-3 px-0 py-3 bg-transparent border-b text-[15px] text-left transition-colors',
@@ -2204,6 +2400,7 @@ function EditorialSelect({ label, value, onChange, options, error }: EditorialSe
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search…"
+                  aria-label={`Search ${label}`}
                   className="w-full pl-7 pr-2 py-2 bg-graphite-2 border border-graphite-line/60 focus:border-bronze rounded-sm text-[13px] text-ivory placeholder:text-slate-dim outline-none transition-colors"
                 />
               </div>
@@ -2212,6 +2409,7 @@ function EditorialSelect({ label, value, onChange, options, error }: EditorialSe
           <div
             ref={listRef}
             role="listbox"
+            aria-labelledby={labelId}
             className="max-h-64 overflow-y-auto overscroll-contain"
           >
             {filtered.length === 0 ? (

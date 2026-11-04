@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { NightHero } from '@/components/website/night/home/NightHero'
 import { HeroPartnersMarquee } from '@/components/website/night/home/HeroPartnersMarquee'
 import { IntroChapter } from '@/components/website/night/home/IntroChapter'
@@ -8,6 +9,17 @@ import { GalleryBento } from '@/components/website/night/home/GalleryBento'
 import { EventsTeaser } from '@/components/website/night/home/EventsTeaser'
 import { ApplyClose } from '@/components/website/night/home/ApplyClose'
 import { getPageHero } from '@/lib/cms/heroes'
+
+export const metadata: Metadata = {
+  title: "The Club by Sarah Restrick | Private Members' Club",
+  description:
+    "A private members' business club in Manchester, Leeds and London — curated dining, events and introductions for founders and business leaders.",
+  openGraph: {
+    title: "The Club by Sarah Restrick | Private Members' Club",
+    description:
+      "A private members' business club in Manchester, Leeds and London — curated dining, events and introductions for founders and business leaders.",
+  },
+}
 
 export const revalidate = 60
 

@@ -198,7 +198,17 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => editor.saveTemplate(false, false, true)}
+            onClick={() => {
+              if (editor.blocks.length === 0 && !(editor.settings.subject ?? '').trim()) {
+                toast({
+                  title: 'Nothing to save yet',
+                  description: 'Add a subject line or at least one block before saving a draft.',
+                  variant: 'destructive',
+                })
+                return
+              }
+              editor.saveTemplate(false, false, true)
+            }}
             disabled={editor.isSaving}
             className="h-8 border-graphite-line/70 bg-transparent text-ivory-soft hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.06]"
           >

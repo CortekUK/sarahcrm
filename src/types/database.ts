@@ -1196,6 +1196,8 @@ export type Database = {
           status: Database["public"]["Enums"]["event_status"]
           title: string
           travel_included: boolean
+          vat_mode: string
+          vat_rate: number
           updated_at: string
           venue_address: string | null
           venue_city: string | null
@@ -1232,6 +1234,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["event_status"]
           title: string
           travel_included?: boolean
+          vat_mode?: string
+          vat_rate?: number
           updated_at?: string
           venue_address?: string | null
           venue_city?: string | null
@@ -1268,6 +1272,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["event_status"]
           title?: string
           travel_included?: boolean
+          vat_mode?: string
+          vat_rate?: number
           updated_at?: string
           venue_address?: string | null
           venue_city?: string | null

@@ -22,6 +22,7 @@ import {
   type PortalBadgeVariant,
 } from '@/components/portal/PortalChrome'
 import { PortalSelect } from '@/components/portal/PortalSelect'
+import { dbErrorMessage } from '@/components/portal/portal-utils'
 
 // ── Member-safe row shape ────────────────────────────────────────────
 // CRITICAL: the member SELECT RLS returns the WHOLE row, and this reads
@@ -77,12 +78,22 @@ const STATUS_META: Record<string, { label: string; variant: PortalBadgeVariant }
 
 const requestSchema = z.object({
   request_type: z.string().min(1, 'Please choose a type'),
-  description: z.string().min(1, 'Tell us what you need'),
+  description: z.string().trim().min(1, 'Tell us what you need'),
   event_name: z.string().optional(),
   location: z.string().optional(),
   dates: z.string().optional(),
-  guests: z.string().optional(),
-  budget: z.string().optional(),
+  guests: z
+    .string()
+    .optional()
+    .refine((v) => !v?.trim() || (/^\d+$/.test(v.trim()) && parseInt(v.trim(), 10) >= 1), {
+      message: 'Guests must be a whole number, 1 or more',
+    }),
+  budget: z
+    .string()
+    .optional()
+    .refine((v) => !v?.trim() || poundsToPence(v) !== null, {
+      message: 'Budget must be an amount, e.g. 5000 or £5,000',
+    }),
 })
 
 type RequestFormData = z.infer<typeof requestSchema>
@@ -91,8 +102,9 @@ function poundsToPence(v: string | undefined): number | null {
   if (!v) return null
   const cleaned = v.replace(/[£,\s]/g, '').trim()
   if (!cleaned) return null
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null
   const n = Number(cleaned)
-  if (Number.isNaN(n)) return null
+  if (!Number.isFinite(n) || n < 0) return null
   return Math.round(n * 100)
 }
 
@@ -144,12 +156,12 @@ export function PortalConciergePage() {
   }
 
   async function onSubmit(data: RequestFormData) {
-    if (!memberId) return
+    if (!memberId || submitting) return
     setSubmitting(true)
     setSubmitted(false)
     setError(null)
 
-    const guests = data.guests?.trim() ? parseInt(data.guests, 10) : null
+    const guests = data.guests?.trim() ? parseInt(data.guests.trim(), 10) : null
     const { error: insertError } = await supabase.from('concierge_requests').insert({
       member_id: memberId,
       request_type: data.request_type,
@@ -164,7 +176,8 @@ export function PortalConciergePage() {
 
     setSubmitting(false)
     if (insertError) {
-      setError('We could not submit your request. Please try again.')
+      // REQUEST_INVALID / REQUEST_RATE_LIMITED etc. — show the DB's message.
+      setError(dbErrorMessage(insertError, 'We could not submit your request. Please try again.'))
       return
     }
     setSubmitted(true)
@@ -194,12 +207,17 @@ export function PortalConciergePage() {
         <PortalSectionTitle eyebrow="New request">Make a request.</PortalSectionTitle>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-            <PortalField label="What do you need" error={errors.request_type?.message}>
+            <PortalField
+              label="What do you need"
+              htmlFor="concierge-request-type"
+              error={errors.request_type?.message}
+            >
               <Controller
                 name="request_type"
                 control={control}
                 render={({ field }) => (
                   <PortalSelect
+                    id="concierge-request-type"
                     value={field.value}
                     onChange={field.onChange}
                     options={REQUEST_TYPES}
@@ -228,24 +246,47 @@ export function PortalConciergePage() {
             <PortalField label="Dates">
               <PortalInput placeholder="e.g. 12–14 July" {...register('dates')} />
             </PortalField>
-            <PortalField label="Guests">
-              <PortalInput type="number" placeholder="e.g. 4" {...register('guests')} />
+            <PortalField label="Guests" error={errors.guests?.message}>
+              <PortalInput
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                placeholder="e.g. 4"
+                {...register('guests')}
+              />
             </PortalField>
-            <PortalField label="Budget" hint="Optional — helps us tailor the options.">
+            <PortalField
+              label="Budget"
+              hint="Optional — helps us tailor the options."
+              error={errors.budget?.message}
+            >
               <PortalInput placeholder="e.g. £5,000" {...register('budget')} />
             </PortalField>
           </div>
 
-          {error && <p className="text-[12.5px] text-rose-300 italic">{error}</p>}
+          {error && (
+            <p role="alert" className="text-[12.5px] text-accent-warm italic">
+              {error}
+            </p>
+          )}
 
           <div className="flex items-center justify-end gap-5 pt-1">
             {submitted && (
-              <span className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-emerald-300">
+              <span
+                role="status"
+                className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10.5px] uppercase tracking-[0.28em] text-accent"
+              >
                 <Check size={13} strokeWidth={2} />
                 Request sent
               </span>
             )}
-            <PortalButton type="submit" icon={<Send size={13} strokeWidth={1.5} />} loading={submitting}>
+            <PortalButton
+              type="submit"
+              icon={<Send size={13} strokeWidth={1.5} />}
+              loading={submitting}
+              disabled={submitting}
+            >
               Send request
             </PortalButton>
           </div>

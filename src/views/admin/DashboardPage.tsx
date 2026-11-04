@@ -16,7 +16,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, UK_TIME_ZONE } from '@/lib/utils'
 import { CalendarPlus, ArrowRight } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -25,7 +25,10 @@ type EventStatus = Database['public']['Enums']['event_status']
 type IntroStatus = Database['public']['Enums']['intro_status']
 
 interface UpcomingEvent extends Event {
+  /** Confirmed bookings — same definition as the "Confirmed Bookings" card. */
   bookings_count: number
+  /** Pending (awaiting payment / approval) — shown separately. */
+  pending_count: number
 }
 
 interface DashboardStats {
@@ -194,10 +197,12 @@ export function DashboardPage() {
         .is('member_id', null)
         .gte('created_at', startOfMonth),
 
-      // New members this month
+      // New ACTIVE members this month (cancelled / pending sign-ups don't
+      // count — the "+N" sits under the active-members total).
       supabase
         .from('members')
         .select('id', { count: 'exact', head: true })
+        .eq('membership_status', 'active')
         .gte('created_at', startOfMonth)
         .is('deleted_at', null),
 
@@ -211,7 +216,7 @@ export function DashboardPage() {
       // Upcoming events
       supabase
         .from('events')
-        .select('*, bookings(count)')
+        .select('*, bookings(status)')
         .in('status', ['published', 'live', 'draft'])
         .gte('start_date', now.toISOString())
         .order('start_date', { ascending: true })
@@ -314,10 +319,11 @@ export function DashboardPage() {
     })
 
     const events = (eventsRes.data ?? []).map((e: Record<string, unknown>) => {
-      const bookings = e.bookings as { count: number }[] | undefined
+      const bookings = (e.bookings as { status: string | null }[] | undefined) ?? []
       return {
         ...e,
-        bookings_count: bookings?.[0]?.count ?? 0,
+        bookings_count: bookings.filter((b) => b.status === 'confirmed').length,
+        pending_count: bookings.filter((b) => b.status === 'pending').length,
       }
     }) as UpcomingEvent[]
 
@@ -339,6 +345,7 @@ export function DashboardPage() {
   }
 
   const today = new Intl.DateTimeFormat('en-GB', {
+    timeZone: UK_TIME_ZONE,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -350,7 +357,7 @@ export function DashboardPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
-          Welcome back, Sarah
+          <AdminGreeting />
         </h1>
         <p className="text-sm text-text-muted mt-1">{today}</p>
       </div>
@@ -360,7 +367,7 @@ export function DashboardPage() {
         <StatCard
           label="Active Members"
           value={stats.totalActiveMembers.toLocaleString('en-GB')}
-          changeText={`+${stats.newMembersThisMonth} this month`}
+          changeText={`+${stats.newMembersThisMonth} new this month`}
           changeType={stats.newMembersThisMonth > 0 ? 'positive' : 'neutral'}
         />
         <StatCard
@@ -372,7 +379,7 @@ export function DashboardPage() {
         <StatCard
           label="Confirmed Bookings"
           value={stats.totalBookings.toLocaleString('en-GB')}
-          changeText="across all events"
+          changeText="confirmed, across all events"
           changeType="neutral"
         />
         <StatCard
@@ -479,7 +486,7 @@ export function DashboardPage() {
                   <TableHead>Event</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Venue</TableHead>
-                  <TableHead>Bookings</TableHead>
+                  <TableHead>Confirmed</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -506,6 +513,11 @@ export function DashboardPage() {
                       {event.capacity && (
                         <span className="text-text-dim">
                           {' '}/ {event.capacity}
+                        </span>
+                      )}
+                      {event.pending_count > 0 && (
+                        <span className="block text-xs text-text-dim">
+                          +{event.pending_count} pending
                         </span>
                       )}
                     </TableCell>
@@ -629,4 +641,26 @@ export function DashboardPage() {
       </div>
     </div>
   )
+}
+
+/** "Welcome back, <first name>" for the signed-in admin (#31). */
+function AdminGreeting() {
+  const [firstName, setFirstName] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data: auth } = await supabase.auth.getUser()
+      if (!auth.user) return
+      const { data } = await supabase
+        .from('profiles')
+        .select('first_name')
+        .eq('id', auth.user.id)
+        .maybeSingle()
+      if (!cancelled) setFirstName(data?.first_name?.trim() || null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return <>{firstName ? `Welcome back, ${firstName}` : 'Welcome back'}</>
 }

@@ -198,7 +198,7 @@ export function TemplatesListPage({ initialView = 'templates' }: { initialView?:
 
       {/* Stats */}
       {!showContracts && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatTile label="Total" value={counts.total} />
           <StatTile label="Campaign" value={counts.campaign} />
           <StatTile label="Automation" value={counts.automation} />

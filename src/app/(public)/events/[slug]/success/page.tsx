@@ -88,6 +88,10 @@ export default function EventBookingSuccessPage({
 function SuccessInner({ slug }: { slug: string }) {
   const searchParams = useSearchParams()
   const sessionId = searchParams.get('session_id')
+  // Free events skip Stripe — /api/events/checkout returns ?free=1.
+  const isFree = searchParams.get('free') === '1'
+  // Free event that needs the team's approval (auto_confirm off).
+  const freePending = isFree && searchParams.get('pending') === '1'
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'failed'>(
     'idle',
   )
@@ -140,13 +144,27 @@ function SuccessInner({ slug }: { slug: string }) {
           <Check size={28} strokeWidth={1.5} className="text-bronze-light day:text-bronze-dark" />
         </div>
         <p className="font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.4em] text-bronze-light mb-5">
-          {held ? 'Booking received' : 'Booking confirmed'}
+          {freePending ? 'Booking received' : isFree ? 'No payment needed' : held ? 'Booking received' : 'Booking confirmed'}
         </p>
         <h1 className="font-[family-name:var(--font-display)] text-[clamp(2rem,3.4vw,2.8rem)] leading-[1.1] text-ivory mb-6">
-          {held ? 'Your request is in.' : 'A seat is yours.'}
+          {freePending
+            ? 'Your request is in.'
+            : isFree
+              ? 'You’re booked — no payment needed.'
+              : held
+                ? 'Your request is in.'
+                : 'A seat is yours.'}
         </h1>
         <p className="font-[family-name:var(--font-editorial)] italic text-[16px] text-ivory-soft leading-[1.7]">
-          {held
+          {freePending
+            ? 'This is a complimentary evening, so nothing is charged. The team will review your booking and confirm your place by email.'
+            : isFree
+            ? 'This is a complimentary evening, so nothing has been charged. A confirmation note with the details will land in your inbox within the next few minutes.'
+            : !sessionId
+            ? 'Thank you — your booking is with the team. Please check your inbox for the confirmation.'
+            : syncState === 'failed'
+            ? 'Thank you — we’re still confirming your payment with our card processor. A confirmation note will land in your inbox shortly; if it doesn’t arrive, please get in touch and the team will check it for you.'
+            : held
             ? 'Your card is securely held — nothing has been charged. The team will review your booking and, once approved, confirm your place and take payment then. If it isn’t approved, no payment is taken.'
             : 'Your payment is secured and the booking is with the team. A confirmation note will land in your inbox within the next few minutes.'}
         </p>

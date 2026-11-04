@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Loader2,
@@ -20,7 +20,8 @@ import {
 import { Button, Badge, Card, Modal, Select, Textarea, Input } from '@/components/ui'
 import { toast } from '@/lib/hooks/use-toast'
 import { apiClient } from '@/lib/http'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
+import { supabase } from '@/lib/supabase/client'
 
 // Ranked sponsor prospects for one event. Warm CRM matches sit first (the API
 // orders them), cold discovery follows and is visually distinct.
@@ -76,9 +77,104 @@ function dmName(dm: DecisionMaker): string {
   return `${dm.first_name ?? ''} ${dm.last_name ?? ''}`.trim() || 'Contact'
 }
 
+interface EventPickOption {
+  id: string
+  title: string
+  start_date: string | null
+}
+
+function fmtEventDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: UK_TIME_ZONE,
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
+// Embedded in the hub with an eventId → just the list. Opened on its own
+// (/dashboard/sponsorship/prospects, with or without ?event_id=) → an event
+// picker above the list so a link or bookmark is never a dead end.
 export function ProspectsView({ eventId: eventIdProp }: { eventId?: string }) {
+  if (eventIdProp !== undefined) return <ProspectsList eventId={eventIdProp} />
+  return <StandaloneProspects />
+}
+
+function StandaloneProspects() {
   const searchParams = useSearchParams()
-  const eventId = eventIdProp ?? searchParams.get('event_id') ?? ''
+  const router = useRouter()
+  const [eventId, setEventId] = useState(searchParams.get('event_id') ?? '')
+  const [events, setEvents] = useState<EventPickOption[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState<string | null>(null)
+
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true)
+    setEventsError(null)
+    const { data, error } = await supabase
+      .from('events')
+      .select('id, title, start_date')
+      .order('start_date', { ascending: false })
+      .limit(100)
+    if (error) setEventsError(error.message || 'Could not load events.')
+    else setEvents((data ?? []) as EventPickOption[])
+    setEventsLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
+
+  function pick(id: string) {
+    setEventId(id)
+    router.replace(id ? `/dashboard/sponsorship/prospects?event_id=${id}` : '/dashboard/sponsorship/prospects')
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="max-w-md">
+        <Select
+          label="Event"
+          placeholder={
+            eventsLoading
+              ? 'Loading events…'
+              : eventsError
+                ? 'Events could not be loaded'
+                : events.length
+                  ? 'Choose an event…'
+                  : 'No events found'
+          }
+          options={events.map((ev) => ({
+            value: ev.id,
+            label: ev.start_date ? `${ev.title} · ${fmtEventDate(ev.start_date)}` : ev.title,
+          }))}
+          value={eventId}
+          onChange={(e) => pick(e.target.value)}
+        />
+        {eventsError && (
+          <div className="mt-2 flex items-center gap-3">
+            <p className="text-xs text-accent-warm">Couldn’t load events: {eventsError}</p>
+            <Button size="sm" variant="secondary" onClick={loadEvents} loading={eventsLoading}>
+              Retry
+            </Button>
+          </div>
+        )}
+      </div>
+      {eventId && (
+        <div className="flex justify-end">
+          <QueueLink eventId={eventId} />
+        </div>
+      )}
+      <ProspectsList key={eventId} eventId={eventId} />
+    </div>
+  )
+}
+
+function ProspectsList({ eventId }: { eventId: string }) {
 
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [loading, setLoading] = useState(false)
@@ -218,7 +314,7 @@ export function ProspectsView({ eventId: eventIdProp }: { eventId?: string }) {
   if (!eventId) {
     return (
       <Card className="p-8 text-center text-text-muted">
-        Choose an event to see its ideal sponsors.
+        Choose an event above to see its ideal sponsors.
       </Card>
     )
   }

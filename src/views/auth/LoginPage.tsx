@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Eye, EyeOff, Shield, KeyRound } from 'lucide-react'
+import { Eye, EyeOff, Shield } from 'lucide-react'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -20,8 +20,8 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>
 
 // One shared shell, two role-specific surfaces.
-//   role="member" → /login           — warm bronze frame, member dev login
-//   role="admin"  → /admin/login     — graphite frame with gold shield, admin dev login
+//   role="member" → /login           — warm bronze frame
+//   role="admin"  → /admin/login     — graphite frame with gold shield
 // The role is the *expected* role for the URL. If a user signs in with the
 // wrong role for the page (e.g. an admin account on /login, or a member
 // account on /admin/login), we sign them straight back out and show an error.
@@ -45,7 +45,6 @@ const COPY: Record<Role, {
   eyebrow: string
   heading: string
   subheading: string
-  dev: { label: string; email: string; password: string }
   // null on the member surface — members must not be shown a path to the
   // staff admin door (Sarah's request). Admin surface keeps a link back to
   // the member sign-in.
@@ -56,11 +55,6 @@ const COPY: Record<Role, {
     eyebrow: 'Member portal',
     heading: 'Welcome back',
     subheading: 'Sign in to your members area',
-    dev: {
-      label: 'Member dev login',
-      email: 'devmember@sarahrestrick.com',
-      password: 'DevTest2026!',
-    },
     altLink: null,
     footnote: (
       <>
@@ -74,11 +68,6 @@ const COPY: Record<Role, {
     eyebrow: 'Administrator',
     heading: 'Staff sign in',
     subheading: 'Access the management dashboard',
-    dev: {
-      label: 'Admin dev login',
-      email: 'dev@sarahrestrick.com',
-      password: 'DevTest2026!',
-    },
     altLink: { href: '/login', label: 'Member sign in →' },
     footnote: (
       <>
@@ -135,10 +124,6 @@ export function LoginPage({ role }: LoginPageProps) {
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   })
-
-  function quickLogin() {
-    onSubmit({ email: copy.dev.email, password: copy.dev.password })
-  }
 
   async function onSubmit(data: LoginFormData) {
     setError(null)
@@ -238,34 +223,6 @@ export function LoginPage({ role }: LoginPageProps) {
             <span className="block w-10 h-px bg-gold" />
           </div>
         </div>
-
-        {/* Dev quick-login — moved to the TOP of the column per request, so
-            it's the first thing visible on dev builds instead of being
-            buried under the form. Hidden in production unless the dev
-            credentials match real seeded accounts. */}
-        {process.env.NODE_ENV !== 'production' && (
-          <div className="mb-6 px-4 py-3 rounded-[var(--radius-md)] border border-dashed border-border bg-surface/40">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[0.625rem] uppercase tracking-[0.2em] text-text-dim font-medium">
-                  {copy.dev.label}
-                </p>
-                <p className="text-[11px] text-text-muted truncate mt-0.5">
-                  {copy.dev.email}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={quickLogin}
-                disabled={loading}
-                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] rounded-[var(--radius-md)] border border-gold/50 text-gold hover:border-gold hover:bg-gold/10 transition-colors disabled:opacity-50"
-              >
-                <KeyRound size={12} strokeWidth={1.8} />
-                Sign in
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Login card */}
         <div className="bg-surface border border-border rounded-[var(--radius-lg)] shadow-[var(--shadow-lg)] p-8">

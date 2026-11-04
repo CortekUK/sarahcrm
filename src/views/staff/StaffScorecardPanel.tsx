@@ -23,6 +23,7 @@ import {
   hoursLoggedInWeek,
   type WeekActualInputs,
 } from '@/lib/scorecards'
+import { dbErrorMessage } from '@/lib/form-validation'
 
 // Staff self-service scorecard. RLS scopes every query to the signed-in user:
 // their own targets, their own tasks/time entries (for the live auto metrics),
@@ -65,26 +66,37 @@ export function StaffScorecardPanel() {
 
   const { met, total, score } = useMemo(() => computeScore(targets, auto), [targets, auto])
 
-  async function saveManualActual(target: ScorecardTargetRow, raw: string) {
-    const value = raw.trim() === '' ? 0 : Number(raw)
-    if (!Number.isFinite(value) || value < 0) {
-      toast({ title: 'Enter a valid number', variant: 'destructive' })
-      return
+  // Returns the message to show under the field, or null when saved / unchanged.
+  async function saveManualActual(target: ScorecardTargetRow, raw: string): Promise<string | null> {
+    const s = raw.trim().replace(/,/g, '')
+    const value = s === '' ? 0 : Number(s)
+    const tgt = Number(target.target_value ?? 0)
+    // Same bounds the database enforces for self-reported actuals.
+    const max = Math.max(tgt * 3, 1)
+    let err: string | null = null
+    if (s.startsWith('-')) err = 'The actual can’t be negative.'
+    else if (s !== '' && (!/^\d+(\.\d+)?$/.test(s) || !Number.isFinite(value))) err = 'Enter a number.'
+    else if (value > max) err = `The actual must be between 0 and 3× the target (${tgt}).`
+    if (err) {
+      toast({ title: 'Not saved', description: err, variant: 'destructive' })
+      return err
     }
-    if (value === Number(target.manual_actual ?? 0)) return
+    if (value === Number(target.manual_actual ?? 0)) return null
     const { error } = await supabase
       .from('scorecard_targets')
       .update({ manual_actual: value })
       .eq('id', target.id)
     if (error) {
-      toast({ title: 'Could not save', description: error.message, variant: 'destructive' })
+      const msg = dbErrorMessage(error)
+      toast({ title: 'Could not save', description: msg, variant: 'destructive' })
       load()
-      return
+      return msg
     }
     setTargets((prev) =>
       prev.map((t) => (t.id === target.id ? { ...t, manual_actual: value } : t)),
     )
     toast({ title: 'Saved' })
+    return null
   }
 
   if (loading) {
@@ -209,18 +221,19 @@ function ManualActualInput({
   onSave,
 }: {
   initial: number
-  onSave: (value: string) => void
+  onSave: (value: string) => Promise<string | null>
 }) {
   const [value, setValue] = useState(String(initial))
+  const [error, setError] = useState<string | null>(null)
   return (
     <Input
-      type="number"
-      min="0"
-      step="1"
+      type="text"
       inputMode="decimal"
+      aria-label="Actual"
       value={value}
+      error={error ?? undefined}
       onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onSave(value)}
+      onBlur={async () => setError(await onSave(value))}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -11,8 +12,11 @@ import {
   type VideoEntry,
 } from '@/components/website/night/VideoGallery'
 import { ArrowLeft, ArrowRight, MapPin } from 'lucide-react'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 export const revalidate = 60
+
+const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://theclubgroup.co').replace(/\/+$/, '')
 
 // ─────────────────────────────────────────────────────────────────────
 // /gallery/[slug]
@@ -36,11 +40,51 @@ function formatCategory(c: string | null) {
 function formatDate(iso: string | null) {
   if (!iso) return null
   return new Date(iso).toLocaleDateString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   })
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}): Promise<Metadata> {
+  const { slug } = await params
+  const supabase = await createClient()
+  const { data: gallery } = await supabase
+    .from('galleries')
+    .select('title, category, event_date, venue_name, location, cover_image_url')
+    .eq('slug', slug)
+    .eq('is_published', true)
+    .maybeSingle()
+  if (!gallery) return { title: 'Gallery not found | The Club by Sarah Restrick' }
+  // Galleries have no description column — build one from the particulars.
+  const parts = [
+    formatDate(gallery.event_date),
+    [gallery.venue_name, gallery.location].filter(Boolean).join(', ') || null,
+  ].filter(Boolean)
+  const description = `Photographs from ${gallery.title}${
+    parts.length ? ` — ${parts.join(' · ')}` : ''
+  }. A ${formatCategory(gallery.category).toLowerCase()} with The Club by Sarah Restrick.`
+  const images = gallery.cover_image_url
+    ? [{ url: gallery.cover_image_url, alt: gallery.title }]
+    : undefined
+  return {
+    title: `${gallery.title} — Gallery | The Club by Sarah Restrick`,
+    description,
+    alternates: { canonical: `${SITE_URL}/gallery/${slug}` },
+    openGraph: { type: 'website', title: gallery.title, description, images },
+    twitter: {
+      card: images ? 'summary_large_image' : 'summary',
+      title: gallery.title,
+      description,
+      images: gallery.cover_image_url ? [gallery.cover_image_url] : undefined,
+    },
+  }
 }
 
 export default async function GalleryDetailPage({

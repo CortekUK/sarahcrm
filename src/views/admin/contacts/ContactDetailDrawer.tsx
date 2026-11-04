@@ -84,6 +84,9 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
   const [form, setForm] = useState<FormState | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Re-subscribing an unsubscribed contact needs a note of how they asked.
+  const [resubReason, setResubReason] = useState('')
+  const [resubError, setResubError] = useState<string | null>(null)
   // Member-directory visibility, saved on toggle (independent of the form).
   const [hidden, setHidden] = useState<boolean | null>(null)
   const [hiding, setHiding] = useState(false)
@@ -91,6 +94,8 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
   useEffect(() => {
     setForm(contact ? toForm(contact) : null)
     setHidden(null)
+    setResubReason('')
+    setResubError(null)
     if (!contact) return
     // The list payload doesn't carry the flag, so read it from the record.
     let cancelled = false
@@ -127,18 +132,29 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
 
   if (!contact || !form) return null
 
+  const resubscribing = !contact.email_subscribed && form.email_subscribed
+
   async function save() {
     if (!contact || !form) return
+    if (resubscribing && resubReason.trim().length < 5) {
+      setResubError('Add a short note of how the contact asked to be re-subscribed (at least 5 characters).')
+      return
+    }
+    setResubError(null)
     setSaving(true)
     try {
       const res = await fetch(`/api/admin/contacts/${contact.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(
+          resubscribing ? { ...form, resubscribe_reason: resubReason.trim() } : form,
+        ),
       })
-      const json = await res.json()
+      const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast({ title: 'Could not save', description: json.error, variant: 'destructive' })
+        const msg = json.error || `Save failed (${res.status}).`
+        if (res.status === 409) setResubError(msg)
+        toast({ title: 'Could not save', description: msg, variant: 'destructive' })
         return
       }
       toast({ title: 'Contact updated' })
@@ -287,6 +303,26 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
             ]}
           />
         </div>
+
+        {resubscribing && (
+          <div className="space-y-1.5">
+            <Textarea
+              label="How did they ask to be re-subscribed?"
+              rows={2}
+              placeholder="e.g. Emailed on 3 Nov asking to receive the newsletter again"
+              value={resubReason}
+              onChange={(e) => {
+                setResubReason(e.target.value)
+                if (resubError) setResubError(null)
+              }}
+              error={resubError ?? undefined}
+            />
+            <p className="text-xs text-text-dim">
+              This contact unsubscribed. Only re-subscribe them if they asked to be — the note is
+              recorded on their record.
+            </p>
+          </div>
+        )}
 
         <Textarea
           label="Internal notes"

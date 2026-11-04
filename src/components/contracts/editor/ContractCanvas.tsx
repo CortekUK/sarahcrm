@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 import { renderBlocksToHTML } from '@/lib/templates/render-html'
+import { sanitizeCanvasHtml } from '@/components/templates/editor/sanitize-canvas'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
 import type {
   EditorBlock,
@@ -115,7 +116,7 @@ export function ContractCanvas({
       const html = renderBlocksToHTML([block], theme)
       const match = html.match(/<td class="club-content-cell"[^>]*>([\s\S]*?)<\/td>\s*<\/tr>\s*<tr>/)
       const inner = match ? match[1] : html
-      return replaceMergeTags(inner, SAMPLE_DATA)
+      return sanitizeCanvasHtml(replaceMergeTags(inner, SAMPLE_DATA))
     })
   }, [blocks, theme])
 
@@ -320,7 +321,7 @@ function InlineContractTextBlock({
   const savedRangeRef = useRef<Range | null>(null)
 
   if (ref.current && content.html !== lastHtmlRef.current && ref.current.innerHTML !== content.html) {
-    ref.current.innerHTML = content.html
+    ref.current.innerHTML = sanitizeCanvasHtml(content.html)
     lastHtmlRef.current = content.html
   }
 
@@ -396,7 +397,7 @@ function InlineContractTextBlock({
           minHeight: 24,
           cursor: 'text',
         }}
-        dangerouslySetInnerHTML={{ __html: content.html }}
+        dangerouslySetInnerHTML={{ __html: sanitizeCanvasHtml(content.html) }}
       />
       {selected && <FieldMenu onInsert={insertToken} />}
     </div>

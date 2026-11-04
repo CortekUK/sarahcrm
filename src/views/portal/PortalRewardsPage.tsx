@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { dbErrorMessage, dbErrorToken } from '@/components/portal/portal-utils'
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -78,6 +79,11 @@ export function PortalRewardsPage() {
   const [loading, setLoading] = useState(true)
   const [claimingId, setClaimingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Which offer the error belongs to (shown under that card).
+  const [errorOfferId, setErrorOfferId] = useState<string | null>(null)
+  // Synchronous guard — state updates are async, so a fast double-click
+  // could otherwise fire two inserts before the button disables.
+  const claimingRef = useRef(false)
 
   useEffect(() => {
     if (user?.id) init(user.id)
@@ -126,20 +132,34 @@ export function PortalRewardsPage() {
   }
 
   async function handleClaim(offerId: string) {
-    if (!member) return
+    if (!member || claimingRef.current) return
+    claimingRef.current = true
     setClaimingId(offerId)
     setError(null)
-    const { error: insertError } = await supabase.from('reward_claims').insert({
-      member_id: member.id,
-      offer_id: offerId,
-      status: 'claimed',
-    })
-    setClaimingId(null)
-    if (insertError) {
-      setError('We could not claim this offer. Please try again.')
-      return
+    setErrorOfferId(null)
+    try {
+      const { error: insertError } = await supabase.from('reward_claims').insert({
+        member_id: member.id,
+        offer_id: offerId,
+        status: 'claimed',
+      })
+      if (insertError) {
+        // DB rules: DUPLICATE_CLAIM (already claimed) / CLAIM_NOT_ALLOWED
+        // (expired, hidden or used up) — show their message.
+        setError(dbErrorMessage(insertError, 'We could not claim this offer. Please try again.'))
+        setErrorOfferId(offerId)
+        // Already claimed elsewhere (another tab) — refresh so it shows.
+        if (dbErrorToken(insertError) === 'DUPLICATE_CLAIM') await loadClaims(member.id)
+        return
+      }
+      await loadClaims(member.id)
+    } catch {
+      setError('We could not claim this offer. Please check your connection and try again.')
+      setErrorOfferId(offerId)
+    } finally {
+      claimingRef.current = false
+      setClaimingId(null)
     }
-    await loadClaims(member.id)
   }
 
   // offer_id -> the member's active (non-cancelled) claim, if any
@@ -312,7 +332,7 @@ export function PortalRewardsPage() {
                               </a>
                             )}
                             {claimed ? (
-                              <span className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-emerald-300">
+                              <span className="inline-flex items-center gap-2 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-accent">
                                 <Check size={13} strokeWidth={2} />
                                 Claimed
                               </span>
@@ -320,6 +340,7 @@ export function PortalRewardsPage() {
                               <PortalButton
                                 icon={<Ticket size={13} strokeWidth={1.5} />}
                                 loading={claimingId === offer.id}
+                                disabled={claimingId !== null}
                                 onClick={() => handleClaim(offer.id)}
                               >
                                 Claim this offer
@@ -327,6 +348,14 @@ export function PortalRewardsPage() {
                             )}
                           </div>
                         </div>
+                        {error && errorOfferId === offer.id && (
+                          <p
+                            role="alert"
+                            className="mt-4 font-[family-name:var(--font-editorial)] italic text-[12.5px] text-accent-warm"
+                          >
+                            {error}
+                          </p>
+                        )}
                       </PortalCard>
                     )
                   }),
@@ -337,7 +366,11 @@ export function PortalRewardsPage() {
         </div>
       )}
 
-      {error && <p className="mt-6 text-[12.5px] text-rose-300 italic">{error}</p>}
+      {error && !errorOfferId && (
+        <p role="alert" className="mt-6 text-[12.5px] text-accent-warm italic">
+          {error}
+        </p>
+      )}
 
       {/* Usage history */}
       <div className="mt-14 lg:mt-16">

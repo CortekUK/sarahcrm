@@ -24,7 +24,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
-import { formatDate, formatDateTime, cn } from '@/lib/utils'
+import { formatDate, formatDateTime, cn, UK_TIME_ZONE } from '@/lib/utils'
 import { Loader2, Plus, Trash2, ListTodo, MessageSquare } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -79,9 +79,26 @@ function personName(p: AdminProfile | undefined): string {
   return `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Unnamed'
 }
 
+// Today's date (yyyy-MM-dd) in UK time — not UTC, so a task due today
+// doesn't flip to "overdue" at 11pm/midnight BST.
+function ukToday(): string {
+  // en-CA formats as yyyy-MM-dd.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: UK_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
 function isOverdue(t: TaskRow): boolean {
   if (!t.due_date || t.status === 'done') return false
-  return t.due_date < new Date().toISOString().slice(0, 10)
+  return t.due_date < ukToday()
+}
+
+// Accent- and case-insensitive text for search ("cafe" finds "Café & Co").
+function fold(v: string): string {
+  return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
 const emptyForm = {
@@ -109,6 +126,10 @@ export function TasksPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [saving, setSaving] = useState(false)
+  const [titleError, setTitleError] = useState<string | null>(null)
+  // The due date the task had when opened — editing an existing overdue
+  // task shouldn't nag about its (unchanged) past date.
+  const [originalDue, setOriginalDue] = useState('')
 
   const [comments, setComments] = useState<CommentRow[]>([])
   const [newComment, setNewComment] = useState('')
@@ -153,12 +174,12 @@ export function TasksPage() {
   }, [tasks])
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = fold(query.trim())
     return tasks.filter((t) => {
       if (statusFilter === 'open' && t.status === 'done') return false
       if (statusFilter !== 'open' && statusFilter !== 'all' && t.status !== statusFilter) return false
       if (categoryFilter !== 'all' && t.category !== categoryFilter) return false
-      if (q && !`${t.title} ${t.description ?? ''}`.toLowerCase().includes(q)) return false
+      if (q && !fold(`${t.title} ${t.description ?? ''}`).includes(q)) return false
       return true
     })
   }, [tasks, statusFilter, categoryFilter, query])
@@ -166,6 +187,8 @@ export function TasksPage() {
   function openNew() {
     setEditingId(null)
     setForm({ ...emptyForm })
+    setTitleError(null)
+    setOriginalDue('')
     setComments([])
     setNewComment('')
     setModalOpen(true)
@@ -182,6 +205,8 @@ export function TasksPage() {
       assigned_to: task.assigned_to ?? '',
       due_date: task.due_date ?? '',
     })
+    setTitleError(null)
+    setOriginalDue(task.due_date ?? '')
     setComments([])
     setNewComment('')
     setModalOpen(true)
@@ -196,8 +221,22 @@ export function TasksPage() {
   async function saveTask() {
     const title = form.title.trim()
     if (!title) {
-      toast({ title: 'Title required', variant: 'destructive' })
+      setTitleError('Give the task a title')
       return
+    }
+    if (title.length > 300) {
+      setTitleError('Keep the title under 300 characters')
+      return
+    }
+    setTitleError(null)
+    if (dueInPast && form.status !== 'done') {
+      const ok = await confirm({
+        title: 'Due date is in the past',
+        description: `This task is due ${formatDate(form.due_date)}, so it will be overdue straight away. Save anyway?`,
+        confirmLabel: 'Save anyway',
+        tone: 'neutral',
+      })
+      if (!ok) return
     }
     setSaving(true)
     const payload = {
@@ -284,6 +323,8 @@ export function TasksPage() {
     if (data) setComments((c) => [...c, data])
     setNewComment('')
   }
+
+  const dueInPast = !!form.due_date && form.due_date !== originalDue && form.due_date < ukToday()
 
   if (loading) {
     return (
@@ -439,16 +480,29 @@ export function TasksPage() {
             label="Title"
             placeholder="e.g. Follow up with Soho Farmhouse on Q3 dates"
             value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            error={titleError ?? undefined}
+            aria-invalid={titleError ? true : undefined}
+            maxLength={300}
+            onChange={(e) => {
+              setForm({ ...form, title: e.target.value })
+              if (titleError && e.target.value.trim()) setTitleError(null)
+            }}
           />
-          <Textarea
-            label="Description"
-            placeholder="Context, links, what done looks like…"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            rows={3}
-          />
+          {/* Owner + due date sit near the top of the dialog so the calendar
+              has room to open below the field instead of being cut off. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <DateField
+                label="Due date"
+                value={form.due_date}
+                onChange={(v) => setForm({ ...form, due_date: v })}
+              />
+              {dueInPast && (
+                <p className="mt-1.5 text-xs text-accent-warm">
+                  This date is in the past — the task will be overdue as soon as it’s saved.
+                </p>
+              )}
+            </div>
             <SelectMenu
               label="Owner"
               value={form.assigned_to || 'none'}
@@ -458,11 +512,15 @@ export function TasksPage() {
                 ...admins.map((a) => ({ value: a.id, label: personName(a) })),
               ]}
             />
-            <DateField
-              label="Due date"
-              value={form.due_date}
-              onChange={(v) => setForm({ ...form, due_date: v })}
-            />
+          </div>
+          <Textarea
+            label="Description"
+            placeholder="Context, links, what done looks like…"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            rows={3}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <SelectMenu
               label="Category"
               value={form.category}

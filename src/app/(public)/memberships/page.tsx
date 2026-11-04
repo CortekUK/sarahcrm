@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
 import { Chapter } from '@/components/website/night/primitives/Chapter'
 import { Aurora } from '@/components/website/night/effects/Aurora'
@@ -8,6 +9,17 @@ import { createClient } from '@/lib/supabase/server'
 import { getPageHero } from '@/lib/cms/heroes'
 import { Check, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+export const metadata: Metadata = {
+  title: 'Memberships | The Club by Sarah Restrick',
+  description:
+    'Individual, Business and Corporate membership of The Club — benefits, pricing and how to apply.',
+  openGraph: {
+    title: 'Memberships | The Club by Sarah Restrick',
+    description:
+      'Individual, Business and Corporate membership of The Club — benefits, pricing and how to apply.',
+  },
+}
 
 export const revalidate = 60
 

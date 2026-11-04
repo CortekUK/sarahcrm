@@ -8,6 +8,7 @@ import { useTheme, themeColors } from '../ThemeContext'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import type { Database } from '@/types/database'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -99,7 +100,7 @@ export function PastEventsGrid({ events }: PastEventsGridProps) {
                 style={{ color: t.textDim }}
               >
                 {event.start_date
-                  ? new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+                  ? new Date(event.start_date).toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE, month: 'short', year: 'numeric' })
                   : '—'}
               </p>
             </Link>

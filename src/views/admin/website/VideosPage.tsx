@@ -17,6 +17,7 @@ import { SortableList, DragHandle } from '@/components/admin/SortableList'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { Plus, Pencil, Trash2, Video, ExternalLink, PlayCircle } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { dbErrorMessage, isYouTubeUrl } from '@/lib/form-validation'
 
 type Video = Database['public']['Tables']['video_gallery']['Row']
 
@@ -27,7 +28,14 @@ const PAGE_SLUGS: { value: string; label: string }[] = [
 
 const schema = z.object({
   title: z.string().min(1, 'Title is required'),
-  youtube_url: z.string().url('Valid URL required'),
+  youtube_url: z
+    .string()
+    .trim()
+    .min(1, 'YouTube link is required')
+    .refine(
+      (v) => isYouTubeUrl(v) && extractYouTubeId(v) !== null,
+      'Enter a YouTube video link, e.g. https://youtube.com/watch?v=…',
+    ),
   page_slug: z.enum(['about', 'private-event-services']),
   display_order: z.coerce.number().int().min(0),
   is_active: z.boolean(),
@@ -142,7 +150,7 @@ export function VideosPage() {
       setEditingItem(null)
       fetchItems()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(dbErrorMessage(err, 'Failed to save'))
     } finally {
       setSaving(false)
     }

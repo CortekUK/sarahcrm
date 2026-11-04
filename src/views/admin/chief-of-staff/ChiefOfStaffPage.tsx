@@ -7,7 +7,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, UK_TIME_ZONE } from '@/lib/utils'
 import type { ChiefOfStaffReport } from '@/lib/chief-of-staff/generate'
 import {
   Loader2,
@@ -26,6 +26,7 @@ function fmtDateTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -37,7 +38,33 @@ function fmtDateTime(iso: string): string {
 function fmtDay(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return d.toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE, day: 'numeric', month: 'short' })
+}
+
+// Today's UK calendar date as YYYY-MM-DD (en-CA formats that way).
+function ukToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: UK_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+// "20 Oct" style label for a YYYY-MM-DD report date, plus how many days old it is.
+function staleInfo(reportDate: string): { label: string; daysOld: number } | null {
+  const today = ukToday()
+  if (!reportDate || reportDate >= today) return null
+  const [y, m, dd] = reportDate.split('-').map(Number)
+  const [ty, tm, td] = today.split('-').map(Number)
+  const daysOld = Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(y, m - 1, dd)) / 86_400_000)
+  const label = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date(Date.UTC(y, m - 1, dd)))
+  return { label, daysOld }
 }
 
 // Render **bold** spans inside a line of narrative.
@@ -198,6 +225,22 @@ export function ChiefOfStaffPage() {
           {error}
         </div>
       )}
+
+      {report && (() => {
+        const stale = staleInfo(report.report_date)
+        if (!stale) return null
+        return (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-accent-warm/40 bg-accent-warm/5 px-5 py-4 text-sm text-accent-warm">
+            <span className="flex items-center gap-2">
+              <AlertTriangle size={16} className="shrink-0" />
+              This briefing is from {stale.label} ({stale.daysOld === 1 ? '1 day' : `${stale.daysOld} days`} old) — its figures may be out of date.
+            </span>
+            <Button size="sm" variant="secondary" onClick={generate} loading={generating}>
+              Generate today&apos;s briefing
+            </Button>
+          </div>
+        )
+      })()}
 
       {!report || !d ? (
         <Card>
@@ -463,7 +506,9 @@ export function ChiefOfStaffPage() {
                           >
                             {m.name}
                           </Link>
-                          <Badge variant="urgent">{m.churn}</Badge>
+                          <Badge variant="urgent">
+                            <span title="Churn score (0–100, higher = more at risk)">churn score {m.churn}/100</span>
+                          </Badge>
                         </li>
                       ))}
                     </ul>

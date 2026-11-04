@@ -29,6 +29,7 @@ import { Thumbnail } from '@/components/admin/Thumbnail'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { ImportEventsModal } from './ImportEventsModal'
+import { eventErrorMessage } from './eventErrors'
 import { formatDate, formatCurrency, cn } from '@/lib/utils'
 import {
   Plus,
@@ -43,6 +44,7 @@ import {
   ClipboardList,
   ExternalLink,
   MoreVertical,
+  Search,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -107,6 +109,7 @@ export function EventsListPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [importOpen, setImportOpen] = useState(false)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     fetchAll()
@@ -161,18 +164,30 @@ export function EventsListPage() {
     !isPlanning(e) && e.start_date != null && new Date(e.start_date) >= now
   const isPast = (e: EventRow) =>
     !isPlanning(e) && e.start_date != null && new Date(e.start_date) < now
+  // Open for booking = published/live. Drafts and cancelled events still show
+  // in the lists (admins need them) but aren't counted as upcoming/bookable.
+  const isBookable = (e: EventRow) => e.status === 'published' || e.status === 'live'
+
+  // Accent/case-insensitive match on title, slug, venue and city.
+  const norm = (v: string | null | undefined) =>
+    (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const q = norm(search.trim())
+  const matches = (e: EventRow) =>
+    !q || [e.title, e.slug, e.venue_name, e.venue_city].some((f) => norm(f).includes(q))
 
   const filtered = useMemo(() => {
-    if (activeTab === 'all') return events.filter(isUpcoming)
-    if (activeTab === 'past') return events.filter(isPast)
-    if (activeTab === 'planning') return events.filter(isPlanning)
-    if (activeTab === 'private_events') return [] // separate render path
-    return events.filter((e) => e.event_type === activeTab && isUpcoming(e))
+    let list: EventRow[]
+    if (activeTab === 'all') list = events.filter(isUpcoming)
+    else if (activeTab === 'past') list = events.filter(isPast)
+    else if (activeTab === 'planning') list = events.filter(isPlanning)
+    else if (activeTab === 'private_events') return [] // separate render path
+    else list = events.filter((e) => e.event_type === activeTab && isUpcoming(e))
+    return list.filter(matches)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, activeTab, now])
+  }, [events, activeTab, now, q])
 
   const stats = useMemo(() => {
-    const upcoming = events.filter(isUpcoming)
+    const upcoming = events.filter((e) => isUpcoming(e) && isBookable(e))
     const totalRevenue = events.reduce((sum, e) => sum + (e.booking_revenue ?? 0), 0)
     const totalBookings = events.reduce(
       (sum, e) => sum + (e.bookings?.[0]?.count ?? 0),
@@ -180,6 +195,7 @@ export function EventsListPage() {
     )
     return {
       upcoming: upcoming.length,
+      bookable: upcoming.length,
       planning: events.filter(isPlanning).length,
       private: privateEvents.filter((p) => p.is_active).length,
       bookings: totalBookings,
@@ -207,7 +223,7 @@ export function EventsListPage() {
         description="Member nights, curated luxury, retreats — and a separate Private Events tab for the showcase cards on the Private Events page (external-link commissions, not bookable here)."
         meta={
           <span className="text-xs text-text-dim">
-            {events.length} bookable · {stats.upcoming} upcoming · {privateEvents.length} private showcases · {stats.bookings} bookings
+            {stats.bookable} open for booking · {privateEvents.length} private showcases · {stats.bookings} bookings
           </span>
         }
         actions={
@@ -289,6 +305,18 @@ export function EventsListPage() {
         })}
       </div>
 
+      {!isPrivateTab && (
+        <div className="mb-4 max-w-sm">
+          <Input
+            placeholder="Search events by title, venue or city"
+            aria-label="Search events"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            suffix={<Search size={15} className="text-text-dim" />}
+          />
+        </div>
+      )}
+
       <ImportEventsModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -345,7 +373,7 @@ function BookableEventsPanel({
       // Real errors here would be RLS / FK violations. Surface to the user.
       await confirm({
         title: 'Delete failed',
-        description: err.message,
+        description: eventErrorMessage(err),
         confirmLabel: 'Close',
         tone: 'warning',
       })

@@ -14,24 +14,34 @@ import { toast } from '@/lib/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { PLAN_OPTIONS } from '@/lib/membership/plans'
 import type { Database } from '@/types/database'
+import {
+  requiredName,
+  emailField,
+  phoneField,
+  urlField,
+  shortText,
+  longText,
+  readJson,
+  apiErrorText,
+} from './memberValidation'
 
 type Tag = Database['public']['Tables']['tags']['Row']
 
 const addMemberSchema = z.object({
-  first_name: z.string().min(1, 'First name is required'),
-  last_name: z.string().min(1, 'Last name is required'),
-  email: z.string().email('Please enter a valid email'),
-  phone: z.string().optional(),
-  company_name: z.string().optional(),
-  company_description: z.string().optional(),
-  company_website: z.string().optional(),
-  job_title: z.string().optional(),
+  first_name: requiredName('First name'),
+  last_name: requiredName('Last name'),
+  email: emailField,
+  phone: phoneField,
+  company_name: shortText,
+  company_description: longText,
+  company_website: urlField,
+  job_title: shortText,
   // The plan IS the tier — a single choice. membership_type is derived
   // server-side from the tier, so it isn't part of this form.
   membership_tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
   status: z.enum(['active', 'pending']),
   send_invite: z.boolean(),
-  notes: z.string().optional(),
+  notes: longText,
 })
 
 type AddMemberFormData = z.infer<typeof addMemberSchema>
@@ -114,14 +124,17 @@ export function AddMemberModal({ open, onClose, onSuccess }: AddMemberModalProps
           tag_ids: selectedTagIds,
         }),
       })
-      const json = await res.json()
+      const json = await readJson(res)
       if (!res.ok) {
-        throw new Error(json.error || 'Failed to create member')
+        // 400 = validation message, 409 = an account with this email
+        // already exists (the server never overwrites it). Both are
+        // written for the admin, so show them as-is.
+        throw new Error(apiErrorText(res, json, 'Failed to create member'))
       }
       toast({
-        title: 'Member added',
+        title: json.invite_sent ? 'Member added — invitation sent' : 'Member added',
         description: json.invite_sent
-          ? `${data.first_name} ${data.last_name} — branded invitation email sent.`
+          ? `${data.first_name} ${data.last_name} has been emailed an invitation to ${data.email}.`
           : `${data.first_name} ${data.last_name} — no email sent.`,
       })
       onSuccess()
@@ -169,8 +182,13 @@ export function AddMemberModal({ open, onClose, onSuccess }: AddMemberModalProps
               error={errors.email?.message}
               {...register('email')}
             />
-            <Input label="Phone" {...register('phone')} />
-            <Input label="Job title" className="sm:col-span-2" {...register('job_title')} />
+            <Input label="Phone" type="tel" error={errors.phone?.message} {...register('phone')} />
+            <Input
+              label="Job title"
+              className="sm:col-span-2"
+              error={errors.job_title?.message}
+              {...register('job_title')}
+            />
           </div>
         </div>
 
@@ -180,11 +198,21 @@ export function AddMemberModal({ open, onClose, onSuccess }: AddMemberModalProps
             Company
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Company name" {...register('company_name')} />
-            <Input label="Website" placeholder="https://" {...register('company_website')} />
+            <Input label="Company name" error={errors.company_name?.message} {...register('company_name')} />
+            <Input
+              label="Website"
+              placeholder="https://"
+              error={errors.company_website?.message}
+              {...register('company_website')}
+            />
           </div>
           <div className="mt-4">
-            <Textarea label="Company description" rows={2} {...register('company_description')} />
+            <Textarea
+              label="Company description"
+              rows={2}
+              error={errors.company_description?.message}
+              {...register('company_description')}
+            />
           </div>
         </div>
 
@@ -250,7 +278,13 @@ export function AddMemberModal({ open, onClose, onSuccess }: AddMemberModalProps
           </div>
         )}
 
-        <Textarea label="Internal notes" rows={2} placeholder="Optional…" {...register('notes')} />
+        <Textarea
+          label="Internal notes"
+          rows={2}
+          placeholder="Optional…"
+          error={errors.notes?.message}
+          {...register('notes')}
+        />
 
         {/* Actions */}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -79,6 +79,8 @@ export function PhoneField({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
+  const inputId = useId()
+  const errorId = `${inputId}-error`
 
   // Compose and emit. Empty national → '' so required-validation still fires.
   function emit(c: Country, n: string) {
@@ -105,7 +107,10 @@ export function PhoneField({
 
   return (
     <div ref={ref} className="relative">
-      <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+      <label
+        htmlFor={inputId}
+        className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3"
+      >
         {label}
       </label>
       <div className="flex items-center border-b border-graphite-line/80 focus-within:border-bronze transition-colors">
@@ -113,6 +118,9 @@ export function PhoneField({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
+          aria-label={`Country code: ${country.name} ${country.dial}. Change country`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
           className="flex items-center gap-2 py-3 pr-3 text-[15px] text-ivory hover:text-bronze-light transition-colors shrink-0"
         >
           <span className="text-[17px] leading-none">{country.flag}</span>
@@ -121,6 +129,9 @@ export function PhoneField({
         </button>
         {/* National number */}
         <input
+          id={inputId}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
           type="tel"
           inputMode="tel"
           autoComplete="tel-national"
@@ -134,7 +145,11 @@ export function PhoneField({
           className="flex-1 px-0 py-3 bg-transparent focus:outline-none text-[15px] text-ivory placeholder:text-slate-dim"
         />
       </div>
-      {error && <p className="mt-2 text-[12px] text-bronze-light italic">{error}</p>}
+      {error && (
+        <p id={errorId} className="mt-2 text-[12px] text-bronze-light italic">
+          {error}
+        </p>
+      )}
 
       {open && (
         <div className="absolute z-50 mt-2 left-0 w-[280px] max-h-[300px] overflow-hidden rounded-lg border border-bronze/40 bg-ink shadow-[0_24px_48px_rgba(0,0,0,0.6)]">
@@ -149,6 +164,7 @@ export function PhoneField({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search country or code"
+                aria-label="Search country or code"
                 className="w-full pl-8 pr-2 py-2 bg-graphite/50 border border-graphite-line/60 rounded text-[13px] text-ivory placeholder:text-slate-dim focus:outline-none focus:border-bronze/50"
               />
             </div>

@@ -25,6 +25,7 @@ import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import { Loader2, Plus, Trash2, BellRing } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { dbErrorMessage, parsePoundsInput, parseWholeNumberInput } from '@/lib/form-validation'
 
 type RequestRow = Database['public']['Tables']['concierge_requests']['Row']
 
@@ -100,15 +101,17 @@ function personName(p: { first_name: string | null; last_name: string | null } |
   return `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Unnamed'
 }
 
-// Pounds string → integer pence (null when blank). Kept lenient so the
-// staff can paste "1500" or "1,500.50".
+// Pounds string → integer pence (null when blank or not a valid amount).
+// Accepts "1500", "£1,500.50". Used for live previews only — save() runs
+// parsePoundsInput so bad input is reported rather than silently dropped.
 function poundsToPence(v: string): number | null {
-  const cleaned = v.replace(/[£,\s]/g, '').trim()
-  if (!cleaned) return null
-  const n = Number(cleaned)
-  if (Number.isNaN(n)) return null
-  return Math.round(n * 100)
+  const r = parsePoundsInput(v)
+  return r.error ? null : r.pence ?? null
 }
+
+// Pipeline stages a request normally passes through before delivery.
+const PRE_QUOTE = new Set(['pending', 'assigned', 'sourcing'])
+const DELIVERED_STATES = new Set(['delivered', 'feedback'])
 function penceToPounds(pence: number | null): string {
   if (pence == null) return ''
   return (pence / 100).toString()
@@ -219,7 +222,9 @@ export function ConciergePage() {
       if (!CLOSED.has(r.status)) open++
       if (r.status === 'quoted' || r.status === 'accepted' || r.status === 'booked') quoting++
       if (r.status === 'delivered' || r.status === 'feedback') delivered++
-      if (r.commission_pence) commission += r.commission_pence
+      // Declined / cancelled requests earn nothing — keep them out of the total.
+      if (r.commission_pence && r.status !== 'declined' && r.status !== 'cancelled')
+        commission += r.commission_pence
     }
     return { open, quoting, delivered, commission }
   }, [requests])
@@ -241,7 +246,9 @@ export function ConciergePage() {
 
   function openNew() {
     setEditingId(null)
-    setForm({ ...emptyForm, member_id: members[0]?.id ?? '' })
+    // Start with no member chosen so a request is never filed against the
+    // wrong person by accident — save() requires a choice.
+    setForm({ ...emptyForm })
     setModalOpen(true)
   }
 
@@ -276,13 +283,65 @@ export function ConciergePage() {
     return sale - cost
   }, [form.sale_price, form.supplier_cost])
 
+  // Warn before skipping straight from an early stage to Delivered.
+  async function confirmStatusJump(from: string, to: string): Promise<boolean> {
+    if (!PRE_QUOTE.has(from) || !DELIVERED_STATES.has(to)) return true
+    return confirm({
+      title: `Mark as ${STATUS_META[to]?.label ?? to}?`,
+      description: `This request is still at "${STATUS_META[from]?.label ?? from}" — it hasn't been quoted, accepted or booked. Jump straight to ${STATUS_META[to]?.label ?? to} anyway?`,
+      confirmLabel: 'Yes, mark it',
+      tone: 'warning',
+    })
+  }
+
   async function save() {
     if (!form.member_id) {
-      toast({ title: 'Member required', variant: 'destructive' })
+      toast({ title: 'Member required', description: 'Choose the member this request is for.', variant: 'destructive' })
       return
     }
+    if (!form.description.trim()) {
+      toast({ title: 'Description required', description: "Add the member's brief.", variant: 'destructive' })
+      return
+    }
+    const guestsRes = parseWholeNumberInput(form.guests, { label: 'Guests', min: 1, max: 1000 })
+    if (guestsRes.error) {
+      toast({ title: 'Check the guests', description: guestsRes.error, variant: 'destructive' })
+      return
+    }
+    const money: Record<'budget' | 'supplier_cost' | 'sale_price' | 'commission' | 'quoted_amount', number | null> = {
+      budget: null,
+      supplier_cost: null,
+      sale_price: null,
+      commission: null,
+      quoted_amount: null,
+    }
+    const moneyLabels = {
+      budget: 'Budget',
+      supplier_cost: 'Supplier cost',
+      sale_price: 'Sale price',
+      commission: 'Commission',
+      quoted_amount: 'Quoted to member',
+    } as const
+    for (const key of Object.keys(money) as (keyof typeof money)[]) {
+      const r = parsePoundsInput(form[key], { label: moneyLabels[key] })
+      if (r.error) {
+        toast({ title: 'Check the amounts', description: r.error, variant: 'destructive' })
+        return
+      }
+      money[key] = r.pence ?? null
+    }
+    if (money.sale_price != null && money.supplier_cost != null && money.supplier_cost > money.sale_price) {
+      const ok = await confirm({
+        title: 'Supplier cost is above the sale price',
+        description: `This request would make a loss of ${formatCurrency(money.supplier_cost - money.sale_price)}. Save it anyway?`,
+        confirmLabel: 'Save anyway',
+        tone: 'warning',
+      })
+      if (!ok) return
+    }
+    const original = editingId ? requests.find((r) => r.id === editingId) : null
+    if (!(await confirmStatusJump(original?.status ?? 'pending', form.status))) return
     setSaving(true)
-    const guests = form.guests.trim() ? parseInt(form.guests, 10) : null
     const payload = {
       member_id: form.member_id,
       request_type: form.request_type,
@@ -290,21 +349,21 @@ export function ConciergePage() {
       event_name: form.event_name.trim() || null,
       location: form.location.trim() || null,
       dates: form.dates.trim() || null,
-      guests: guests != null && !Number.isNaN(guests) ? guests : null,
-      budget_pence: poundsToPence(form.budget),
+      guests: guestsRes.value ?? null,
+      budget_pence: money.budget,
       status: form.status,
       priority: form.priority,
       assigned_to: form.assigned_to || null,
       supplier_name: form.supplier_name.trim() || null,
-      supplier_cost_pence: poundsToPence(form.supplier_cost),
-      sale_price_pence: poundsToPence(form.sale_price),
-      commission_pence: poundsToPence(form.commission),
-      quoted_amount_pence: poundsToPence(form.quoted_amount),
+      supplier_cost_pence: money.supplier_cost,
+      sale_price_pence: money.sale_price,
+      commission_pence: money.commission,
+      quoted_amount_pence: money.quoted_amount,
       notes: form.notes.trim() || null,
-      delivered_at:
-        form.status === 'delivered' || form.status === 'feedback'
-          ? new Date().toISOString()
-          : null,
+      // Keep the original delivery stamp when re-saving a delivered request.
+      delivered_at: DELIVERED_STATES.has(form.status)
+        ? original?.delivered_at ?? new Date().toISOString()
+        : null,
     }
 
     if (editingId) {
@@ -314,7 +373,7 @@ export function ConciergePage() {
         .eq('id', editingId)
       setSaving(false)
       if (error) {
-        toast({ title: 'Could not save', description: error.message, variant: 'destructive' })
+        toast({ title: 'Could not save', description: dbErrorMessage(error), variant: 'destructive' })
         return
       }
       toast({ title: 'Request updated' })
@@ -322,7 +381,7 @@ export function ConciergePage() {
       const { error } = await supabase.from('concierge_requests').insert(payload)
       setSaving(false)
       if (error) {
-        toast({ title: 'Could not create', description: error.message, variant: 'destructive' })
+        toast({ title: 'Could not create', description: dbErrorMessage(error), variant: 'destructive' })
         return
       }
       toast({ title: 'Request created' })
@@ -332,6 +391,8 @@ export function ConciergePage() {
   }
 
   async function quickStatus(r: RequestRow, status: string) {
+    if (status === r.status) return
+    if (!(await confirmStatusJump(r.status, status))) return
     const delivered_at =
       status === 'delivered' || status === 'feedback'
         ? r.delivered_at ?? new Date().toISOString()
@@ -342,13 +403,22 @@ export function ConciergePage() {
       .update({ status, delivered_at })
       .eq('id', r.id)
     if (error) {
-      toast({ title: 'Could not update status', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not update status', description: dbErrorMessage(error), variant: 'destructive' })
       load()
     }
   }
 
   async function remove() {
     if (!editingId) return
+    const row = requests.find((r) => r.id === editingId)
+    if (row?.xero_invoice_id) {
+      toast({
+        title: "Can't delete an invoiced request",
+        description: 'This request has been invoiced in Xero — cancel it instead so the record is kept.',
+        variant: 'destructive',
+      })
+      return
+    }
     const ok = await confirm({
       title: 'Delete this request?',
       description: 'The concierge request is permanently removed. This cannot be undone.',
@@ -358,7 +428,7 @@ export function ConciergePage() {
     if (!ok) return
     const { error } = await supabase.from('concierge_requests').delete().eq('id', editingId)
     if (error) {
-      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not delete', description: dbErrorMessage(error), variant: 'destructive' })
       return
     }
     setModalOpen(false)
@@ -599,6 +669,9 @@ export function ConciergePage() {
             <Input
               label="Guests"
               type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
               placeholder="e.g. 4"
               value={form.guests}
               onChange={(e) => setForm({ ...form, guests: e.target.value })}
@@ -682,6 +755,11 @@ export function ConciergePage() {
                 >
                   {formatCurrency(formMargin)}
                 </span>
+                {formMargin < 0 && (
+                  <span className="ml-2 text-accent-warm">
+                    — supplier cost is above the sale price
+                  </span>
+                )}
               </p>
             )}
           </div>

@@ -1,3 +1,5 @@
+import type { Metadata } from 'next'
+import { vatSuffix } from '@/lib/events/vat'
 import Link from 'next/link'
 import Image from 'next/image'
 import { notFound } from 'next/navigation'
@@ -9,8 +11,11 @@ import { Aurora } from '@/components/website/night/effects/Aurora'
 import { Reveal } from '@/components/website/night/effects/Reveal'
 import { BookingWidget } from '@/components/website/night/events/BookingWidget'
 import { ArrowLeft, Calendar, Clock, MapPin, Plane, Tag, Users } from 'lucide-react'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 export const revalidate = 60
+
+const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://theclubgroup.co').replace(/\/+$/, '')
 
 // ─────────────────────────────────────────────────────────────────────
 // /events/[slug] — editorial spread for a single event + guest booking.
@@ -55,6 +60,7 @@ function formatEventType(t: string) {
 
 function formatDateLong(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -64,6 +70,7 @@ function formatDateLong(iso: string) {
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -73,25 +80,30 @@ function formatGBP(pence: number) {
   return new Intl.NumberFormat('en-GB', {
     style: 'currency',
     currency: 'GBP',
-    maximumFractionDigits: 0,
+    // Whole pounds stay clean (£80); odd pence are shown exactly (£80.50)
+    // so the page never rounds away from what Stripe charges.
+    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
   }).format(pence / 100)
 }
 
-function formatPriceWithVAT(pence: number | null | undefined) {
+function formatPriceShown(pence: number | null | undefined) {
   if (pence == null) return null
   if (pence === 0) return 'Complimentary'
-  return `${formatGBP(pence)} + VAT`
+  // Exactly what checkout charges — event prices are flat (no VAT is
+  // added at checkout), so no "+ VAT" suffix.
+  return formatGBP(pence)
 }
 
-// "Complimentary Members · £500 + VAT Guests" — same helper as on the
+// "Complimentary Members · £500 Guests" — same helper as on the
 // events listing card, kept duplicated here so the detail page stays
 // self-contained.
 function formatPriceLine(
   member: number | null | undefined,
   guest: number | null | undefined,
 ) {
-  const m = formatPriceWithVAT(member)
-  const g = formatPriceWithVAT(guest)
+  const m = formatPriceShown(member)
+  const g = formatPriceShown(guest)
   if (m && g) {
     if (member === guest) return g
     return `${m} Members · ${g} Guests`
@@ -99,15 +111,58 @@ function formatPriceLine(
   return m || g || null
 }
 
+// Per-event title / description / Open Graph image so each event page can
+// rank and share under its own name.
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}): Promise<Metadata> {
+  const { slug } = await params
+  const supabase = await createClient()
+  const { data: event } = await supabase
+    .from('events')
+    .select('title, description, cover_image_url, start_date, venue_name, venue_city')
+    .eq('slug', slug)
+    .in('status', ['published', 'live', 'completed'])
+    .maybeSingle()
+  if (!event) return { title: 'Event not found | The Club by Sarah Restrick' }
+  const when = event.start_date ? formatDateLong(event.start_date) : null
+  const where = [event.venue_name, event.venue_city].filter(Boolean).join(', ')
+  const fallback = [when, where].filter(Boolean).join(' · ')
+  const raw = (event.description ?? '').replace(/\s+/g, ' ').trim()
+  const description =
+    (raw.length > 160 ? `${raw.slice(0, 157).trimEnd()}…` : raw) ||
+    (fallback ? `${event.title} — ${fallback}.` : `${event.title} at The Club.`)
+  const images = event.cover_image_url ? [{ url: event.cover_image_url, alt: event.title }] : undefined
+  return {
+    title: `${event.title} | The Club by Sarah Restrick`,
+    description,
+    alternates: { canonical: `${SITE_URL}/events/${slug}` },
+    openGraph: {
+      type: 'website',
+      title: event.title,
+      description,
+      images,
+    },
+    twitter: {
+      card: images ? 'summary_large_image' : 'summary',
+      title: event.title,
+      description,
+      images: event.cover_image_url ? [event.cover_image_url] : undefined,
+    },
+  }
+}
+
 export default async function EventDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>
-  searchParams: Promise<{ s?: string }>
+  searchParams: Promise<{ s?: string; cancelled?: string }>
 }) {
   const { slug } = await params
-  const { s: sponsorToken } = await searchParams
+  const { s: sponsorToken, cancelled } = await searchParams
   const supabase = await createClient()
 
   const { data: event } = await supabase
@@ -276,9 +331,9 @@ export default async function EventDetailPage({
                       event.doors_open
                         ? `Doors ${formatTime(event.doors_open)}${
                             event.start_date ? ` · From ${formatTime(event.start_date)}` : ''
-                          }`
+                          } UK time`
                         : startDate
-                          ? formatTime(startDate)
+                          ? `${formatTime(startDate)} UK time`
                           : 'To be confirmed'
                     }
                   />
@@ -309,7 +364,7 @@ export default async function EventDetailPage({
                     <Detail icon={Plane} label="Travel" value="Included" />
                   )}
                   {/* Price spans both columns at the bottom — the
-                     "Complimentary Members · £X + VAT Guests" line is
+                     "Complimentary Members · £X Guests" line is
                      too long for a single column. */}
                   {formatPriceLine(
                     event.member_price_pence,
@@ -319,12 +374,12 @@ export default async function EventDetailPage({
                       <Detail
                         icon={Tag}
                         label="Price"
-                        value={
-                          formatPriceLine(
-                            event.member_price_pence,
-                            event.guest_price_pence,
-                          ) ?? ''
-                        }
+                        value={[
+                          formatPriceLine(event.member_price_pence, event.guest_price_pence),
+                          vatSuffix(event),
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
                       />
                     </div>
                   )}
@@ -415,8 +470,11 @@ export default async function EventDetailPage({
                       accommodation_available: event.accommodation_available,
                       accommodation_price_pence: event.accommodation_price_pence,
                       auto_confirm: event.auto_confirm,
+                      vat_mode: event.vat_mode,
+                      vat_rate: event.vat_rate,
                     }}
                     sponsor={sponsor}
+                    paymentCancelled={cancelled === '1'}
                   />
                 </Reveal>
               )}

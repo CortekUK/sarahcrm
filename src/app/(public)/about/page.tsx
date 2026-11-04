@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Image from 'next/image'
 import { createClient } from '@supabase/supabase-js'
 import { PageHeroMedia } from '@/components/website/night/primitives/PageHeroMedia'
@@ -10,6 +11,17 @@ import { InstagramChapter } from '@/components/website/night/home/InstagramChapt
 import { VideoGallery, type VideoEntry } from '@/components/website/night/VideoGallery'
 import { StoryCarousel } from '@/components/website/night/StoryCarousel'
 import { getPageHero } from '@/lib/cms/heroes'
+
+export const metadata: Metadata = {
+  title: 'About | The Club by Sarah Restrick',
+  description:
+    "The story behind The Club by Sarah Restrick — a private members' community for business owners across Manchester, Leeds and London.",
+  openGraph: {
+    title: 'About | The Club by Sarah Restrick',
+    description:
+      "The story behind The Club by Sarah Restrick — a private members' community for business owners across Manchester, Leeds and London.",
+  },
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // /about — "The Club" page.

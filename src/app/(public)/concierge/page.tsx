@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useEffect, useState } from 'react'
+import { forwardRef, useEffect, useId, useState } from 'react'
 import Link from 'next/link'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -100,6 +100,7 @@ function composeMessage(data: EnquiryData): string {
 export default function ConciergePage() {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [website, setWebsite] = useState('') // honeypot — hidden from humans
   const [hero, setHero] = useState<HeroData>(HERO_FALLBACK)
 
   useEffect(() => {
@@ -159,11 +160,18 @@ export default function ConciergePage() {
           message: composeMessage(data),
           intent: ['concierge'],
           source: 'concierge_form',
+          website,
         }),
       })
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean }
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (res.status === 429) {
+        setError(
+          'We’ve received a lot of messages from you in a short time — please wait a few minutes and try again, or email us directly.',
+        )
+        return
+      }
       if (!res.ok || !json.ok) {
-        setError('Something went wrong. Please try again, or email us directly.')
+        setError(json.error || 'Something went wrong. Please try again, or email us directly.')
         return
       }
     } catch {
@@ -232,6 +240,20 @@ export default function ConciergePage() {
                 </Reveal>
 
                 <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-7">
+                  {/* Honeypot — visually hidden, skipped by keyboard + autofill. */}
+                  <div aria-hidden="true" className="absolute -left-[10000px] top-auto w-px h-px overflow-hidden">
+                    <label>
+                      Website
+                      <input
+                        type="text"
+                        name="website"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                      />
+                    </label>
+                  </div>
                   <Reveal type="up" delay={0}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       <Field
@@ -483,17 +505,24 @@ interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement | HTMLTe
 }
 
 const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
-  ({ label, error, as = 'input', rows, ...rest }, ref) => {
+  ({ label, error, as = 'input', rows, id, ...rest }, ref) => {
+    const autoId = useId()
+    const fieldId = id ?? autoId
     const inputClass =
       'w-full px-0 py-3 bg-transparent border-b border-graphite-line/80 focus:border-bronze focus:outline-none text-[15px] text-ivory placeholder:text-slate-dim transition-colors'
     return (
       <div>
-        <label className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3">
+        <label
+          htmlFor={fieldId}
+          className="block font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.32em] text-slate-haze mb-3"
+        >
           {label}
         </label>
         {as === 'textarea' ? (
           <textarea
             ref={ref as React.Ref<HTMLTextAreaElement>}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
             rows={rows ?? 5}
             className={inputClass + ' resize-none'}
             {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
@@ -501,6 +530,8 @@ const Field = forwardRef<HTMLInputElement | HTMLTextAreaElement, FieldProps>(
         ) : (
           <input
             ref={ref as React.Ref<HTMLInputElement>}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
             className={inputClass}
             {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
           />

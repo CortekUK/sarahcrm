@@ -10,6 +10,9 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { FileUpload } from '@/components/ui/FileUpload'
+import { SelectMenu } from '@/components/ui/SelectMenu'
+import { toast } from '@/lib/hooks/use-toast'
+import { dbErrorMessage, isValidSlug } from '@/lib/form-validation'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { ActiveToggle } from '@/components/admin/ActiveToggle'
@@ -22,13 +25,26 @@ type Document = Database['public']['Tables']['documents']['Row']
 
 const schema = z.object({
   title: z.string().min(1, 'Title is required'),
-  slug: z.string().min(1, 'Slug is required'),
-  file_url: z.string().url('Valid URL required'),
+  slug: z
+    .string()
+    .trim()
+    .min(1, 'Slug is required')
+    .refine(isValidSlug, 'Lowercase letters, numbers and hyphens only (e.g. club-brochure)'),
+  file_url: z.string().url('Please upload a file'),
   page_slug: z.string().optional(),
   is_active: z.boolean(),
 })
 
 type FormData = z.infer<typeof schema>
+
+// Pages of the public site that can list documents. Only the private-event
+// services page has a documents section (components/website/Resources), so
+// any other value would never be shown. Radix can't use '' as a value.
+const NO_PAGE = 'none'
+const PAGE_SLUG_OPTIONS = [
+  { value: NO_PAGE, label: 'Not attached to a page' },
+  { value: 'private-event-services', label: 'Private event services' },
+]
 
 // Show just the filename portion of a storage URL. Public urls look like:
 // https://<ref>.supabase.co/storage/v1/object/public/<bucket>/<path>
@@ -123,7 +139,12 @@ export function DocumentsPage() {
       setEditingItem(null)
       fetchItems()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      const code = (err as { code?: string } | null)?.code
+      setError(
+        code === '23505'
+          ? 'Another document already uses this slug — pick a different one.'
+          : dbErrorMessage(err, 'Failed to save'),
+      )
     } finally {
       setSaving(false)
     }
@@ -140,7 +161,11 @@ export function DocumentsPage() {
       tone: 'danger',
     })
     if (!ok) return
-    await supabase.from('documents').delete().eq('id', id)
+    const { error: err } = await supabase.from('documents').delete().eq('id', id)
+    if (err) {
+      toast({ title: 'Delete failed', description: dbErrorMessage(err), variant: 'destructive' })
+      return
+    }
     setItems((prev) => prev.filter((i) => i.id !== id))
   }
 
@@ -317,12 +342,31 @@ export function DocumentsPage() {
             error={form.formState.errors.file_url?.message}
             hint="Brochures, PDFs, or any file members can download."
           />
-          <Input
-            label="Page slug (optional)"
-            placeholder="e.g. memberships, private-event-services"
-            {...form.register('page_slug')}
-            hint="Used by the public site to surface this document on a specific page."
-          />
+          <div>
+            <SelectMenu
+              label="Show on page (optional)"
+              value={form.watch('page_slug') || NO_PAGE}
+              onValueChange={(v) =>
+                form.setValue('page_slug', v === NO_PAGE ? '' : v, { shouldDirty: true })
+              }
+              options={
+                // Keep a legacy free-text value visible so editing doesn't silently drop it.
+                form.watch('page_slug') &&
+                !PAGE_SLUG_OPTIONS.some((o) => o.value === form.watch('page_slug'))
+                  ? [
+                      ...PAGE_SLUG_OPTIONS,
+                      {
+                        value: form.watch('page_slug') as string,
+                        label: `${form.watch('page_slug')} (not used by the site)`,
+                      },
+                    ]
+                  : PAGE_SLUG_OPTIONS
+              }
+            />
+            <p className="text-[11px] text-text-dim mt-1.5">
+              The page of the public site that lists this document.
+            </p>
+          </div>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"

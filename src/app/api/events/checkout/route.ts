@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withEventVat } from '@/lib/events/vat'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { excludeDirectDebitFromInstantCheckout } from '@/lib/billing/direct-debit'
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     const { data: event, error: eventErr } = await admin
       .from('events')
       .select(
-        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, sponsor_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence',
+        'id, slug, title, status, start_date, guest_price_pence, member_price_pence, sponsor_price_pence, capacity, guest_ticket_capacity, venue_name, venue_city, auto_confirm, accommodation_available, accommodation_price_pence, vat_mode, vat_rate',
       )
       .eq('id', body.event_id)
       .maybeSingle()
@@ -236,7 +237,8 @@ export async function POST(req: NextRequest) {
         ? (event.accommodation_price_pence ?? 0)
         : 0
     const accommodationBooked = accommodationPrice > 0
-    const price = basePrice + accommodationPrice
+    // Plus VAT on top when the event is set to add it (events.vat_mode).
+    const price = withEventVat(basePrice + accommodationPrice, event)
 
     // If this is a sponsor booking AND the sponsor is (or matches) a member,
     // attribute the booking to that member so it appears in their portal. The
@@ -400,7 +402,7 @@ export async function POST(req: NextRequest) {
         ok: true,
         booking_id: booking.id,
         status: holdOnly ? 'pending' : 'confirmed',
-        url: `${site}/events/${event.slug}/success?free=1`,
+        url: `${site}/events/${event.slug}/success?free=1${holdOnly ? '&pending=1' : ''}`,
       })
     }
 

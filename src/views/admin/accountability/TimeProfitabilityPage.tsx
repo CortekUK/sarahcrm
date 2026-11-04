@@ -17,6 +17,7 @@ import {
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { toast } from '@/lib/hooks/use-toast'
+import { dbErrorMessage } from '@/lib/form-validation'
 import { formatDate, cn } from '@/lib/utils'
 import { Loader2, Coins } from 'lucide-react'
 import { personName, type PersonLite } from '@/lib/accountability'
@@ -54,16 +55,21 @@ function RevenueCell({
   const [value, setValue] = useState(initial ? String(initial) : '')
   const [saved, setSaved] = useState(initial ? String(initial) : '')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function save() {
-    if (value === saved) return
-    const trimmed = value.trim()
-    const revenue = trimmed === '' ? 0 : Number(trimmed)
-    if (!Number.isFinite(revenue) || revenue < 0) {
-      toast({ title: 'Enter a valid revenue amount', variant: 'destructive' })
-      setValue(saved)
+    if (value === saved) {
+      setError(null)
       return
     }
+    const parsed = parseNonNegative(value, 'Revenue')
+    if (parsed.error) {
+      setError(parsed.error)
+      toast({ title: 'Revenue not saved', description: parsed.error, variant: 'destructive' })
+      return
+    }
+    setError(null)
+    const revenue = parsed.value ?? 0
     setBusy(true)
     const { error } = await supabase.from('event_profitability').upsert(
       {
@@ -76,7 +82,7 @@ function RevenueCell({
     )
     setBusy(false)
     if (error) {
-      toast({ title: 'Could not save revenue', description: error.message, variant: 'destructive' })
+      toast({ title: 'Could not save revenue', description: dbErrorMessage(error), variant: 'destructive' })
       setValue(saved)
       return
     }
@@ -88,13 +94,13 @@ function RevenueCell({
   return (
     <div className="w-32">
       <Input
-        type="number"
-        min="0"
-        step="1"
+        type="text"
         inputMode="decimal"
+        aria-label="Event revenue"
         prefix="£"
         placeholder="0.00"
         value={value}
+        error={error ?? undefined}
         disabled={busy}
         onChange={(e) => setValue(e.target.value)}
         onBlur={save}
@@ -373,4 +379,15 @@ export function TimeProfitabilityPage() {
       </Card>
     </div>
   )
+}
+
+// Parse a non-negative number typed into a text field. Kept as a text input
+// (not type="number") so letters / "-5" reach us and get a visible message
+// instead of the browser silently blanking the value.
+function parseNonNegative(raw: string, label: string): { value: number | null; error?: string } {
+  const s = raw.trim().replace(/^£/, '').replace(/,/g, '')
+  if (s === '') return { value: null }
+  if (s.startsWith('-')) return { value: null, error: `${label} can’t be negative.` }
+  if (!/^\d+(\.\d+)?$/.test(s)) return { value: null, error: `${label} must be a number.` }
+  return { value: Number(s) }
 }

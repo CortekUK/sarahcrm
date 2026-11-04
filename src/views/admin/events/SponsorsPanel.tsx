@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Avatar } from '@/components/ui/Avatar'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import { Plus, Trash2, Handshake, Copy, Send, Check, Ticket, Settings2, Sparkles } from 'lucide-react'
 import { SponsorManageModal, type ManageSponsor } from './SponsorManageModal'
@@ -444,7 +444,7 @@ export function SponsorsPanel({
                   {s.invite_sent_at && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-text-dim">
                       <Check size={12} className="text-[#5C8A6B]" />
-                      Invited {new Date(s.invite_sent_at).toLocaleDateString('en-GB')}
+                      Invited {formatDate(s.invite_sent_at)}
                     </span>
                   )}
                 </div>

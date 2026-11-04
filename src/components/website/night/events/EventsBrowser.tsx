@@ -1,10 +1,11 @@
 'use client'
 
+import { vatSuffix } from '@/lib/events/vat'
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowUpRight, Calendar, Clock, MapPin, Tag } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, UK_TIME_ZONE } from '@/lib/utils'
 
 // Client-side filter for the events listing — pill chips for "all",
 // "members events", "curated luxury", "retreats" pulled from the
@@ -25,6 +26,8 @@ export interface EventListItem {
   description: string | null
   guest_price_pence: number | null
   member_price_pence: number | null
+  vat_mode?: string | null
+  vat_rate?: number | null
 }
 
 const FILTERS = [
@@ -36,6 +39,7 @@ const FILTERS = [
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     day: 'numeric',
     month: 'long',
     year: 'numeric',
@@ -48,22 +52,26 @@ function formatGBP(pence: number | null | undefined) {
   return new Intl.NumberFormat('en-GB', {
     style: 'currency',
     currency: 'GBP',
-    maximumFractionDigits: 0,
+    // Whole pounds stay clean (£80); odd pence are shown exactly (£80.50)
+    // so the page never rounds away from what Stripe charges.
+    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
   }).format(pence / 100)
 }
 
-function formatPriceWithVAT(pence: number | null | undefined) {
+function formatPriceShown(pence: number | null | undefined) {
   if (pence == null) return null
   if (pence === 0) return 'Complimentary'
-  return `${formatGBP(pence)} + VAT`
+  // Exactly what checkout charges — event prices are flat (no VAT is
+  // added at checkout), so no "+ VAT" suffix.
+  return formatGBP(pence)
 }
 
-// "Complimentary for Members · £500 + VAT Guests" / "£1,500 + VAT
-// Members · £2,500 + VAT Guests" — matches the existing live-site
-// pricing line. Returns null if neither rate is set.
+// "Complimentary for Members · £500 Guests" / "£1,500 Members · £2,500
+// Guests" — the amounts are exactly what checkout charges. Returns null if neither rate is set.
 function formatPriceLine(member: number | null | undefined, guest: number | null | undefined) {
-  const m = formatPriceWithVAT(member)
-  const g = formatPriceWithVAT(guest)
+  const m = formatPriceShown(member)
+  const g = formatPriceShown(guest)
   if (m && g) {
     if (member === guest) return g
     return `${m} Members · ${g} Guests`
@@ -73,6 +81,7 @@ function formatPriceLine(member: number | null | undefined, guest: number | null
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: UK_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -170,10 +179,11 @@ export function EventsBrowser({
 // ─── Upcoming card — bigger, with full particulars + CTA ───────────
 
 function UpcomingCard({ ev }: { ev: EventListItem }) {
-  const priceLine = formatPriceLine(ev.member_price_pence, ev.guest_price_pence)
+  const basePriceLine = formatPriceLine(ev.member_price_pence, ev.guest_price_pence)
+  const priceLine = basePriceLine && vatSuffix(ev) ? `${basePriceLine} ${vatSuffix(ev)}` : basePriceLine
   const time = ev.doors_open
-    ? `Doors ${formatTime(ev.doors_open)} · From ${formatTime(ev.start_date)}`
-    : formatTime(ev.start_date)
+    ? `Doors ${formatTime(ev.doors_open)} · From ${formatTime(ev.start_date)} UK time`
+    : `${formatTime(ev.start_date)} UK time`
 
   return (
     <Link

@@ -15,6 +15,7 @@ import { ImageUpload } from '@/components/ui/ImageUpload'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { formatDate } from '@/lib/utils'
+import { dbErrorMessage } from '@/lib/form-validation'
 import { Pencil, Plus, Trash2, Send, Image } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -30,7 +31,7 @@ const categoryLabels: Record<string, string> = {
 }
 
 const photoSchema = z.object({
-  image_url: z.string().url('Valid URL required'),
+  image_url: z.string().url('Please upload a photo first'),
   caption: z.string().optional(),
   display_order: z.coerce.number().int().min(0),
 })
@@ -155,7 +156,7 @@ export function GalleryDetailPage() {
         .order('display_order', { ascending: true })
       if (refreshed) setPhotos(refreshed)
     } catch (err) {
-      setPhotoError(err instanceof Error ? err.message : 'Failed to save photo')
+      setPhotoError(dbErrorMessage(err, 'Failed to save photo'))
     } finally {
       setSavingPhoto(false)
     }

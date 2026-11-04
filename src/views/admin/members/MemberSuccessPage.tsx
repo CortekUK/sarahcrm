@@ -128,6 +128,10 @@ export function MemberSuccessPage() {
   const [data, setData] = useState<SuccessResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [recomputing, setRecomputing] = useState(false)
+  const [recomputeProgress, setRecomputeProgress] = useState<{
+    processed: number
+    total: number
+  } | null>(null)
   const [search, setSearch] = useState('')
   const [activeFlag, setActiveFlag] = useState<SuccessFlag | 'all'>('all')
 
@@ -161,18 +165,43 @@ export function MemberSuccessPage() {
 
   async function handleRecompute() {
     setRecomputing(true)
+    setRecomputeProgress(null)
     try {
-      const res = await fetch('/api/admin/members/recompute-scores', { method: 'POST' })
-      const json = await res.json()
-      if (!res.ok) {
-        toast({ title: 'Recompute failed', description: json.error, variant: 'destructive' })
+      // The route works in time-boxed chunks: it returns
+      // { done:false, next_offset } when it ran out of time, so keep
+      // calling with ?offset= until done (with a hard cap as a safety net).
+      let offset = 0
+      let updated = 0
+      let failedMsg: string | null = null
+      for (let round = 0; round < 200; round++) {
+        const res = await fetch(`/api/admin/members/recompute-scores?offset=${offset}`, {
+          method: 'POST',
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          failedMsg = typeof json.error === 'string' ? json.error : `HTTP ${res.status}`
+          break
+        }
+        updated += Number(json.updated ?? 0)
+        const total = Number(json.total ?? 0)
+        const next = Number(json.next_offset)
+        setRecomputeProgress({ processed: json.done ? total : next || 0, total })
+        if (json.done || !Number.isFinite(next) || next <= offset) break
+        offset = next
+      }
+      if (failedMsg) {
+        toast({
+          title: 'Recompute failed',
+          description: updated > 0 ? `${failedMsg} (${updated} updated before it stopped)` : failedMsg,
+          variant: 'destructive',
+        })
       } else {
         toast({
           title: 'Scores recomputed',
-          description: `${json.updated ?? 0} member${json.updated === 1 ? '' : 's'} updated.`,
+          description: `${updated} member${updated === 1 ? '' : 's'} updated.`,
         })
-        await fetchData()
       }
+      await fetchData()
     } catch (e) {
       toast({
         title: 'Recompute failed',
@@ -181,6 +210,7 @@ export function MemberSuccessPage() {
       })
     }
     setRecomputing(false)
+    setRecomputeProgress(null)
   }
 
   const members = data?.members ?? []
@@ -227,7 +257,11 @@ export function MemberSuccessPage() {
             onClick={handleRecompute}
             disabled={recomputing}
           >
-            {recomputing ? 'Recomputing…' : 'Recompute now'}
+            {recomputing
+              ? recomputeProgress && recomputeProgress.total > 0
+                ? `Recomputing… ${recomputeProgress.processed}/${recomputeProgress.total}`
+                : 'Recomputing…'
+              : 'Recompute now'}
           </Button>
         }
       />

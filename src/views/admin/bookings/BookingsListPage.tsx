@@ -19,7 +19,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
-import { formatCurrency, formatDateTime, cn } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime, cn } from '@/lib/utils'
 import {
   Search,
   Loader2,
@@ -41,11 +41,13 @@ interface BookingRow {
   guest_email: string | null
   checked_in: boolean
   created_at: string
+  charge_error: string | null
+  updated_at: string
   events: {
     id: string
     title: string
     slug: string
-    start_date: string
+    start_date: string | null
     event_type: string
   } | null
   members: {
@@ -107,6 +109,7 @@ export function BookingsListPage() {
       tone: action === 'approve' ? 'neutral' : 'danger',
     })
     if (!ok) return
+    if (deciding) return
     setDeciding(booking.id)
     try {
       const res = await fetch('/api/admin/bookings/decision', {
@@ -114,13 +117,45 @@ export function BookingsListPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ booking_id: booking.id, action }),
       })
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        charged?: boolean
+      }
       if (!res.ok || !json.ok) {
-        toast({ title: 'Could not complete', description: json.error ?? 'Please try again.', variant: 'destructive' })
+        const fallback =
+          res.status === 401 || res.status === 403
+            ? 'Your session has expired or you are not an admin — sign in again.'
+            : res.status === 402
+              ? 'The card could not be charged. The booking is still pending.'
+              : res.status === 409
+                ? 'This booking changed or is already being processed — refresh and check its status.'
+                : 'Something went wrong — please try again.'
+        toast({
+          title: action === 'approve' ? 'Booking not approved' : 'Booking not rejected',
+          description: json.error || fallback,
+          variant: 'destructive',
+        })
+        // The booking may have moved on (decided in another tab, card failed).
+        await fetchBookings()
       } else {
-        toast({ title: action === 'approve' ? 'Booking approved' : 'Booking rejected' })
+        toast({
+          title: action === 'approve' ? 'Booking approved' : 'Booking rejected',
+          description:
+            action === 'approve'
+              ? json.charged
+                ? `${formatCurrency(booking.amount_pence)} charged and the booking confirmed.`
+                : 'The booking is confirmed.'
+              : 'The booking was cancelled and nothing was charged.',
+        })
         await fetchBookings()
       }
+    } catch {
+      toast({
+        title: 'Network error',
+        description: 'The decision may not have been saved — refresh before trying again.',
+        variant: 'destructive',
+      })
     } finally {
       setDeciding(null)
     }
@@ -133,7 +168,7 @@ export function BookingsListPage() {
       .select(
         `
         id, status, amount_pence, payment_method, is_guest, guest_name, guest_email,
-        checked_in, created_at,
+        checked_in, created_at, updated_at, charge_error,
         events(id, title, slug, start_date, event_type),
         members(id, profiles(first_name, last_name, email))
         `,
@@ -320,11 +355,7 @@ export function BookingsListPage() {
                           >
                             {b.events.title}
                             <span className="block text-[11px] text-text-dim mt-0.5">
-                              {new Date(b.events.start_date).toLocaleDateString('en-GB', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
+                              {b.events.start_date ? formatDate(b.events.start_date) : 'Date TBC'}
                               {' · '}
                               {b.events.event_type.replace('_', ' ')}
                             </span>
@@ -366,24 +397,54 @@ export function BookingsListPage() {
                         {formatDateTime(b.created_at)}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        {b.status === 'pending' ? (
+                        {b.status === 'pending' &&
+                        b.charge_error === 'PROCESSING_DECISION' &&
+                        // Same 5-minute stale window as the decision route.
+                        Date.now() - new Date(b.updated_at).getTime() < 5 * 60 * 1000 ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] text-text-muted whitespace-nowrap"
+                            title="A decision for this booking is being processed"
+                          >
+                            <Loader2 size={12} className="animate-spin" /> Processing…
+                          </span>
+                        ) : b.status === 'pending' && b.charge_error === 'Awaiting Stripe Checkout' ? (
+                          // The member/guest is on the Stripe payment page; the
+                          // booking confirms itself when they pay, or is released
+                          // after ~35 min. Approving here would break that hold.
+                          <span
+                            className="text-[11px] text-text-muted whitespace-nowrap"
+                            title="Waiting for the payment on Stripe Checkout"
+                          >
+                            Awaiting payment
+                          </span>
+                        ) : b.status === 'pending' ? (
+                          <div className="flex flex-col items-end gap-1">
+                          {b.charge_error && b.charge_error !== 'PROCESSING_DECISION' && (
+                            <span
+                              className="max-w-[180px] truncate text-[10.5px] text-accent-warm"
+                              title={b.charge_error}
+                            >
+                              Last charge failed: {b.charge_error}
+                            </span>
+                          )}
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => decide(b, 'approve')}
-                              disabled={deciding === b.id}
+                              disabled={deciding !== null}
                               className="px-2.5 py-1 text-[11px] font-medium rounded-full bg-accent text-white hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
                               title="Charge the held card and confirm"
                             >
-                              {deciding === b.id ? '…' : 'Approve'}
+                              {deciding === b.id ? 'Processing…' : 'Approve'}
                             </button>
                             <button
                               onClick={() => decide(b, 'reject')}
-                              disabled={deciding === b.id}
+                              disabled={deciding !== null}
                               className="px-2.5 py-1 text-[11px] font-medium rounded-full border border-border text-text-muted hover:border-accent-warm hover:text-accent-warm disabled:opacity-50"
                               title="Cancel and release the held card"
                             >
                               Reject
                             </button>
+                          </div>
                           </div>
                         ) : (
                           <ExternalLink

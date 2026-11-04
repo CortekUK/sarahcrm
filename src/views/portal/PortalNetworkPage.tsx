@@ -10,10 +10,10 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
-import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 import { CalendarDays, Handshake, MessageCircle, Search, Users } from 'lucide-react'
 import {
+  PortalAvatar as Avatar,
   PortalButton,
   PortalCard,
   PortalEmptyState,
@@ -21,6 +21,7 @@ import {
   PortalModal,
   PortalPageHeader,
 } from '@/components/portal/PortalChrome'
+import { dbErrorMessage, normalizeSearch } from '@/components/portal/portal-utils'
 import { FilterChip, FilterRow } from './network/filters'
 import { RequestIntroModal } from './network/RequestIntroModal'
 import { WiderNetwork } from './network/WiderNetwork'
@@ -218,14 +219,17 @@ export function PortalNetworkPage() {
         .select('id', { count: 'exact', head: true })
         .eq('member_id', id)
         .eq('status', 'confirmed'),
+      // Introductions actually made — not suggestions, dismissals or declines.
       supabase
         .from('introductions')
         .select('id', { count: 'exact', head: true })
-        .eq('member_a_id', id),
+        .eq('member_a_id', id)
+        .in('status', ['sent', 'accepted', 'completed']),
       supabase
         .from('introductions')
         .select('id', { count: 'exact', head: true })
-        .eq('member_b_id', id),
+        .eq('member_b_id', id)
+        .in('status', ['sent', 'accepted', 'completed']),
       connectedQuery,
     ])
 
@@ -276,7 +280,13 @@ export function PortalNetworkPage() {
         }),
       })
       const json = await res.json().catch(() => ({}))
-      if (!res.ok) return (json.error as string) || 'Could not send your request.'
+      // 429 = monthly quota reached, 400 = reason missing, 409 = in progress
+      // — the route's message says which.
+      if (!res.ok) {
+        return json.error
+          ? dbErrorMessage(json.error as string, json.error as string)
+          : 'Could not send your request. Please try again.'
+      }
       // Already in progress (not completed/declined) → no new request created.
       if (json.already) {
         return (json.message as string) || 'An introduction with this member is already in progress.'
@@ -292,10 +302,14 @@ export function PortalNetworkPage() {
 
   const filtered = useMemo(() => {
     let result = members
-    if (search) {
-      const q = search.toLowerCase()
-      result = result.filter(
-        (m) => m.name.toLowerCase().includes(q) || (m.company?.toLowerCase().includes(q) ?? false),
+    // Trimmed, case- and accent-insensitive; matches name, company, job
+    // title and tags (e.g. "Jose" finds "José", "fintech" finds the tag).
+    const q = normalizeSearch(search)
+    if (q) {
+      result = result.filter((m) =>
+        [m.name, m.company, m.jobTitle, ...m.tags.map((t) => stripLookingFor(t.name))].some((v) =>
+          normalizeSearch(v).includes(q),
+        ),
       )
     }
     if (activeFilter) {
@@ -378,7 +392,8 @@ export function PortalNetworkPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={mode === 'contacts' ? 'Search name, company or role' : 'Search by name or company'}
+            placeholder={mode === 'contacts' ? 'Search name, company or role' : 'Search name, company, role or tag'}
+            aria-label={mode === 'contacts' ? 'Search the wider network' : 'Search members'}
             className="w-full min-w-0 pl-10 pr-4 py-3 bg-graphite/40 border border-graphite-line/60 rounded-full font-[family-name:var(--font-meta)] text-[12px] uppercase tracking-[0.16em] text-ivory placeholder:text-slate-dim focus:border-bronze/60 focus:outline-none transition-colors"
           />
         </div>
@@ -436,7 +451,7 @@ export function PortalNetworkPage() {
             </div>
           </div>
 
-          {(search || activeFilter) && (
+          {(search.trim() || activeFilter) && (
             <p className="mb-5 font-[family-name:var(--font-meta)] text-[10px] uppercase tracking-[0.28em] text-slate-haze">
               {filtered.length} {filtered.length === 1 ? 'member' : 'members'} found
             </p>
@@ -452,12 +467,17 @@ export function PortalNetworkPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
               {filtered.map((member) => (
-                <PortalCard
+                // A real button so the card opens with Enter/Space and is
+                // announced to screen readers.
+                <button
                   key={member.id}
-                  interactive
+                  type="button"
                   onClick={() => openProfile(member.id)}
-                  className="p-6"
+                  aria-haspopup="dialog"
+                  aria-label={`View ${member.name}'s profile${member.company ? `, ${member.company}` : ''}`}
+                  className="group block w-full text-left rounded-none focus:outline-none focus-visible:ring-2 focus-visible:ring-bronze/70 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
                 >
+                <PortalCard interactive className="p-6 h-full">
                   <div className="flex items-start gap-4">
                     <Avatar name={member.name} src={member.avatarUrl} size="lg" />
                     <div className="min-w-0 flex-1">
@@ -503,6 +523,7 @@ export function PortalNetworkPage() {
                     )
                   })()}
                 </PortalCard>
+                </button>
               ))}
             </div>
           )}

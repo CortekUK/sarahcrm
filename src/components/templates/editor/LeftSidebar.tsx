@@ -91,10 +91,15 @@ export function LeftSidebar({
             <Input
               value={settings.subject}
               onChange={(e) => onSettingsChange({ subject: e.target.value })}
+              onBlur={(e) => {
+                // Subjects are plain text — email clients show tags literally.
+                const plain = e.target.value.replace(/<\/?[a-z][^>]*>/gi, '')
+                if (plain !== e.target.value) onSettingsChange({ subject: plain })
+              }}
               placeholder="e.g. Your spot for Spring Salon Supper"
             />
             <p className="text-[10px] text-[var(--color-text-dim)] mt-1">
-              Use {'{{first_name}}'} for merge tags
+              Use {'{{first_name}}'} for merge tags. Plain text only — HTML tags are removed.
             </p>
           </div>
           <div>

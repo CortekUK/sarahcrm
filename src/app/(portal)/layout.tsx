@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { AuthProvider, useAuth } from '@/providers/AuthProvider'
 import { QueryProvider } from '@/providers/QueryProvider'
 import { ChatProvider, useChat } from '@/lib/chat/ChatProvider'
@@ -106,7 +106,6 @@ const MOBILE_NAV_ITEMS = [
 function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const { signOut, profile } = useAuth()
   const { totalUnread } = useChat()
-  const router = useRouter()
   const pathname = usePathname()
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -175,9 +174,20 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     return pathname.startsWith(to)
   }
 
+  // Sign out and leave the portal straight away. A full-page navigation (not
+  // a client route change) so no portal state survives and the middleware
+  // sees the cleared session; capped so a slow network can't strand the
+  // member on the page.
   async function handleSignOut() {
-    await signOut()
-    router.replace('/login')
+    setMenuOpen(false)
+    setUserMenuOpen(false)
+    // Server route clears the auth cookies so /login can't bounce us back in;
+    // the client sign-out clears local state. Neither may hold up the redirect.
+    await Promise.race([
+      Promise.allSettled([fetch('/api/auth/sign-out', { method: 'POST' }), signOut()]),
+      new Promise((resolve) => setTimeout(resolve, 4000)),
+    ])
+    window.location.replace('/login')
   }
 
   return (
@@ -198,13 +208,24 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
             className="group flex items-center gap-3 leading-none shrink-0"
             aria-label="The Club — Member portal"
           >
+            {/* White mark on the night header, gold mark on the light (day)
+                header — same swap the public NightHeader does. On mobile the
+                wordmark text is hidden, so this is the only brand mark. */}
             <Image
               src="/logo-white.png"
               alt=""
               width={40}
               height={40}
               priority
-              className="h-10 w-10 opacity-90 group-hover:opacity-100 transition-opacity"
+              className="h-10 w-10 opacity-90 group-hover:opacity-100 transition-opacity day:hidden"
+            />
+            <Image
+              src="/logo-gold.png"
+              alt=""
+              width={40}
+              height={40}
+              priority
+              className="hidden day:block h-10 w-10 object-contain opacity-90 group-hover:opacity-100 transition-opacity"
             />
             <span className="hidden sm:flex flex-col leading-none">
               <span className="font-[family-name:var(--font-display)] text-[20px] tracking-[0.02em] text-ivory transition-colors duration-500 group-hover:text-bronze-light">
@@ -494,11 +515,14 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
           sign out sit at the foot of the overlay. */}
       <div
         className={cn(
-          'fixed inset-0 z-40 lg:hidden bg-ink transition-all duration-500',
+          'fixed inset-0 z-40 lg:hidden h-dvh overflow-y-auto overscroll-contain bg-ink transition-all duration-500',
           menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         )}
+        aria-hidden={!menuOpen}
       >
-        <div className="h-full flex flex-col items-center justify-center gap-6 px-6 pt-20 pb-12">
+        {/* min-h-full (not h-full) so on short screens the list grows past
+            the viewport and the overlay scrolls — Sign out stays reachable. */}
+        <div className="min-h-full flex flex-col items-center justify-center gap-6 px-6 pt-24 pb-12">
           {MOBILE_NAV_ITEMS.map((item, i) => {
             const active = isActive(item.to, item.end)
             return (

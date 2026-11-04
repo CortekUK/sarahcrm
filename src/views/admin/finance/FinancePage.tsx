@@ -44,7 +44,9 @@ interface MemberRevenueRow {
   name: string
   company: string | null
   revenuePaidPence: number
-  ltvPence: number
+  // null = LTV has never been computed for this member (or is stale: £0
+  // while money has been paid) — shown as "Not calculated", not £0.
+  ltvPence: number | null
   xeroSpendPence: number | null
 }
 
@@ -108,6 +110,9 @@ export function FinancePage() {
     referrals: 0,
   })
   const [conciergeGmv, setConciergeGmv] = useState(0)
+  // Sponsorships signed (confirmed / invoiced) but not yet paid — shown
+  // separately as "contracted"; only PAID sponsorships count as revenue.
+  const [sponsorshipContracted, setSponsorshipContracted] = useState(0)
   const [outstanding, setOutstanding] = useState(0)
   const [activeSubscriptions, setActiveSubscriptions] = useState(0)
   const [mrr, setMrr] = useState(0)
@@ -301,10 +306,18 @@ export function FinancePage() {
     const eventPayments = (revenueRes.data ?? [])
       .filter((p) => p.payment_type === 'event_booking')
       .reduce((sum, p) => sum + (p.amount_pence ?? 0), 0)
-    // Committed sponsorship fees (confirmed / invoiced / paid).
-    const sponsorshipRevenue = (sponsorshipsRes.data ?? []).reduce(
-      (sum, s) => sum + (s.amount_pence ?? 0),
+    // Sponsorship revenue = PAID sponsorships only (money received).
+    // Confirmed / invoiced deals are contracted, not received — shown as a
+    // separate "contracted" figure. Negative amounts are ignored.
+    const paidSponsorships = (sponsorshipsRes.data ?? []).filter((s) => s.status === 'paid')
+    const sponsorshipRevenue = paidSponsorships.reduce(
+      (sum, s) => sum + Math.max(0, s.amount_pence ?? 0),
       0,
+    )
+    setSponsorshipContracted(
+      (sponsorshipsRes.data ?? [])
+        .filter((s) => s.status === 'confirmed' || s.status === 'invoiced')
+        .reduce((sum, s) => sum + Math.max(0, s.amount_pence ?? 0), 0),
     )
     // Concierge — realised fulfilment (booked/delivered/feedback).
     //  • conciergeRevenue = MARGIN = Σ (sale_price − supplier_cost).
@@ -327,7 +340,7 @@ export function FinancePage() {
     // (introductions.revenue_pence) is member-to-member value, not Club
     // income, so it is excluded entirely too.
     const referralRevenue = (referralsRes.data ?? []).reduce(
-      (sum, r) => sum + (r.revenue_pence ?? 0),
+      (sum, r) => sum + Math.max(0, r.revenue_pence ?? 0),
       0,
     )
     // Refunded application accounting needs BOTH sides of the ledger
@@ -578,9 +591,9 @@ export function FinancePage() {
       ticketByEvent.set(b.event_id, (ticketByEvent.get(b.event_id) ?? 0) + (b.amount_pence ?? 0))
     }
     const sponsorByEvent = new Map<string, number>()
-    for (const s of sponsorshipsRes.data ?? []) {
+    for (const s of paidSponsorships) {
       if (!s.event_id) continue
-      sponsorByEvent.set(s.event_id, (sponsorByEvent.get(s.event_id) ?? 0) + (s.amount_pence ?? 0))
+      sponsorByEvent.set(s.event_id, (sponsorByEvent.get(s.event_id) ?? 0) + Math.max(0, s.amount_pence ?? 0))
     }
     const costByEvent = new Map<string, number>()
     for (const e of expensesRes.data ?? []) {
@@ -622,15 +635,22 @@ export function FinancePage() {
     }
     const memberRevenueRows: MemberRevenueRow[] = memberRows
       .filter((m) => m.membership_status === 'active')
-      .map((m) => ({
-        id: m.id,
-        name:
-          `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.trim() || 'Unnamed',
-        company: m.company_name,
-        revenuePaidPence: revenueByMember.get(m.id) ?? 0,
-        ltvPence: m.lifetime_value_pence ?? 0,
-        xeroSpendPence: m.xero_spend_pence,
-      }))
+      .map((m) => {
+        const revenuePaidPence = revenueByMember.get(m.id) ?? 0
+        const ltv = m.lifetime_value_pence
+        // Never computed (null), or £0 while money has been paid → the
+        // recompute hasn't run since; don't present that as a real £0.
+        const ltvPence = ltv === null || (ltv === 0 && revenuePaidPence > 0) ? null : ltv
+        return {
+          id: m.id,
+          name:
+            `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.trim() || 'Unnamed',
+          company: m.company_name,
+          revenuePaidPence,
+          ltvPence,
+          xeroSpendPence: m.xero_spend_pence,
+        }
+      })
     setMemberRevenue(memberRevenueRows)
 
     setLoading(false)
@@ -640,8 +660,8 @@ export function FinancePage() {
   const sortedMemberRevenue = useMemo(() => {
     const rows = [...memberRevenue]
     rows.sort((a, b) => {
-      const av = memberSort.key === 'ltv' ? a.ltvPence : a.revenuePaidPence
-      const bv = memberSort.key === 'ltv' ? b.ltvPence : b.revenuePaidPence
+      const av = memberSort.key === 'ltv' ? (a.ltvPence ?? -1) : a.revenuePaidPence
+      const bv = memberSort.key === 'ltv' ? (b.ltvPence ?? -1) : b.revenuePaidPence
       return memberSort.dir === 'desc' ? bv - av : av - bv
     })
     return rows
@@ -715,7 +735,11 @@ export function FinancePage() {
         <StatCard
           label="Revenue"
           value={formatCurrency(totalRevenue)}
-          changeText="all time paid"
+          changeText={
+            sponsorshipContracted > 0
+              ? `all time paid · ${formatCurrency(sponsorshipContracted)} contracted`
+              : 'all time paid'
+          }
           changeType="positive"
         />
         <StatCard
@@ -738,9 +762,11 @@ export function FinancePage() {
         />
         <StatCard
           label="Renewal rate"
-          value={renewalRate ? `${Math.round(renewalRate.rate * 100)}%` : '—'}
+          value={
+            renewalRate && renewalRate.due > 0 ? `${Math.round(renewalRate.rate * 100)}%` : '—'
+          }
           changeText={
-            renewalRate
+            renewalRate && renewalRate.due > 0
               ? `${renewalRate.renewed}/${renewalRate.due} in last ${renewalRate.windowDays}d`
               : 'no renewals due'
           }
@@ -808,7 +834,7 @@ export function FinancePage() {
             const sources = [
               { key: 'membership', label: 'Membership', value: revenueBySource.membership, color: 'bg-gold' },
               { key: 'events', label: 'Events', value: revenueBySource.events, color: 'bg-accent-blue' },
-              { key: 'sponsorship', label: 'Sponsorship', value: revenueBySource.sponsorship, color: 'bg-accent' },
+              { key: 'sponsorship', label: 'Sponsorship (paid)', value: revenueBySource.sponsorship, color: 'bg-accent' },
               { key: 'concierge', label: 'Concierge', value: revenueBySource.concierge, color: 'bg-bronze' },
               { key: 'referrals', label: 'Referrals', value: revenueBySource.referrals, color: 'bg-accent-warm' },
             ]
@@ -849,7 +875,12 @@ export function FinancePage() {
                           <p className="text-lg text-text tabular-nums">
                             {formatCurrency(s.value)}
                           </p>
-                          <p className="text-xs text-text-dim">{pct}% of revenue</p>
+                          <p className="text-xs text-text-dim">
+                            {pct}% of revenue
+                            {s.key === 'sponsorship' && sponsorshipContracted > 0 && (
+                              <> · {formatCurrency(sponsorshipContracted)} contracted, not yet paid</>
+                            )}
+                          </p>
                         </div>
                       </div>
                     )
@@ -1009,7 +1040,11 @@ export function FinancePage() {
                       {formatCurrency(m.revenuePaidPence)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium text-text">
-                      {formatCurrency(m.ltvPence)}
+                      {m.ltvPence === null ? (
+                        <span className="text-xs font-normal text-text-dim">Not calculated</span>
+                      ) : (
+                        formatCurrency(m.ltvPence)
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-text-muted">
                       {m.xeroSpendPence === null ? '—' : formatCurrency(m.xeroSpendPence)}
@@ -1020,7 +1055,8 @@ export function FinancePage() {
             </Table>
             <p className="px-6 py-3 text-[11px] text-text-dim border-t border-border">
               LTV is the cached lifetime value (members.lifetime_value_pence), refreshed by the
-              members score recompute. Showing top {Math.min(50, sortedMemberRevenue.length)} of{' '}
+              members score recompute — &ldquo;Not calculated&rdquo; means Recompute LTV hasn&rsquo;t run
+              for that member yet. Showing top {Math.min(50, sortedMemberRevenue.length)} of{' '}
               {sortedMemberRevenue.length} active members.
             </p>
           </CardContent>

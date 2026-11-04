@@ -6,8 +6,30 @@
 
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
 import { escapeHtml, getSiteUrl } from './server-helpers'
+import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
+import { eventVat } from '@/lib/events/vat'
 
 const UK_TZ = 'Europe/London'
+
+// The VAT inside a charged amount, when the event adds VAT on top
+// (events.vat_mode = 'added'). Looked up here so every caller's receipt
+// shows it without threading the event's VAT setting through each route.
+async function vatInside(eventId: string, grossPence: number): Promise<{ rate: number; pence: number } | null> {
+  if (grossPence <= 0) return null
+  try {
+    const db = createSupabaseAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } },
+    )
+    const { data } = await db.from('events').select('vat_mode, vat_rate').eq('id', eventId).maybeSingle()
+    const { mode, rate } = eventVat(data)
+    if (mode !== 'added' || rate <= 0) return null
+    return { rate, pence: grossPence - Math.round(grossPence / (1 + rate / 100)) }
+  } catch {
+    return null
+  }
+}
 
 function formatDate(iso: string | null | undefined): string | null {
   if (!iso) return null
@@ -20,7 +42,7 @@ function formatDate(iso: string | null | undefined): string | null {
       hour: 'numeric',
       minute: '2-digit',
       timeZone: UK_TZ,
-    }).format(new Date(iso))
+    }).format(new Date(iso)) + ' (UK time)'
   } catch {
     return null
   }
@@ -43,7 +65,10 @@ export async function sendBookingConfirmationEmail(args: {
     const title = escapeHtml(args.eventTitle || 'the event')
     const first = escapeHtml((args.firstName || 'there').split(' ')[0])
     const when = formatDate(args.startDate)
-    const amount = `£${(args.amountPence / 100).toFixed(2)}`
+    const vat = args.kind === 'charged' || args.kind === 'held' ? await vatInside(args.eventId, args.amountPence) : null
+    const amount =
+      `£${(args.amountPence / 100).toFixed(2)}` +
+      (vat ? ` (includes VAT at ${vat.rate}%: £${(vat.pence / 100).toFixed(2)})` : '')
     const details: string[] = []
     if (when) details.push(`<strong style="color:#2C2825;">When:</strong> ${escapeHtml(when)}`)
     if (args.venueName) details.push(`<strong style="color:#2C2825;">Where:</strong> ${escapeHtml(args.venueName)}`)

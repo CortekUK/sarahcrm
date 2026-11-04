@@ -7,6 +7,7 @@ import { MagneticButton } from '../MagneticButton'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import type { Database } from '@/types/database'
+import { UK_TIME_ZONE } from '@/lib/utils'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -173,7 +174,7 @@ export function EventDetailContent({ event, isPast }: EventDetailContentProps) {
                     style={{ color: t.text }}
                   >
                     {event.start_date
-                      ? new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                      ? new Date(event.start_date).toLocaleDateString('en-GB', { timeZone: UK_TIME_ZONE, day: 'numeric', month: 'long', year: 'numeric' })
                       : 'Date to be confirmed'}
                   </p>
                 </div>
@@ -190,7 +191,7 @@ export function EventDetailContent({ event, isPast }: EventDetailContentProps) {
                       className="text-sm font-medium mt-0.5 transition-colors duration-[400ms]"
                       style={{ color: t.text }}
                     >
-                      {new Date(event.doors_open).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()}
+                      {new Date(event.doors_open).toLocaleTimeString('en-GB', { timeZone: UK_TIME_ZONE, hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()}
                     </p>
                   </div>
                 )}

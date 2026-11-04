@@ -16,6 +16,7 @@ import { ActiveToggle } from '@/components/admin/ActiveToggle'
 import { Thumbnail } from '@/components/admin/Thumbnail'
 import { toast } from '@/lib/hooks/use-toast'
 import { Pencil, Sparkles, Lock } from 'lucide-react'
+import { dbErrorMessage } from '@/lib/form-validation'
 
 // /dashboard/website/membership-benefits
 //
@@ -112,7 +113,7 @@ export function MembershipBenefitsPage() {
     if (err) {
       toast({
         title: 'Failed to load benefits',
-        description: err.message,
+        description: dbErrorMessage(err),
         variant: 'destructive',
       })
     } else if (data) {
@@ -136,7 +137,7 @@ export function MembershipBenefitsPage() {
       .eq('id', editing.id)
 
     if (err) {
-      setError(err.message)
+      setError(dbErrorMessage(err))
       setSaving(false)
       return
     }
@@ -167,7 +168,7 @@ export function MembershipBenefitsPage() {
       )
       toast({
         title: 'Could not update visibility',
-        description: err.message,
+        description: dbErrorMessage(err),
         variant: 'destructive',
       })
       return

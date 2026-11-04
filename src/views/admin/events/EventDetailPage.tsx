@@ -34,6 +34,8 @@ import {
   Trash2,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
+import { toast } from '@/lib/hooks/use-toast'
+import { eventErrorMessage } from './eventErrors'
 
 type EventRow = Database['public']['Tables']['events']['Row']
 type EventStatus = Database['public']['Enums']['event_status']
@@ -94,6 +96,7 @@ export function EventDetailPage() {
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     if (id) fetchEvent(id)
@@ -137,7 +140,7 @@ export function EventDetailPage() {
     if (err) {
       await confirm({
         title: 'Publish failed',
-        description: err.message,
+        description: eventErrorMessage(err),
         confirmLabel: 'Close',
         tone: 'warning',
       })
@@ -148,13 +151,64 @@ export function EventDetailPage() {
 
   async function handleCancel() {
     if (!id || !event) return
-    await supabase.from('events').update({ status: 'cancelled' }).eq('id', id)
+    const active = guests.filter((g) => g.status === 'confirmed' || g.status === 'pending')
+    const paid = active.filter((g) => g.amount_pence > 0).length
+    const ok = await confirm({
+      title: `Cancel "${event.title}"?`,
+      description: (
+        <span>
+          The event will be marked cancelled and taken off the public site.{' '}
+          {active.length > 0 ? (
+            <>
+              It has{' '}
+              <strong className="text-text">
+                {active.length} active booking{active.length === 1 ? '' : 's'}
+              </strong>
+              {paid > 0 ? ` (${paid} paid)` : ''}. Let those guests know, and handle any refunds in
+              Stripe — refunds are not issued automatically.
+            </>
+          ) : (
+            'It has no active bookings.'
+          )}
+        </span>
+      ),
+      confirmLabel: 'Cancel event',
+      cancelLabel: 'Keep event',
+      tone: 'danger',
+    })
+    if (!ok) return
+    setCancelling(true)
+    const { error: err } = await supabase.from('events').update({ status: 'cancelled' }).eq('id', id)
+    setCancelling(false)
+    if (err) {
+      await confirm({
+        title: 'Could not cancel the event',
+        description: eventErrorMessage(err),
+        confirmLabel: 'Close',
+        tone: 'warning',
+      })
+      return
+    }
     setEvent({ ...event, status: 'cancelled' })
+    toast({ title: 'Event cancelled', description: event.title })
   }
 
   async function handleDelete() {
     if (!id || !event) return
     const bookingCount = guests.length
+    // Same rule as the database (EVENT_HAS_PAYMENTS): paid bookings → cancel, not delete.
+    const hasPaid = guests.some(
+      (g) => g.amount_pence > 0 && (g.status === 'confirmed' || g.status === 'refunded'),
+    )
+    if (hasPaid) {
+      await confirm({
+        title: 'This event can’t be deleted',
+        description: eventErrorMessage({ message: 'EVENT_HAS_PAYMENTS: x' }),
+        confirmLabel: 'Close',
+        tone: 'warning',
+      })
+      return
+    }
     const ok = await confirm({
       title: `Delete "${event.title}"?`,
       description: (
@@ -177,7 +231,7 @@ export function EventDetailPage() {
       setDeleting(false)
       await confirm({
         title: 'Delete failed',
-        description: err.message,
+        description: eventErrorMessage(err),
         confirmLabel: 'Close',
         tone: 'warning',
       })
@@ -189,7 +243,16 @@ export function EventDetailPage() {
   async function toggleCheckIn(bookingId: string, currentValue: boolean) {
     const newValue = !currentValue
     const now = new Date().toISOString()
-    await supabase
+    const guest = guests.find((g) => g.id === bookingId)
+    if (newValue && guest && guest.status !== 'confirmed') {
+      toast({
+        title: 'Can’t check in',
+        description: `Only confirmed bookings can be checked in — this one is ${guest.status}.`,
+        variant: 'destructive',
+      })
+      return
+    }
+    const { error: err } = await supabase
       .from('bookings')
       .update({
         checked_in: newValue,
@@ -198,6 +261,10 @@ export function EventDetailPage() {
         attendance: newValue ? 'attended' : null,
       })
       .eq('id', bookingId)
+    if (err) {
+      toast({ title: 'Check-in not saved', description: eventErrorMessage(err), variant: 'destructive' })
+      return
+    }
 
     setGuests((prev) =>
       prev.map((g) =>
@@ -215,10 +282,14 @@ export function EventDetailPage() {
 
   // Mark a booking as a no-show (didn't attend). Clears any check-in.
   async function markNoShow(bookingId: string) {
-    await supabase
+    const { error: err } = await supabase
       .from('bookings')
       .update({ checked_in: false, checked_in_at: null, attendance: 'no_show' })
       .eq('id', bookingId)
+    if (err) {
+      toast({ title: 'Not saved', description: eventErrorMessage(err), variant: 'destructive' })
+      return
+    }
 
     setGuests((prev) =>
       prev.map((g) =>
@@ -259,6 +330,9 @@ export function EventDetailPage() {
   const galleryUrls = (event.gallery_urls as string[] | null) ?? []
   // Planning events may have no date yet.
   const isPast = event.start_date != null && new Date(event.start_date) < new Date()
+  // No-show only means something once the event has started; before that,
+  // unrecorded attendance is just "awaiting" (QA: future guests read NO-SHOW).
+  const canMarkNoShow = isPast
 
   return (
     <div className="p-4 md:p-8">
@@ -283,7 +357,7 @@ export function EventDetailPage() {
             </Button>
           )}
           {(event.status === 'published' || event.status === 'live') && (
-            <Button variant="ghost" size="sm" onClick={handleCancel}>
+            <Button variant="ghost" size="sm" loading={cancelling} onClick={handleCancel}>
               Cancel event
             </Button>
           )}
@@ -529,9 +603,11 @@ export function EventDetailPage() {
               <Badge variant="active" dot>
                 {attendedCount} attended
               </Badge>
-              <Badge variant="urgent" dot>
-                {noShowCount} no-show
-              </Badge>
+              {(canMarkNoShow || noShowCount > 0) && (
+                <Badge variant="urgent" dot>
+                  {noShowCount} no-show
+                </Badge>
+              )}
               <Badge variant="draft" dot>
                 {notCheckedInCount} awaiting
               </Badge>
@@ -659,6 +735,7 @@ export function EventDetailPage() {
                               >
                                 {guest.checked_in ? <Check size={14} /> : <XIcon size={14} />}
                               </button>
+                              {(canMarkNoShow || guest.attendance === 'no_show') && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -675,6 +752,7 @@ export function EventDetailPage() {
                               >
                                 No-show
                               </button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -748,6 +826,7 @@ export function EventDetailPage() {
                                 </>
                               )}
                             </button>
+                            {(canMarkNoShow || guest.attendance === 'no_show') && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -762,6 +841,7 @@ export function EventDetailPage() {
                             >
                               No-show
                             </button>
+                            )}
                           </div>
                         </div>
                         {guest.dietary_requirements && (
