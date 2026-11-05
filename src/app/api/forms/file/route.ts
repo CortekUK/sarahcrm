@@ -1,6 +1,6 @@
 // GET /api/forms/file?path=<form-uploads path>
 //
-// ADMIN ONLY. Returns a short-lived (5 min) signed download URL for a
+// ADMIN ONLY. Returns a short-lived (5 min) signed URL for a
 // website-form attachment stored in the PRIVATE `form-uploads` bucket (see
 // /api/forms/upload). The admin Enquiries "Form details" block calls this
 // when a file link is clicked, so attachments are never public by URL.
@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
   const admin = getAdmin()
   const { data, error } = await admin.storage
     .from(FORM_UPLOAD_BUCKET)
-    .createSignedUrl(path, 300, { download: path.split('/').pop() })
+    // No `download` option: PDFs open in the browser tab; Word/Excel/
+    // PowerPoint files still download, as browsers can't display them.
+    .createSignedUrl(path, 300)
   if (error || !data?.signedUrl) {
     if (error) console.error('[forms/file] signed URL failed:', error)
     return Response.json({ ok: false, error: 'File not found.' }, { status: 404 })

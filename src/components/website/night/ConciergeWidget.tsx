@@ -387,11 +387,11 @@ export function ConciergeWidget() {
                 {/* Honeypot — visually hidden; real users never fill it. */}
                 <input
                   type="text"
-                  name="company_url"
+                  name="hp_field"
                   value={honeypot}
                   onChange={(e) => setHoneypot(e.target.value)}
                   tabIndex={-1}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   aria-hidden="true"
                   className="absolute h-0 w-0 opacity-0 pointer-events-none"
                 />

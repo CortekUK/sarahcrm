@@ -61,9 +61,11 @@ interface BaseField {
 
 export type FieldDef =
   | (BaseField & {
-      type: 'text' | 'email' | 'number' | 'date' | 'url'
+      type: 'text' | 'email' | 'date' | 'url'
       placeholder?: string
     })
+  // Whole numbers only (guests, places, capacity…). Default range 1–100,000.
+  | (BaseField & { type: 'number'; placeholder?: string; min?: number; max?: number })
   | (BaseField & { type: 'textarea'; rows?: number; placeholder?: string })
   | (BaseField & { type: 'select'; options: readonly string[]; placeholder?: string })
   | (BaseField & {
@@ -228,6 +230,14 @@ export function SiteForm({
         e[f.name] = f.type === 'check' ? 'Please confirm to continue' : 'Required'
         continue
       }
+      if (f.type === 'number' && typeof v === 'string' && v.trim()) {
+        const min = f.min ?? 1
+        const max = f.max ?? 100000
+        const n = Number(v)
+        if (!/^\d+$/.test(v.trim()) || n < min || n > max) {
+          e[f.name] = `Please enter a whole number from ${min.toLocaleString('en-GB')} to ${max.toLocaleString('en-GB')}`
+        }
+      }
       if (f.type === 'email' && typeof v === 'string' && v.trim() && !EMAIL_RE.test(v.trim())) {
         e[f.name] = 'Please enter a valid email'
       }
@@ -350,12 +360,12 @@ export function SiteForm({
       {/* Honeypot — visually hidden, skipped by keyboard + autofill. */}
       <div aria-hidden="true" className="absolute -left-[10000px] top-auto w-px h-px overflow-hidden">
         <label>
-          Website
+          Leave this empty
           <input
             type="text"
-            name="website"
+            name="hp_field"
             tabIndex={-1}
-            autoComplete="off"
+            autoComplete="new-password"
             value={website}
             onChange={(e) => setWebsite(e.target.value)}
           />
@@ -497,6 +507,28 @@ export function SiteForm({
                   hint={f.hint}
                   file={v instanceof File ? v : null}
                   onChange={(x) => set(f.name, x)}
+                  error={err}
+                />
+              )
+              break
+            case 'number':
+              node = (
+                <TextField
+                  label={f.label}
+                  type="number"
+                  inputMode="numeric"
+                  min={f.min ?? 1}
+                  max={f.max ?? 100000}
+                  step={1}
+                  required={f.required}
+                  placeholder={f.placeholder}
+                  hint={f.hint}
+                  value={typeof v === 'string' ? v : ''}
+                  // No minus signs, decimals or exponents — digits only.
+                  onKeyDown={(e) => {
+                    if (['-', '+', 'e', 'E', '.', ','].includes(e.key)) e.preventDefault()
+                  }}
+                  onChange={(e) => set(f.name, e.target.value.replace(/\D/g, ''))}
                   error={err}
                 />
               )

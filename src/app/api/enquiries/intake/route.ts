@@ -39,7 +39,7 @@ import { escapeHtml, renderClubEmail, sendClubEmail } from '@/lib/email/club-ema
 import { notifyAdmins } from '@/lib/email/admin-notify'
 import { siteUrl } from '@/lib/email/site-url'
 import { ENQUIRY_INTENTS } from '@/lib/concierge/call-booking'
-import { clientIp, overLimit } from '@/lib/public-intake/rate-limit'
+import { clientIp, overLimit, rateLimitsOff } from '@/lib/public-intake/rate-limit'
 import {
   FORM_UPLOAD_PATH_RE,
   SOURCE_META,
@@ -222,6 +222,10 @@ export async function POST(request: Request) {
 
   // Honeypot: pretend success so bots don't learn to skip the field.
   if (str(body.website) || str(body.company_url)) {
+    console.warn('[enquiries/intake] honeypot filled — dropped submission', {
+      source: str(body.source) || null,
+      email: str(body.email) || null,
+    })
     return Response.json({ ok: true, id: null })
   }
 
@@ -344,9 +348,12 @@ export async function POST(request: Request) {
         .not('acknowledged_at', 'is', null)
         .gte('acknowledged_at', dayAgo),
     ])
-    if ((perEmail.count ?? 0) >= MAX_PER_EMAIL_PER_HOUR) return tooMany()
-    if ((global.count ?? 0) >= MAX_GLOBAL_PER_10_MIN) return tooMany()
-    ackedRecently = (acked.count ?? 0) > 0
+    if (!rateLimitsOff()) {
+      if ((perEmail.count ?? 0) >= MAX_PER_EMAIL_PER_HOUR) return tooMany()
+      if ((global.count ?? 0) >= MAX_GLOBAL_PER_10_MIN) return tooMany()
+      // Testing locally: send the acknowledgement every time.
+      ackedRecently = (acked.count ?? 0) > 0
+    }
   } catch (e) {
     console.error('[enquiries/intake] rate-limit check failed:', e)
   }

@@ -35,6 +35,7 @@
 //
 // Never 500s on a normal path — every failure degrades to a calm canned reply.
 
+import { rateLimitsOff } from '@/lib/public-intake/rate-limit'
 import { NextRequest } from 'next/server'
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import OpenAI from 'openai'
@@ -509,7 +510,7 @@ async function handleChat(req: NextRequest, ctx: { setCookie?: string }): Promis
 
   // ── (4) Per-IP rate limit — only gate the START of a NEW conversation,
   //        so an existing visitor can always continue their own chat.
-  if (!convo && ip !== 'unknown') {
+  if (!convo && ip !== 'unknown' && !rateLimitsOff()) {
     try {
       const sinceIso = new Date(Date.now() - 60 * 60 * 1000).toISOString()
       const { count } = await admin

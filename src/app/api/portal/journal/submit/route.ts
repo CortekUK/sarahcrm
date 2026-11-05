@@ -14,6 +14,7 @@
 // Body: { title, excerpt?, body, hero_image_url?, website? /* honeypot */ }
 // Returns: { ok: true, id } or { ok: false, error }
 
+import { rateLimitsOff } from '@/lib/public-intake/rate-limit'
 import DOMPurify from 'isomorphic-dompurify'
 import { createClient } from '@/lib/supabase/server'
 import { getAdmin } from '@/lib/marketing/admin'
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
     .eq('created_by', user.id)
     .eq('author_type', 'member')
     .gte('created_at', since)
-  if ((count ?? 0) >= MAX_PER_DAY) {
+  if (!rateLimitsOff() && (count ?? 0) >= MAX_PER_DAY) {
     return Response.json(
       { ok: false, error: 'You have sent several articles today. Please try again tomorrow.' },
       { status: 429 },

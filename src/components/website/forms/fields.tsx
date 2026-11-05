@@ -1,8 +1,9 @@
 'use client'
 
-import { forwardRef, useId } from 'react'
-import { Check, FileText, Upload, X } from 'lucide-react'
+import { forwardRef, useEffect, useId, useRef, useState } from 'react'
+import { Check, ChevronDown, FileText, Upload, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { FORM_UPLOAD_MAX_BYTES, FORM_UPLOAD_TYPES } from './sources'
 
 // Field primitives for the website forms — the night design's underline
 // inputs, small-caps labels and bronze tiles (same vocabulary as the
@@ -73,6 +74,10 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
 )
 TextField.displayName = 'TextField'
 
+// Branded dropdown (same look as the membership application's
+// EditorialSelect): a native <select> opens the OS picker with its own
+// highlight colours, which breaks the night/day design. Button + panel we
+// control: bronze hover, keyboard support, click-outside / Escape to close.
 export function SelectField({
   label,
   value,
@@ -92,29 +97,128 @@ export function SelectField({
   required?: boolean
   placeholder?: string
 }) {
-  const id = useId()
+  const labelId = useId()
+  const buttonId = useId()
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(-1)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const i = options.indexOf(value)
+    setActive(i >= 0 ? i : 0)
+  }, [open, options, value])
+
+  useEffect(() => {
+    if (!open || active < 0) return
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [open, active])
+
+  function choose(o: string) {
+    onChange(o)
+    setOpen(false)
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') {
+      setOpen(false)
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (!open) {
+        setOpen(true)
+        return
+      }
+      setActive((a) =>
+        e.key === 'ArrowDown' ? Math.min(options.length - 1, a + 1) : Math.max(0, a - 1),
+      )
+      return
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && open && active >= 0) {
+      e.preventDefault()
+      choose(options[active])
+    }
+  }
+
   return (
-    <div>
-      <label htmlFor={id} className={labelClass}>
+    <div className="relative" ref={wrapRef} onKeyDown={onKeyDown}>
+      <label id={labelId} htmlFor={buttonId} className={labelClass}>
         {label}
         <Req required={required} />
       </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+      <button
+        id={buttonId}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         aria-invalid={error ? true : undefined}
-        className={cn(inputClass, 'appearance-none cursor-pointer', !value && 'text-slate-dim')}
+        aria-labelledby={`${labelId} ${buttonId}`}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'w-full flex items-center justify-between gap-3 px-0 py-3 bg-transparent border-b text-[15px] text-left transition-colors focus:outline-none',
+          open ? 'border-bronze' : 'border-graphite-line/80 hover:border-bronze/50 focus:border-bronze',
+        )}
       >
-        <option value="" className="bg-ink text-ivory">
-          {placeholder}
-        </option>
-        {options.map((o) => (
-          <option key={o} value={o} className="bg-ink text-ivory">
-            {o}
-          </option>
-        ))}
-      </select>
+        <span className={cn(value ? 'text-ivory' : 'text-slate-dim')}>{value || placeholder}</span>
+        <ChevronDown
+          size={14}
+          strokeWidth={1.5}
+          className={cn('text-slate-haze transition-transform duration-300', open && 'rotate-180 text-bronze-light')}
+        />
+      </button>
+
+      {open && (
+        // data-lenis-prevent: keep the site's smooth-scroll from hijacking
+        // wheel events inside the list.
+        <div
+          data-lenis-prevent
+          className="absolute left-0 right-0 top-full mt-2 z-50 bg-graphite day:bg-white border border-bronze/40 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.6)] day:shadow-lg"
+        >
+          <div
+            ref={listRef}
+            role="listbox"
+            aria-labelledby={labelId}
+            className="max-h-64 overflow-y-auto overscroll-contain"
+          >
+            {options.map((o, i) => {
+              const selected = value === o
+              return (
+                <button
+                  key={o}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  data-index={i}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => choose(o)}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left text-[13.5px] transition-colors',
+                    selected
+                      ? 'bg-bronze/15 text-bronze-light'
+                      : i === active
+                        ? 'bg-bronze/10 text-ivory'
+                        : 'text-ivory-soft hover:bg-bronze/10 hover:text-ivory',
+                  )}
+                >
+                  <span>{o}</span>
+                  {selected && <Check size={12} strokeWidth={2} className="text-bronze-light" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
       <FieldHint hint={hint} />
       <FieldError error={error} />
     </div>
@@ -319,6 +423,9 @@ export function FileField({
   required?: boolean
 }) {
   const id = useId()
+  // Refuse a file the moment it's picked (over 20MB / wrong type) instead
+  // of showing it as attached and failing at submit.
+  const [rejected, setRejected] = useState<string | null>(null)
   return (
     <div>
       <span className={labelClass}>
@@ -357,12 +464,26 @@ export function FileField({
         accept={FILE_ACCEPT}
         className="sr-only"
         onChange={(e) => {
-          onChange(e.target.files?.[0] ?? null)
+          const picked = e.target.files?.[0] ?? null
           e.target.value = ''
+          if (!picked) return
+          const ext = picked.name.split('.').pop()?.toLowerCase() ?? ''
+          if (!Object.prototype.hasOwnProperty.call(FORM_UPLOAD_TYPES, ext)) {
+            setRejected(`“${picked.name}” isn’t a PDF, PPTX, XLSX or DOCX file.`)
+            return
+          }
+          if (picked.size > FORM_UPLOAD_MAX_BYTES) {
+            setRejected(
+              `“${picked.name}” is ${(picked.size / (1024 * 1024)).toFixed(1)}MB — files must be 20MB or smaller.`,
+            )
+            return
+          }
+          setRejected(null)
+          onChange(picked)
         }}
       />
       <FieldHint hint={hint} />
-      <FieldError error={error} />
+      <FieldError error={rejected ?? error} />
     </div>
   )
 }

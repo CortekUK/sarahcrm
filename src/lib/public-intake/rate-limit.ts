@@ -5,6 +5,13 @@
 
 const buckets = new Map<string, number[]>()
 
+// Off while developing locally (`next dev`) or when DISABLE_RATE_LIMITS=true,
+// so forms can be tested repeatedly. Always on in production unless that
+// flag is set explicitly.
+export function rateLimitsOff(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.DISABLE_RATE_LIMITS === 'true'
+}
+
 // First hop of x-forwarded-for, else x-real-ip (same as the concierge chat).
 export function clientIp(req: Request): string {
   const fwd = req.headers.get('x-forwarded-for')
@@ -15,7 +22,7 @@ export function clientIp(req: Request): string {
 // Records a hit for `key` and returns true when it is over `max` hits within
 // `windowMs`. Unknown IPs are never limited here (the DB checks still apply).
 export function overLimit(key: string, max: number, windowMs: number): boolean {
-  if (!key || key.endsWith(':unknown')) return false
+  if (rateLimitsOff() || !key || key.endsWith(':unknown')) return false
   const now = Date.now()
   const windowStart = now - windowMs
   const hits = (buckets.get(key) ?? []).filter((t) => t > windowStart)

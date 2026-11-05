@@ -1352,7 +1352,11 @@ function FormDetails({ formData }: { formData: EnquiryRow['form_data'] }) {
   const consentAt = typeof (formData as Record<string, unknown>).consent_at === 'string'
     ? ((formData as Record<string, unknown>).consent_at as string)
     : null
-  const rows = entries.filter(([k]) => k !== 'files' && k !== 'consent_at')
+  // Internal references (event_id, member_id, event_slug…) aren't useful to
+  // read — the event title etc. are already shown.
+  const rows = entries.filter(
+    ([k]) => k !== 'files' && k !== 'consent_at' && !/(^|_)(id|slug)$/.test(k),
+  )
 
   async function openFile(path: string) {
     setOpening(path)

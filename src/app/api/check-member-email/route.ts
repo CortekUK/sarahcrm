@@ -14,6 +14,7 @@
 // "yes/no on this email" — same surface as the public login flow
 // already exposes via auth.
 
+import { rateLimitsOff } from '@/lib/public-intake/rate-limit'
 import { NextRequest } from 'next/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     req.headers.get('x-real-ip') ||
     'unknown'
-  if (rateLimited(ip)) {
+  if (!rateLimitsOff() && rateLimited(ip)) {
     return Response.json({ exists: false, isMember: false }, { status: 429 })
   }
 

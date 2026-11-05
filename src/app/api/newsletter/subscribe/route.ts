@@ -16,7 +16,7 @@
 // Returns: { ok: true } or { ok: false, error }
 
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { clientIp, overLimit } from '@/lib/public-intake/rate-limit'
+import { clientIp, overLimit, rateLimitsOff } from '@/lib/public-intake/rate-limit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       .from('mailing_list')
       .select('id', { count: 'exact', head: true })
       .gte('subscribed_at', since)
-    if ((count ?? 0) >= MAX_GLOBAL_PER_10_MIN) return tooMany()
+    if (!rateLimitsOff() && (count ?? 0) >= MAX_GLOBAL_PER_10_MIN) return tooMany()
   } catch (e) {
     console.error('[newsletter/subscribe] rate-limit check failed:', e)
   }
@@ -109,14 +109,15 @@ export async function POST(request: Request) {
   const { error } = existing
     ? await admin
         .from('mailing_list')
-        .update({ first_name, last_name, unsubscribed_at: null, subscribed: true })
+        // Re-subscribing clears the opt-out (mailing_list has no `subscribed`
+        // flag — unsubscribed_at null means subscribed).
+        .update({ first_name, last_name, unsubscribed_at: null, subscribed_at: now })
         .eq('id', existing.id)
     : await admin.from('mailing_list').insert({
         email,
         first_name,
         last_name,
         source,
-        subscribed: true,
         subscribed_at: now,
       })
   if (error) {

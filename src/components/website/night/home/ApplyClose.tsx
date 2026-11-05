@@ -168,12 +168,12 @@ export function ApplyClose() {
                   {/* Honeypot — visually hidden, skipped by keyboard + autofill. */}
                   <div aria-hidden="true" className="absolute -left-[10000px] top-auto w-px h-px overflow-hidden">
                     <label>
-                      Website
+                      Leave this empty
                       <input
                         type="text"
-                        name="website"
+                        name="hp_field"
                         tabIndex={-1}
-                        autoComplete="off"
+                        autoComplete="new-password"
                         value={website}
                         onChange={(e) => setWebsite(e.target.value)}
                       />
