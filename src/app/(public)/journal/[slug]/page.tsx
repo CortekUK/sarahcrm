@@ -51,7 +51,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 // ─────────────────────────────────────────────────────────────────────
 
 const ARTICLE_CLASSES = [
-  'font-[family-name:var(--font-editorial)] text-[clamp(1.125rem,1.4vw,1.375rem)] leading-[1.8] text-ivory max-w-prose',
+  'font-[family-name:var(--font-editorial)] text-[clamp(1.125rem,1.4vw,1.375rem)] leading-[1.8] text-ivory',
   '[&>*+*]:mt-6',
   '[&_h2]:font-[family-name:var(--font-display)] [&_h2]:text-[clamp(1.5rem,2.6vw,2.25rem)] [&_h2]:leading-[1.15] [&_h2]:tracking-[-0.01em] [&_h2]:text-ivory [&_h2]:!mt-14',
   '[&_h3]:font-[family-name:var(--font-display)] [&_h3]:text-[clamp(1.25rem,1.8vw,1.625rem)] [&_h3]:leading-[1.2] [&_h3]:text-ivory [&_h3]:!mt-10',
@@ -139,7 +139,8 @@ export default async function JournalArticlePage({ params }: { params: Promise<{
 
       {/* ── Article ───────────────────────────────────────────── */}
       <Chapter density="tight" bg="ink">
-        <article className="max-w-[1400px] mx-auto">
+        {/* One centred reading column — body, tags, related event and links. */}
+        <article className="max-w-3xl mx-auto">
           {post.body_html.trim() && (
             <div className={ARTICLE_CLASSES} dangerouslySetInnerHTML={{ __html: post.body_html }} />
           )}
