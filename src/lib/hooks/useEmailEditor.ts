@@ -26,7 +26,11 @@ function generateId(): string {
   return `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 }
 
-export function useEmailEditor(templateId?: string) {
+// `persist: false` = compose mode (writing a one-off email in the designer,
+// e.g. to an applicant): the template is only a starting point, so nothing
+// is ever auto-saved back over it.
+export function useEmailEditor(templateId?: string, opts: { persist?: boolean } = {}) {
+  const persist = opts.persist !== false
   const router = useRouter()
   const supabase = createClient()
 
@@ -403,13 +407,14 @@ export function useEmailEditor(templateId?: string) {
   )
 
   useEffect(() => {
+    if (!persist) return
     if (!activeTemplateId) return
     if (!hasUnsavedChanges) return
     const handle = window.setTimeout(() => {
       saveTemplate(false, true)
     }, AUTOSAVE_DEBOUNCE_MS)
     return () => window.clearTimeout(handle)
-  }, [hasUnsavedChanges, blocks, settings, activeTemplateId, saveTemplate])
+  }, [persist, hasUnsavedChanges, blocks, settings, activeTemplateId, saveTemplate])
 
   useEffect(() => {
     if (!hasUnsavedChanges) return

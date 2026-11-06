@@ -91,6 +91,14 @@ const statusVariant: Record<MemberStatus, 'active' | 'upcoming' | 'draft' | 'urg
   cancelled: 'urgent',
 }
 
+// Short names for the tier badge in the table / cards — the full plan names
+// wrap onto three lines in a narrow column. Hover shows the full name.
+const tierShortLabels: Record<MemberTier, string> = {
+  tier_1: 'Access',
+  tier_2: 'Club',
+  tier_3: 'Club Business',
+}
+
 const tierLabels: Record<MemberTier, string> = {
   tier_1: 'Access',
   tier_2: 'The Club Membership',
@@ -488,7 +496,9 @@ export function MembersListPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="info">{tierLabels[m.membership_tier]}</Badge>
+                          <Badge variant="info" className="whitespace-nowrap" title={tierLabels[m.membership_tier]}>
+                            {tierShortLabels[m.membership_tier]}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge variant={statusVariant[m.membership_status]} dot>
@@ -580,7 +590,9 @@ export function MembersListPage() {
                           </div>
                         </div>
                         <div className="mt-2 flex items-center gap-2 flex-wrap">
-                          <Badge variant="info">{tierLabels[m.membership_tier]}</Badge>
+                          <Badge variant="info" className="whitespace-nowrap" title={tierLabels[m.membership_tier]}>
+                            {tierShortLabels[m.membership_tier]}
+                          </Badge>
                           <span className="text-[11px] text-text-dim">
                             {m.intros_used_this_month}/{m.monthly_intro_quota} intros
                           </span>

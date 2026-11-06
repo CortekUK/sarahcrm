@@ -11,7 +11,8 @@ import { renderBlocksToHTML } from '@/lib/templates/render-html'
 import { replaceMergeTags } from '@/lib/utils-templates/merge-tags-core'
 import { escapeMergeData } from '@/lib/email/club-email'
 import { siteUrl } from '@/lib/email/site-url'
-import type { EditorBlock, TemplateTheme } from '@/lib/templates/editor-types'
+import type { TemplateTheme } from '@/lib/templates/editor-types'
+import { cleanBlocks } from '@/lib/templates/clean-blocks'
 
 const SAMPLE_MERGE_DATA = {
   first_name: 'Charlotte',
@@ -33,29 +34,6 @@ const SAMPLE_MERGE_DATA = {
   sender_phone: '',
   booking_link: 'https://theclub.example.com/book',
   month_name: 'March',
-}
-
-// Keep only well-formed blocks (an object `content`, recursively for
-// columns/conditional children) so a half-built block can't crash the
-// renderer (e.g. "Cannot read properties of undefined (reading 'fontSize')").
-function cleanBlocks(input: unknown): EditorBlock[] {
-  if (!Array.isArray(input)) return []
-  return input
-    .filter(
-      (b): b is EditorBlock =>
-        !!b &&
-        typeof b === 'object' &&
-        typeof (b as EditorBlock).type === 'string' &&
-        !!(b as EditorBlock).content &&
-        typeof (b as EditorBlock).content === 'object',
-    )
-    .map((b) => {
-      const c = { ...b.content }
-      for (const key of ['leftBlocks', 'rightBlocks', 'centerBlocks', 'children']) {
-        if (Array.isArray(c[key])) c[key] = cleanBlocks(c[key])
-      }
-      return { ...b, content: c }
-    })
 }
 
 export async function POST(request: NextRequest) {

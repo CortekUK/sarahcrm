@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -21,7 +22,6 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
-  ExternalLink,
   Building2,
   Mail,
   Phone,
@@ -105,6 +105,20 @@ export function ApplicationsListPage() {
   useEffect(() => {
     fetchApps()
   }, [])
+
+  // ?open=<id> reopens that application (e.g. returning from the email
+  // designer after "Email applicant"). Read once, after the list loads.
+  const openedFromUrl = useRef(false)
+  useEffect(() => {
+    if (openedFromUrl.current || apps.length === 0) return
+    openedFromUrl.current = true
+    const id = new URLSearchParams(window.location.search).get('open')
+    const row = id ? apps.find((a) => a.id === id) : null
+    if (row) {
+      setStatusFilter('all')
+      setSelected(row)
+    }
+  }, [apps])
 
   async function fetchApps() {
     setLoading(true)
@@ -667,6 +681,7 @@ function ApplicationDetailModal({
   const confirm = useConfirm()
   const [notes, setNotes] = useState(application?.notes ?? '')
   const [pending, setPending] = useState<ApplicationStatus | null>(null)
+  const router = useRouter()
   // Notes autosave (QA #42 — typing a note then pressing Close lost it).
   const [notesState, setNotesState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const savedNotesRef = useRef(application?.notes ?? '')
@@ -830,7 +845,7 @@ function ApplicationDetailModal({
               <span>
                 {' '}
                 No payment is attached, so no refund or email is triggered. You can write
-                back personally via the “Email applicant” link below.
+                back personally via the “Email applicant” button below.
               </span>
             )}
           </span>
@@ -1288,13 +1303,14 @@ function ApplicationDetailModal({
                   {status === 'approved' ? 'Re-provision member' : 'Approve & create member'}
                 </Button>
                 {a.email && (
-                  <a
-                    href={`mailto:${a.email}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-gold transition-colors"
+                  <Button
+                    variant="secondary"
+                    onClick={() => router.push(`/dashboard/communications/compose?application=${a.id}`)}
+                    disabled={pending !== null}
                   >
+                    <Mail size={14} />
                     Email applicant
-                    <ExternalLink size={11} />
-                  </a>
+                  </Button>
                 )}
               </>
             )}

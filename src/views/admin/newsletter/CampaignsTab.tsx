@@ -287,8 +287,12 @@ function NewCampaignModal({
     return c.subs + c.members
   }
 
+  // A segment whose live count is known to be 0 can't be sent to — stop at
+  // this step instead of recording a "failed: audience is empty" campaign.
   const recipientChosen =
-    mode === 'all' || (mode === 'audience' && !!audiencePick) || (mode === 'segment' && !!segmentPick)
+    mode === 'all' ||
+    (mode === 'audience' && !!audiencePick) ||
+    (mode === 'segment' && !!segmentPick && segmentCounts[segmentPick.id] !== 0)
 
   async function send() {
     if (!tmplPick) return

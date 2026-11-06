@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Sparkles,
   Pointer,
+  Send,
 } from 'lucide-react'
 import { Button } from '@/components/ui-shadcn/button'
 import { Input } from '@/components/ui-shadcn/input'
@@ -26,13 +27,27 @@ import { useProgress } from '@/components/admin/TopProgressBar'
 import { cn } from '@/lib/utils'
 import type { TemplateTheme } from '@/lib/templates/editor-types'
 
-interface EmailEditorPageProps {
-  templateId?: string
+// Compose mode: the same designer used to write a one-off email to one
+// person (today: a membership applicant). The template, if any, is only a
+// starting point — nothing is saved; the header swaps Save for Send.
+export interface ComposeTarget {
+  applicationId: string
+  email: string
+  name: string
+  backHref: string
+  templates: { id: string; name: string }[]
+  onPickTemplate: (id: string) => void
 }
 
-export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
+interface EmailEditorPageProps {
+  templateId?: string
+  compose?: ComposeTarget
+}
+
+export function EmailEditorPage({ templateId, compose }: EmailEditorPageProps) {
   const router = useRouter()
-  const editor = useEmailEditor(templateId)
+  const editor = useEmailEditor(templateId, { persist: !compose })
+  const [sending, setSending] = useState(false)
   const [mode, setMode] = useState<'build' | 'ai'>('build')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [sendingTest, setSendingTest] = useState(false)
@@ -42,6 +57,20 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
   const selectedBlock = editor.blocks.find((b) => b.id === editor.selectedBlockId) ?? null
 
   const handleClose = useCallback(async () => {
+    if (compose) {
+      if (editor.hasUnsavedChanges) {
+        const ok = await confirm({
+          title: 'Discard this email?',
+          description: 'It has not been sent. Leaving now will discard it.',
+          confirmLabel: 'Discard',
+          cancelLabel: 'Keep writing',
+          tone: 'warning',
+        })
+        if (!ok) return
+      }
+      router.push(compose.backHref)
+      return
+    }
     if (editor.hasUnsavedChanges) {
       const ok = await confirm({
         title: 'Leave without saving?',
@@ -54,7 +83,48 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
       if (!ok) return
     }
     router.push('/dashboard/communications/templates')
-  }, [editor.hasUnsavedChanges, router, confirm])
+  }, [compose, editor.hasUnsavedChanges, router, confirm])
+
+  const handleSend = useCallback(async () => {
+    if (!compose || sending) return
+    const ok = await confirm({
+      title: `Send to ${compose.name || compose.email}?`,
+      description: `This emails ${compose.email} now. Merge tags like {{first_name}} are filled from the application.`,
+      confirmLabel: 'Send email',
+      cancelLabel: 'Cancel',
+    })
+    if (!ok) return
+    setSending(true)
+    try {
+      const res = await progress.track(
+        fetch('/api/admin/applications/email', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            application_id: compose.applicationId,
+            subject: editor.settings.subject,
+            blocks: editor.blocks,
+            theme: editor.settings.theme ?? null,
+          }),
+        }),
+      )
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (!res.ok || !json.ok) {
+        toast({ title: 'Could not send email', description: json.error ?? 'Please try again.', variant: 'destructive' })
+        return
+      }
+      toast({ title: 'Email sent', description: `Emailed ${compose.email}.` })
+      router.push(compose.backHref)
+    } catch (err) {
+      toast({
+        title: 'Could not send email',
+        description: err instanceof Error ? err.message : 'Network error.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSending(false)
+    }
+  }, [compose, sending, confirm, progress, editor.settings.subject, editor.blocks, editor.settings.theme, router])
 
   const handleSendTest = useCallback(async () => {
     if (sendingTest) return
@@ -129,20 +199,31 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
           >
             <X className="h-4 w-4" />
           </Button>
-          <div className="min-w-0 max-w-[280px]">
-            <Input
-              value={editor.settings.name}
-              onChange={(e) => editor.updateSettings({ name: e.target.value })}
-              className="border-none shadow-none focus-visible:ring-0 bg-transparent px-0 h-7 text-base font-medium font-[family-name:var(--font-display)] text-ivory placeholder:text-slate-haze"
-              placeholder="Untitled Template"
-            />
-          </div>
-          <SavedStatus
-            isSaving={editor.isSaving}
-            isAutoSaving={editor.isAutoSaving}
-            hasUnsavedChanges={editor.hasUnsavedChanges}
-            lastSavedAt={editor.lastSavedAt}
-          />
+          {compose ? (
+            <div className="min-w-0">
+              <p className="truncate text-base font-medium font-[family-name:var(--font-display)] text-ivory">
+                Email to {compose.name || compose.email}
+              </p>
+              <p className="truncate text-xs text-ivory-soft/70">{compose.email}</p>
+            </div>
+          ) : (
+            <>
+              <div className="min-w-0 max-w-[280px]">
+                <Input
+                  value={editor.settings.name}
+                  onChange={(e) => editor.updateSettings({ name: e.target.value })}
+                  className="border-none shadow-none focus-visible:ring-0 bg-transparent px-0 h-7 text-base font-medium font-[family-name:var(--font-display)] text-ivory placeholder:text-slate-haze"
+                  placeholder="Untitled Template"
+                />
+              </div>
+              <SavedStatus
+                isSaving={editor.isSaving}
+                isAutoSaving={editor.isAutoSaving}
+                hasUnsavedChanges={editor.hasUnsavedChanges}
+                lastSavedAt={editor.lastSavedAt}
+              />
+            </>
+          )}
         </div>
 
         {/* Build / AI mode toggle */}
@@ -195,6 +276,52 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
             <Redo2 className="h-4 w-4" />
           </Button>
           <div className="w-px h-5 bg-graphite-line/60 mx-1" />
+          {compose ? (
+            <>
+              {/* Start from a saved template — loads its blocks + subject
+                  into this email; the template itself is never changed. */}
+              <select
+                value={templateId ?? ''}
+                onChange={async (e) => {
+                  const id = e.target.value
+                  if (editor.hasUnsavedChanges) {
+                    const ok = await confirm({
+                      title: 'Replace this email?',
+                      description: 'Loading a template replaces what you have written so far.',
+                      confirmLabel: 'Load template',
+                      cancelLabel: 'Keep mine',
+                      tone: 'warning',
+                    })
+                    if (!ok) return
+                  }
+                  compose.onPickTemplate(id)
+                }}
+                className="h-8 max-w-[220px] rounded-md border border-graphite-line/70 bg-transparent px-2 text-xs text-ivory-soft hover:border-bronze/55 focus:outline-none"
+                title="Start from a template"
+              >
+                <option value="" className="bg-graphite">Blank email</option>
+                {compose.templates.map((t) => (
+                  <option key={t.id} value={t.id} className="bg-graphite">
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                onClick={handleSend}
+                disabled={sending}
+                className="h-8 bg-bronze text-ink hover:bg-bronze-light"
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Send email
+              </Button>
+            </>
+          ) : (
+          <>
           <Button
             variant="outline"
             size="sm"
@@ -228,6 +355,8 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
             )}
             Save &amp; Exit
           </Button>
+          </>
+          )}
         </div>
       </div>
 
@@ -250,7 +379,7 @@ export function EmailEditorPage({ templateId }: EmailEditorPageProps) {
               blocks={editor.blocks}
               subject={editor.settings.subject}
               theme={editor.settings.theme}
-              templateId={templateId}
+              templateId={compose ? undefined : templateId}
               onApply={(newBlocks, settings, opts) => {
                 editor.replaceBlocks(newBlocks, settings, opts)
               }}
