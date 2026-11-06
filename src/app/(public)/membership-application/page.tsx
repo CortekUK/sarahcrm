@@ -949,7 +949,7 @@ export default function MembershipApplicationPage() {
                       control={control}
                     />
                   )}
-                  {step === 4 && <OnlineProfilesStep register={register} />}
+                  {step === 4 && <OnlineProfilesStep register={register} errors={errors} />}
                   {step === 5 && (
                     <BusinessStep register={register} errors={errors} control={control} />
                   )}
@@ -1669,20 +1669,29 @@ function PhotoUploader({
 
 // ─── Step 5 — Online Profiles ────────────────────────────────────────
 
+// A bare address like "linkedin.com/in/you" or "www.site.com" gets https://
+// added as it's read, so people needn't type it.
+const withHttps = (v: unknown) => {
+  const t = typeof v === 'string' ? v.trim() : ''
+  return t && !/^https?:\/\//i.test(t) && t.includes('.') ? `https://${t}` : t
+}
+
 function OnlineProfilesStep({
   register,
+  errors,
 }: {
   register: ReturnType<typeof useForm<FormData>>['register']
+  errors: ReturnType<typeof useForm<FormData>>['formState']['errors']
 }) {
   return (
     <Reveal type="up" delay={0}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <Field label="LinkedIn URL" placeholder="https://" {...register('linkedin_url')} />
-        <Field label="Instagram URL" placeholder="https://" {...register('instagram_url')} />
-        <Field label="X URL" placeholder="https://" {...register('x_url')} />
-        <Field label="YouTube URL" placeholder="https://" {...register('youtube_url')} />
-        <Field label="TikTok URL" placeholder="https://" {...register('tiktok_url')} />
-        <Field label="Website URL" placeholder="https://" {...register('website_url')} />
+        <Field label="LinkedIn URL" placeholder="https://" error={errors.linkedin_url?.message} {...register('linkedin_url', { setValueAs: withHttps })} />
+        <Field label="Instagram URL" placeholder="https://" error={errors.instagram_url?.message} {...register('instagram_url', { setValueAs: withHttps })} />
+        <Field label="X URL" placeholder="https://" error={errors.x_url?.message} {...register('x_url', { setValueAs: withHttps })} />
+        <Field label="YouTube URL" placeholder="https://" error={errors.youtube_url?.message} {...register('youtube_url', { setValueAs: withHttps })} />
+        <Field label="TikTok URL" placeholder="https://" error={errors.tiktok_url?.message} {...register('tiktok_url', { setValueAs: withHttps })} />
+        <Field label="Website URL" placeholder="https://" error={errors.website_url?.message} {...register('website_url', { setValueAs: withHttps })} />
       </div>
     </Reveal>
   )

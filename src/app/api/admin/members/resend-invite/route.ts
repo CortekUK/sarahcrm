@@ -110,6 +110,23 @@ export async function POST(req: NextRequest) {
       : null
     const hasAuthUser = !!existingUser?.data?.user && !existingUser.error
 
+    // The CRM email was changed after the account was made (or before email
+    // changes synced the login): move the sign-in address to the CRM email
+    // first, so the link is for — and sent to — the same address.
+    const authEmail = existingUser?.data?.user?.email ?? null
+    if (hasAuthUser && authEmail && authEmail.toLowerCase() !== email.toLowerCase()) {
+      const { error: syncErr } = await admin.auth.admin.updateUserById(member.profile_id as string, {
+        email,
+        email_confirm: true,
+      })
+      if (syncErr) {
+        return Response.json(
+          { error: `Could not move their login to ${email}: ${syncErr.message}` },
+          { status: 500 },
+        )
+      }
+    }
+
     // Existing account → reset password and email the new credentials.
     // No account yet → create one with a temporary password and email it.
     const result = hasAuthUser

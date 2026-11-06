@@ -564,8 +564,8 @@ export function MemberDetailPage() {
   async function onSave(data: EditFormData) {
     if (!member || !id) return
 
-    // ── Email: must be unique, and changing it here does NOT change the
-    //    address they sign in with (QA #40). Check + warn before writing.
+    // ── Email: must be unique. Changing it moves their sign-in address and
+    //    Stripe email too (server route), so login and CRM never disagree.
     const newEmail = data.email.trim().toLowerCase()
     const oldEmail = (member.profiles.email ?? '').trim().toLowerCase()
     if (newEmail !== oldEmail) {
@@ -591,12 +591,12 @@ export function MemberDetailPage() {
         return
       }
       const ok = await confirm({
-        title: 'Change the contact email?',
+        title: 'Change their email?',
         description: (
           <span>
-            This updates the email the CRM shows and uses for messages. It does{' '}
-            <strong>not</strong> change the address they sign in with — they will keep
-            logging in as <strong>{member.profiles.email ?? 'their current email'}</strong>.
+            They will sign in with <strong>{newEmail}</strong> from now on —{' '}
+            <strong>{member.profiles.email ?? 'the old address'}</strong> stops working for login.
+            Their password stays the same. Receipts from Stripe move to the new address too.
           </span>
         ),
         confirmLabel: 'Change email',
@@ -607,12 +607,25 @@ export function MemberDetailPage() {
 
     setSaving(true)
     try {
+      if (newEmail !== oldEmail) {
+        const res = await fetch('/api/admin/members/change-email', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ member_id: member.id, email: newEmail }),
+        })
+        const json = (await res.json().catch(() => ({}))) as { error?: string; warning?: string }
+        if (!res.ok) {
+          toast({ title: 'Could not change the email', description: json.error, variant: 'destructive' })
+          return
+        }
+        if (json.warning) toast({ title: 'Email changed', description: json.warning })
+      }
+      // Email is written by the change-email route above (login + profile).
       const { error: profileErr } = await supabase
         .from('profiles')
         .update({
           first_name: data.first_name,
           last_name: data.last_name,
-          email: data.email.trim(),
           phone: data.phone || null,
           job_title: data.job_title || null,
           bio: data.bio || null,
@@ -1490,20 +1503,36 @@ export function MemberDetailPage() {
                   )}
                 </div>
               </div>
+              {/* Plan + money paid instead of raw Stripe ids (those are
+                  meaningless to staff; Stripe is linked from Payments). */}
               <div>
                 <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
-                  Stripe subscription
+                  Plan
                 </p>
-                <p className="text-sm text-text-muted mt-1 font-mono truncate">
-                  {member.stripe_subscription_id || '—'}
+                <p className="text-sm font-medium text-text mt-1">
+                  {planForTier(member.membership_tier).name}
                 </p>
               </div>
               <div>
                 <p className="font-[family-name:var(--font-label)] text-[0.6875rem] font-medium uppercase tracking-[0.15em] text-text-dim">
-                  Stripe customer
+                  Total paid
                 </p>
-                <p className="text-sm text-text-muted mt-1 font-mono truncate">
-                  {member.stripe_customer_id || '—'}
+                <p className="text-sm font-medium text-text mt-1">
+                  {(() => {
+                    const paid = payments.filter((p) => p.status === 'paid')
+                    if (paid.length === 0) return '—'
+                    const last = paid.map((p) => p.paid_at).filter(Boolean).sort().pop()
+                    return (
+                      <>
+                        {formatCurrency(paid.reduce((sum, p) => sum + p.amount_pence, 0))}
+                        {last && (
+                          <span className="block text-xs font-normal text-text-dim">
+                            Last paid {formatDate(last)}
+                          </span>
+                        )}
+                      </>
+                    )
+                  })()}
                 </p>
               </div>
               <div>

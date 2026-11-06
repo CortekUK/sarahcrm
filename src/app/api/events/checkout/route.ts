@@ -226,8 +226,20 @@ export async function POST(req: NextRequest) {
     // "Taken" = seats (booker + guests) on confirmed/pending bookings
     // (cancelled and refunded free their seat up). The bookings trigger
     // re-checks this atomically on insert.
+    // The same person retrying after cancelling Stripe still has their own
+    // unpaid hold (reused below) — don't count it against them, or the last
+    // place reads as "full" for the very person holding it.
+    const { data: ownHoldRows } = await admin
+      .from('bookings')
+      .select('id')
+      .eq('event_id', event.id)
+      .eq('status', 'pending')
+      .eq('charge_error', AWAITING_CHECKOUT)
+      .ilike('guest_email', body.guest_email)
+      .limit(1)
+    const ownHoldId: string | undefined = ownHoldRows?.[0]?.id
     if (event.capacity != null) {
-      const taken = await seatsTaken(admin, event.id)
+      const taken = await seatsTaken(admin, event.id, { excludeBookingId: ownHoldId })
       if (taken + 1 > event.capacity) {
         return NextResponse.json({ error: 'This event is fully booked.' }, { status: 409 })
       }
@@ -236,7 +248,7 @@ export async function POST(req: NextRequest) {
     // overall capacity — enforce it separately for the guest path. Sponsor
     // invites bypass this sub-cap (they're invited, not walk-up guests).
     if (!sponsorship && event.guest_ticket_capacity != null) {
-      const guestCount = await seatsTaken(admin, event.id, { guestOnly: true })
+      const guestCount = await seatsTaken(admin, event.id, { guestOnly: true, excludeBookingId: ownHoldId })
       if (guestCount + 1 > event.guest_ticket_capacity) {
         return NextResponse.json(
           { error: 'Guest places for this event are full.' },

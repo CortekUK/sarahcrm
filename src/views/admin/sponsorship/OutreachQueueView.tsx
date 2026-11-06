@@ -302,34 +302,58 @@ function OutreachRow({ item, onOpen }: { item: Outreach; onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-surface-2 transition-colors"
+        className="w-full text-left px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4 hover:bg-surface-2 transition-colors"
       >
         <div className="w-9 h-9 rounded-full bg-surface-2 flex items-center justify-center shrink-0">
           <Mail size={16} className="text-gold" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <p className="font-medium text-text truncate">
+          {/* Name + badges wrap instead of squeezing on narrow screens. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+            <p className="font-medium text-text truncate max-w-full">
               {item.company_name ?? <span className="italic text-text-dim">Unknown company</span>}
             </p>
             {/* Voice badge — tell Club vs Sarah apart without opening the row. */}
-            <Badge variant={voice === 'sarah' ? 'upcoming' : 'info'}>
+            <Badge variant={voice === 'sarah' ? 'upcoming' : 'info'} className="shrink-0 whitespace-nowrap">
               {VOICE_LABEL[voice] ?? voice}
             </Badge>
-            {item.prospect_replied_at && <Badge variant="upcoming">Replied</Badge>}
+            {item.prospect_replied_at && (
+              <Badge variant="upcoming" className="shrink-0 whitespace-nowrap">
+                Replied
+              </Badge>
+            )}
           </div>
           <p className="text-xs text-text-dim truncate mt-0.5">
             {item.subject || 'No subject'}
             {item.decision_maker_name ? ` · ${item.decision_maker_name}` : ''}
             {item.to_email ? ` · ${item.to_email}` : ''}
           </p>
+          {/* Phones: step, schedule and status sit under the subject. */}
+          <div className="sm:hidden mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-dim">
+            <span>Step {item.step + 1}</span>
+            {schedule && <span>· {schedule}</span>}
+            {item.opened_at && (
+              <Badge variant="info" className="whitespace-nowrap">
+                Opened
+              </Badge>
+            )}
+            <Badge variant={statusVariant(status)} className="whitespace-nowrap">
+              {status}
+            </Badge>
+          </div>
         </div>
-        <div className="flex flex-col items-end shrink-0 gap-0.5">
-          <span className="text-[11px] text-text-dim">Step {item.step + 1}</span>
-          {schedule && <span className="text-[11px] text-text-dim">{schedule}</span>}
+        <div className="hidden sm:flex flex-col items-end shrink-0 gap-0.5">
+          <span className="text-[11px] text-text-dim whitespace-nowrap">Step {item.step + 1}</span>
+          {schedule && <span className="text-[11px] text-text-dim whitespace-nowrap">{schedule}</span>}
         </div>
-        {item.opened_at && <Badge variant="info">Opened</Badge>}
-        <Badge variant={statusVariant(status)}>{status}</Badge>
+        {item.opened_at && (
+          <Badge variant="info" className="hidden sm:inline-flex shrink-0 whitespace-nowrap">
+            Opened
+          </Badge>
+        )}
+        <Badge variant={statusVariant(status)} className="hidden sm:inline-flex shrink-0 whitespace-nowrap">
+          {status}
+        </Badge>
       </button>
     </Card>
   )
