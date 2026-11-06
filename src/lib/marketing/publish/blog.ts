@@ -13,7 +13,7 @@
 //   4. Upsert public.blog_posts on marketing_asset_id (one post per asset):
 //      a re-approve after an unpublish re-uses the same row AND slug, and
 //      keeps the original published_at. New posts get a unique slug.
-//   5. Revalidate /blog + /blog/<slug> so the post appears straight away.
+//   5. Revalidate /journal (+ the old /blog) so the post appears straight away.
 //   6. Notify the marketing team IN-APP (an unassigned task + an
 //      admin_notifications row — ../notify.ts). No email.
 //
@@ -52,8 +52,11 @@ function isMissingTable(err: { code?: string; message?: string } | null): boolea
 
 function revalidateBlog(slug: string) {
   try {
+    // /blog now redirects to The Journal — refresh the Journal pages too.
     revalidatePath('/blog')
     revalidatePath(`/blog/${slug}`)
+    revalidatePath('/journal')
+    revalidatePath(`/journal/${slug}`)
   } catch (e) {
     // Outside a request context (e.g. a script) there is nothing to revalidate.
     console.warn('[marketing/publish] blog revalidate skipped:', e)

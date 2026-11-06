@@ -218,10 +218,22 @@ function NewCampaignModal({
   const [events, setEvents] = useState<EventOption[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set once the campaign row exists. If generation then fails, the modal stays
+  // open with the error and a retry reuses this campaign instead of creating a
+  // second, empty one.
+  const [createdId, setCreatedId] = useState<string | null>(null)
+
+  // Sponsor recap needs an event with a confirmed sponsor — the generate route
+  // refuses it for topic / recording campaigns.
+  const channelAllowed = (key: Channel) => key !== 'sponsor_recap' || sourceType === 'event'
+  useEffect(() => {
+    if (sourceType !== 'event') setChannels((prev) => prev.filter((c) => c !== 'sponsor_recap'))
+  }, [sourceType])
 
   useEffect(() => {
     if (!open) return
     // Reset on open.
+    setCreatedId(null)
     setTitle('')
     setSourceType('topic')
     setEventId('')
@@ -285,20 +297,24 @@ function NewCampaignModal({
 
     setSubmitting(true)
     try {
-      const createRes = await fetch('/api/admin/marketing/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: title.trim(),
-          source_type: sourceType,
-          event_id: sourceType === 'event' ? eventId : null,
-          topic_brief: sourceType === 'topic' ? topicBrief.trim() : null,
-          transcript: sourceType === 'audio' ? transcript.trim() : null,
-        }),
-      })
-      const created = await createRes.json()
-      if (!createRes.ok) throw new Error(created.error ?? 'Failed to create campaign')
-      const campaignId = created.campaign.id as string
+      let campaignId = createdId
+      if (!campaignId) {
+        const createRes = await fetch('/api/admin/marketing/campaigns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: title.trim(),
+            source_type: sourceType,
+            event_id: sourceType === 'event' ? eventId : null,
+            topic_brief: sourceType === 'topic' ? topicBrief.trim() : null,
+            transcript: sourceType === 'audio' ? transcript.trim() : null,
+          }),
+        })
+        const created = await createRes.json()
+        if (!createRes.ok) throw new Error(created.error ?? 'Failed to create campaign')
+        campaignId = created.campaign.id as string
+        setCreatedId(campaignId)
+      }
 
       // Translate the graphic choice into the generate route's contract:
       //   AUTO → assign the default template (no image yet; admin picks one
@@ -320,9 +336,11 @@ function NewCampaignModal({
       })
       const gen = await genRes.json()
       if (!genRes.ok) {
-        // Campaign exists but generation failed — still open it so the user can retry.
-        setError(gen.error ?? 'Generation failed — opening the campaign so you can retry.')
-        onCreated(campaignId)
+        // Campaign exists but generation failed — stay here so the error is
+        // seen; the next "Create & generate" retries on the same campaign.
+        setError(
+          `${gen.error ?? 'Generation failed.'} The campaign is saved — adjust the channels and press Create & generate again.`,
+        )
         return
       }
       onCreated(campaignId)
@@ -436,7 +454,7 @@ function NewCampaignModal({
               <button
                 type="button"
                 className="text-gold hover:underline"
-                onClick={() => setChannels([...MARKETING_CHANNELS])}
+                onClick={() => setChannels(MARKETING_CHANNELS.filter(channelAllowed))}
               >
                 Select all
               </button>
@@ -459,20 +477,26 @@ function NewCampaignModal({
                 {groupChannels.map((key) => {
                   const meta = CHANNEL_META[key]
                   const on = channels.includes(key)
+                  const allowed = channelAllowed(key)
                   return (
                     <button
                       key={key}
                       type="button"
+                      disabled={!allowed}
                       onClick={() => toggleChannel(key)}
                       className={cn(
                         'px-3.5 py-2 rounded-[var(--radius-md)] border text-sm text-left transition-colors',
-                        on
-                          ? 'border-gold bg-gold-muted text-text'
-                          : 'border-border text-text-muted hover:text-text',
+                        !allowed
+                          ? 'border-border text-text-dim opacity-50 cursor-not-allowed'
+                          : on
+                            ? 'border-gold bg-gold-muted text-text'
+                            : 'border-border text-text-muted hover:text-text',
                       )}
                     >
                       <span className="block font-medium">{meta.label}</span>
-                      <span className="block text-xs text-text-dim">{meta.hint}</span>
+                      <span className="block text-xs text-text-dim">
+                        {allowed ? meta.hint : 'Event campaigns only'}
+                      </span>
                     </button>
                   )
                 })}
