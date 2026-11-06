@@ -17,7 +17,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 //   /admin/login  → staff sign-in (admins AND team members). Separate URL so
 //                   staff can bookmark it.
 // Already-authenticated visitors to either login URL are bounced to their own
-// workspace.
+// workspace — except staff on /login, who see a "signed in as staff" notice.
 
 type Role = 'admin' | 'member' | 'team_member' | 'freelancer'
 
@@ -155,8 +155,14 @@ export async function middleware(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
+    const role = profile?.role as Role | undefined
+    // A staff account on the MEMBER login (e.g. an admin clicking "Member
+    // login" on the public site) is not bounced into the dashboard — the
+    // page shows "You're signed in as admin — go to dashboard, or sign out".
+    if (isMemberLogin && role && role !== 'member') return supabaseResponse
+
     const url = request.nextUrl.clone()
-    url.pathname = homeForRole(profile?.role as Role | undefined)
+    url.pathname = homeForRole(role)
     url.search = ''
     return NextResponse.redirect(url)
   }

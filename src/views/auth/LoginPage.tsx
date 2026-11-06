@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -116,6 +116,38 @@ export function LoginPage({ role }: LoginPageProps) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  // Member door only: a staff account that is already signed in (an admin
+  // clicking "Member login" on the public site). The middleware lets them
+  // through; we offer their dashboard or a sign-out instead of the form.
+  const [signedInStaff, setSignedInStaff] = useState<ActualRole | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
+
+  useEffect(() => {
+    if (role !== 'member') return
+    let cancelled = false
+    ;(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || cancelled) return
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      const r = profile?.role as ActualRole | undefined
+      if (!cancelled && r && r !== 'member') setSignedInStaff(r)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [role])
+
+  async function signOutStaff() {
+    setSigningOut(true)
+    await fetch('/api/auth/sign-out', { method: 'POST' }).catch(() => {})
+    await supabase.auth.signOut().catch(() => {})
+    setSignedInStaff(null)
+    setSigningOut(false)
+  }
 
   const {
     register,
@@ -233,6 +265,24 @@ export function LoginPage({ role }: LoginPageProps) {
             {copy.subheading}
           </p>
 
+          {signedInStaff && (
+            <div className="mb-5 px-4 py-4 rounded-[var(--radius-md)] bg-gold-muted border border-border-gold text-center">
+              <p className="text-sm text-text leading-relaxed mb-4">
+                You&apos;re signed in as {signedInStaff === 'admin' ? 'an admin' : 'a team member'}.
+                Go to your {signedInStaff === 'admin' ? 'dashboard' : 'team area'}, or sign out to
+                use a member account.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Button type="button" onClick={() => router.replace(homeForRole(signedInStaff))}>
+                  Go to {signedInStaff === 'admin' ? 'dashboard' : 'team area'}
+                </Button>
+                <Button type="button" variant="secondary" loading={signingOut} onClick={signOutStaff}>
+                  Sign out
+                </Button>
+              </div>
+            </div>
+          )}
+
           {reasonMessage && !error && (
             <div className="mb-5 px-4 py-3 rounded-[var(--radius-md)] bg-gold-muted border border-border-gold">
               <p className="text-sm text-text leading-relaxed">{reasonMessage}</p>
@@ -245,7 +295,7 @@ export function LoginPage({ role }: LoginPageProps) {
             </div>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <form onSubmit={handleSubmit(onSubmit)} className={signedInStaff ? 'hidden' : 'space-y-5'}>
             <Input
               label="Email Address"
               type="email"
