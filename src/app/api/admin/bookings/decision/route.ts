@@ -16,7 +16,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { renderClubEmail, sendClubEmail } from '@/lib/email/club-email'
-import { escapeHtml, seatsTaken } from '@/lib/stripe/server-helpers'
+import { AWAITING_CHECKOUT, escapeHtml, seatsTaken } from '@/lib/stripe/server-helpers'
 import { sendBookingConfirmationEmail } from '@/lib/stripe/booking-email'
 
 export const runtime = 'nodejs'
@@ -111,6 +111,14 @@ export async function POST(req: NextRequest) {
 
     // Approval guards — before claiming or touching Stripe.
     if (action === 'approve') {
+      // The booker is still on the Stripe payment page — it confirms itself
+      // when they pay (or is released). The UI hides Approve; enforce it here.
+      if (booking.charge_error === AWAITING_CHECKOUT) {
+        return Response.json(
+          { error: 'This booking is awaiting payment on Stripe — it confirms itself once paid.' },
+          { status: 409 },
+        )
+      }
       if (!ev || !['published', 'live'].includes(ev.status ?? '')) {
         return Response.json(
           { error: 'This event is not open (cancelled, draft or completed) — the booking cannot be approved.' },

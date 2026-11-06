@@ -31,6 +31,8 @@ export interface ConfirmOptions {
   confirmLabel?: string
   cancelLabel?: string
   tone?: ConfirmTone
+  /** Message-only dialog (e.g. "Delete failed"): just the one button. */
+  hideCancel?: boolean
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
@@ -212,13 +214,15 @@ function ConfirmDialog({
           </div>
         </div>
         <div className="flex items-center justify-end gap-3 mt-7">
-          <button
-            type="button"
-            onClick={() => onSettle(false)}
-            className="px-5 py-2.5 rounded-full border border-graphite-line/70 bg-transparent text-ivory-soft hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.06] font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] transition-all duration-300"
-          >
-            {options.cancelLabel ?? 'Cancel'}
-          </button>
+          {!options.hideCancel && (
+            <button
+              type="button"
+              onClick={() => onSettle(false)}
+              className="px-5 py-2.5 rounded-full border border-graphite-line/70 bg-transparent text-ivory-soft hover:border-bronze/55 hover:text-bronze-light hover:bg-bronze/[0.06] font-[family-name:var(--font-meta)] text-[10.5px] font-medium uppercase tracking-[0.28em] transition-all duration-300"
+            >
+              {options.cancelLabel ?? 'Cancel'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onSettle(true)}

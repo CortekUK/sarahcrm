@@ -398,6 +398,7 @@ function BookableEventsPanel({
         title: 'Delete failed',
         description: eventErrorMessage(err),
         confirmLabel: 'Close',
+        hideCancel: true,
         tone: 'warning',
       })
       return

@@ -131,6 +131,7 @@ export function EventDetailPage() {
         title: 'Not ready to publish',
         description: `This event still needs ${missing.join(', ').toLowerCase()}. Add them under Edit, then publish.`,
         confirmLabel: 'Close',
+        hideCancel: true,
         tone: 'warning',
       })
       return
@@ -143,6 +144,7 @@ export function EventDetailPage() {
         title: 'Publish failed',
         description: eventErrorMessage(err),
         confirmLabel: 'Close',
+        hideCancel: true,
         tone: 'warning',
       })
       return
@@ -186,6 +188,7 @@ export function EventDetailPage() {
         title: 'Could not cancel the event',
         description: eventErrorMessage(err),
         confirmLabel: 'Close',
+        hideCancel: true,
         tone: 'warning',
       })
       return
@@ -206,6 +209,7 @@ export function EventDetailPage() {
         title: 'This event can’t be deleted',
         description: eventErrorMessage({ message: 'EVENT_HAS_PAYMENTS: x' }),
         confirmLabel: 'Close',
+        hideCancel: true,
         tone: 'warning',
       })
       return
@@ -234,6 +238,7 @@ export function EventDetailPage() {
         title: 'Delete failed',
         description: eventErrorMessage(err),
         confirmLabel: 'Close',
+        hideCancel: true,
         tone: 'warning',
       })
       return
