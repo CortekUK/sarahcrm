@@ -429,7 +429,8 @@ export function PortalRewardsPage() {
 
       </section>
 
-      {/* Loyalty + Referrals — launching 2027 */}
+      {/* Loyalty + Referrals — launching 2027. Hidden for now (nothing behind
+          them yet); uncomment to show the placeholder cards again.
       <div className="mt-14 lg:mt-16 grid grid-cols-1 sm:grid-cols-2 gap-5">
         <section id="loyalty" className="scroll-mt-24">
           <PortalCard className="h-full p-6 lg:p-7">
@@ -457,6 +458,7 @@ export function PortalRewardsPage() {
           </PortalCard>
         </section>
       </div>
+      */}
 
       {/* Usage history */}
       <div className="mt-14 lg:mt-16">
