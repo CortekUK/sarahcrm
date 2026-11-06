@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Check, Save } from 'lucide-react'
+import { Camera, Check, Loader2, Save } from 'lucide-react'
 import {
   PortalBadge,
   PortalButton,
@@ -70,6 +70,49 @@ const CATEGORY_HEADINGS: Record<string, string> = {
 
 export function PortalProfilePage() {
   const { profile, user } = useAuth()
+  // Profile photo — kept locally so a new upload shows straight away.
+  const [avatarUrl, setAvatarUrl] = useState<string | null | undefined>(undefined)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [avatarError, setAvatarError] = useState<string | null>(null)
+  const avatarInput = useRef<HTMLInputElement>(null)
+  const shownAvatar = avatarUrl === undefined ? profile?.avatar_url ?? null : avatarUrl
+
+  async function uploadAvatar(file: File) {
+    setAvatarError(null)
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setAvatarError('Please use a JPG, PNG or WebP image.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('Photo must be 5 MB or smaller.')
+      return
+    }
+    setAvatarBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/portal/profile/avatar', { method: 'POST', body: fd })
+      const json = (await res.json().catch(() => ({}))) as { avatar_url?: string; error?: string }
+      if (!res.ok || !json.avatar_url) setAvatarError(json.error ?? 'Upload failed. Please try again.')
+      else setAvatarUrl(json.avatar_url)
+    } catch {
+      setAvatarError('Upload failed. Please try again.')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarError(null)
+    setAvatarBusy(true)
+    try {
+      const res = await fetch('/api/portal/profile/avatar', { method: 'DELETE' })
+      if (res.ok) setAvatarUrl(null)
+      else setAvatarError('Could not remove your photo.')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [memberTagIds, setMemberTagIds] = useState<string[]>([])
   // Tags as last saved — so a save only inserts the new ones and deletes the
@@ -328,7 +371,60 @@ export function PortalProfilePage() {
         {/* Identity card */}
         <PortalCard className="p-6 lg:p-8">
           <div className="flex flex-col sm:flex-row sm:items-center gap-6">
-            <Avatar name={name || profile?.email || '?'} src={profile?.avatar_url} size="xl" />
+            <div className="flex flex-col items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => avatarInput.current?.click()}
+                disabled={avatarBusy}
+                className="group relative rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-bronze"
+                aria-label={shownAvatar ? 'Change profile photo' : 'Add profile photo'}
+              >
+                <Avatar name={name || profile?.email || '?'} src={shownAvatar} size="xl" />
+                <span className="absolute inset-0 flex items-center justify-center rounded-full bg-ink/60 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {avatarBusy ? (
+                    <Loader2 size={18} className="animate-spin text-ivory" />
+                  ) : (
+                    <Camera size={18} strokeWidth={1.5} className="text-ivory" />
+                  )}
+                </span>
+              </button>
+              <input
+                ref={avatarInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (f) void uploadAvatar(f)
+                }}
+              />
+              <div className="flex items-center gap-3 font-[family-name:var(--font-meta)] text-[9.5px] uppercase tracking-[0.22em]">
+                <button
+                  type="button"
+                  onClick={() => avatarInput.current?.click()}
+                  disabled={avatarBusy}
+                  className="text-bronze-light hover:text-ivory transition-colors"
+                >
+                  {shownAvatar ? 'Change photo' : 'Add photo'}
+                </button>
+                {shownAvatar && (
+                  <button
+                    type="button"
+                    onClick={removeAvatar}
+                    disabled={avatarBusy}
+                    className="text-slate-haze hover:text-ivory transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {avatarError && (
+                <p role="alert" className="max-w-[180px] text-center text-[11.5px] text-accent-warm italic">
+                  {avatarError}
+                </p>
+              )}
+            </div>
             <div className="flex-1 min-w-0">
               <h2 className="font-[family-name:var(--font-display)] text-[clamp(1.5rem,2vw,2rem)] text-ivory leading-tight">
                 {name || 'Member'}

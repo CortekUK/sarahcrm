@@ -1177,8 +1177,8 @@ export function MemberDetailPage() {
                     /{member.monthly_intro_quota}
                   </span>
                   <span>
-                    <span className="text-text-muted">Directory:</span>{' '}
-                    {member.showcase_enabled ? 'Visible' : 'Hidden'}
+                    <span className="text-text-muted">Members directory:</span>{' '}
+                    {member.showcase_enabled ? 'Visible' : 'Hidden from members'}
                   </span>
                   {member.membership_start_date && (
                     <span>
@@ -1273,16 +1273,22 @@ export function MemberDetailPage() {
                   {...form.register('membership_status')}
                 />
               </div>
+              {/* "Hide from members" is the inverse of showcase_enabled:
+                  ticked = not listed to other members (Network members tab,
+                  dashboard "Recently joined", introduction requests). */}
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   className="w-4 h-4 rounded border-border text-gold accent-gold"
-                  {...form.register('showcase_enabled')}
+                  checked={!form.watch('showcase_enabled')}
+                  onChange={(e) =>
+                    form.setValue('showcase_enabled', !e.target.checked, { shouldDirty: true })
+                  }
                 />
                 <span className="text-sm text-text">
-                  Show in member directory
+                  Hide from members
                   <span className="text-text-dim font-normal ml-1">
-                    (visible to other members in the portal Network)
+                    (not shown to other members in the portal)
                   </span>
                 </span>
               </label>

@@ -245,7 +245,7 @@ export function ContactDetailDrawer({ contact, onClose, onSaved }: Props) {
             <span className="min-w-0">
               <span className="flex items-center gap-1.5 text-sm text-text">
                 <EyeOff size={13} className="text-text-muted" />
-                Hide from member directory
+                Hide from members
               </span>
               <span className="block text-xs text-text-dim mt-0.5">
                 Members browsing the Wider network see only name, company, role and sector.
