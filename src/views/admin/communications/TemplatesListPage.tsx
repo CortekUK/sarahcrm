@@ -22,6 +22,7 @@ import { SendTemplateModal } from '@/components/templates/SendTemplateModal'
 import { ContractsPanel } from '@/components/contracts/ContractsPanel'
 import { previewMergeTags } from '@/lib/templates/preview-data'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { PaginationBar, usePagination } from '@/components/admin/Pagination'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button as SarahButton } from '@/components/ui/Button'
@@ -68,6 +69,7 @@ export function TemplatesListPage({ initialView = 'templates' }: { initialView?:
   const deleteTemplate = useDeleteTemplate()
   const duplicateTemplate = useDuplicateTemplate()
   const updateTemplate = useUpdateTemplate()
+  const pager = usePagination(templates, 25, `${debouncedSearch}|${category}`)
 
   const counts = useMemo(
     () => ({
@@ -290,7 +292,7 @@ export function TemplatesListPage({ initialView = 'templates' }: { initialView?:
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {templates.map((tpl) => (
+                {pager.pageRows.map((tpl) => (
                   <TableRow
                     key={tpl.id}
                     className="cursor-pointer"
@@ -335,6 +337,7 @@ export function TemplatesListPage({ initialView = 'templates' }: { initialView?:
         </CardContent>
       </Card>
       )}
+      {!showContracts && <PaginationBar {...pager} />}
 
       <SendTemplateModal
         template={sendTarget}

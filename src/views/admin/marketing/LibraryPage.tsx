@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
+import { PaginationBar, usePagination } from '@/components/admin/Pagination'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -117,6 +118,8 @@ export function LibraryPage() {
   const [eventId, setEventId] = useState('')
   const [sponsorId, setSponsorId] = useState('')
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 24 cards = full rows at 1, 2 and 3 columns.
+  const pager = usePagination(items, 24, [q, channel, voice, eventId, sponsorId].join('|'))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -245,11 +248,14 @@ export function LibraryPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((item) => (
-            <LibraryCard key={item.id} item={item} onReuse={(cid) => router.push(`/dashboard/marketing/${cid}`)} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {pager.pageRows.map((item) => (
+              <LibraryCard key={item.id} item={item} onReuse={(cid) => router.push(`/dashboard/marketing/${cid}`)} />
+            ))}
+          </div>
+          <PaginationBar {...pager} />
+        </>
       )}
     </div>
   )

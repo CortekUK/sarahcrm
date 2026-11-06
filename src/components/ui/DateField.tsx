@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import {
   addMonths,
@@ -21,6 +21,9 @@ import { cn } from '@/lib/utils'
 // Themed, PORTALED date picker (date-only) built on Radix Popover (shadcn
 // foundation) + date-fns. Renders in a portal so the calendar never clips
 // inside a scrolling modal. Value is a "yyyy-MM-dd" string, '' when empty.
+// `trigger` swaps the default input-style button for any element (e.g. a
+// clickable date heading); `clearable={false}` hides Clear for a date that
+// must always be set.
 
 const FMT = 'yyyy-MM-dd'
 const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
@@ -36,11 +39,15 @@ export function DateField({
   value,
   onChange,
   placeholder = 'Select date',
+  trigger,
+  clearable = true,
 }: {
   label?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
+  trigger?: ReactNode
+  clearable?: boolean
 }) {
   const selected = useMemo(() => parseVal(value), [value])
   const [open, setOpen] = useState(false)
@@ -66,8 +73,16 @@ export function DateField({
           {label}
         </label>
       )}
-      <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Root
+        open={open}
+        onOpenChange={(o) => {
+          // Open on the selected date's month, not wherever it was left.
+          if (o && selected) setViewMonth(selected)
+          setOpen(o)
+        }}
+      >
         <Popover.Trigger asChild>
+          {trigger ?? (
           <button
             type="button"
             className={cn(
@@ -81,7 +96,7 @@ export function DateField({
             <span className={cn('flex-1 truncate', selected ? 'text-text' : 'text-text-dim')}>
               {selected ? format(selected, 'EEE d MMM yyyy') : placeholder}
             </span>
-            {selected && (
+            {selected && clearable && (
               <span
                 role="button"
                 tabIndex={-1}
@@ -96,6 +111,7 @@ export function DateField({
               </span>
             )}
           </button>
+          )}
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
@@ -167,16 +183,20 @@ export function DateField({
 
             {/* Footer */}
             <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  onChange('')
-                  setOpen(false)
-                }}
-                className="text-xs text-text-muted hover:text-accent-warm"
-              >
-                Clear
-              </button>
+              {clearable ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange('')
+                    setOpen(false)
+                  }}
+                  className="text-xs text-text-muted hover:text-accent-warm"
+                >
+                  Clear
+                </button>
+              ) : (
+                <span />
+              )}
               <button
                 type="button"
                 onClick={() => pick(new Date())}

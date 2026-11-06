@@ -18,6 +18,7 @@ import {
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { CashflowChart } from '@/components/ui/CashflowChart'
+import { usePagination, PaginationBar } from '@/components/admin/Pagination'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatCurrency, formatDate, formatDateTime, titleCase } from '@/lib/utils'
 import {
@@ -667,6 +668,11 @@ export function FinancePage() {
     return rows
   }, [memberRevenue, memberSort])
 
+  // Paginate after sorting; a sort change jumps back to page 1.
+  const memberPager = usePagination(sortedMemberRevenue, 25, `${memberSort.key}:${memberSort.dir}`)
+  const eventPager = usePagination(eventPnl, 10)
+  const overduePager = usePagination(overduePayments, 10)
+
   function toggleMemberSort(key: 'ltv' | 'revenue') {
     setMemberSort((prev) =>
       prev.key === key
@@ -719,7 +725,7 @@ export function FinancePage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-heading)] text-3xl font-semibold text-text">
@@ -731,7 +737,7 @@ export function FinancePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-5 mb-8">
         <StatCard
           label="Revenue"
           value={formatCurrency(totalRevenue)}
@@ -929,7 +935,7 @@ export function FinancePage() {
 
       {/* Event P&L */}
       {eventPnl.length > 0 && (
-        <Card className="mb-8">
+        <Card className={eventPager.pageCount > 1 ? '' : 'mb-8'}>
           <CardHeader>
             <CardTitle>Event P&amp;L</CardTitle>
           </CardHeader>
@@ -945,7 +951,7 @@ export function FinancePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {eventPnl.map((e) => (
+                {eventPager.pageRows.map((e) => (
                   <TableRow
                     key={e.id}
                     className="cursor-pointer"
@@ -982,10 +988,11 @@ export function FinancePage() {
           </CardContent>
         </Card>
       )}
+      {eventPnl.length > 0 && <PaginationBar {...eventPager} className="mb-8" />}
 
       {/* Revenue by member + LTV */}
       {sortedMemberRevenue.length > 0 && (
-        <Card className="mb-8">
+        <Card className={memberPager.pageCount > 1 ? '' : 'mb-8'}>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle>Revenue by member &amp; LTV</CardTitle>
             <Button
@@ -1025,7 +1032,7 @@ export function FinancePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedMemberRevenue.slice(0, 50).map((m) => (
+                {memberPager.pageRows.map((m) => (
                   <TableRow key={m.id}>
                     <TableCell>
                       <Link
@@ -1056,16 +1063,16 @@ export function FinancePage() {
             <p className="px-6 py-3 text-[11px] text-text-dim border-t border-border">
               LTV is the cached lifetime value (members.lifetime_value_pence), refreshed by the
               members score recompute — &ldquo;Not calculated&rdquo; means Recompute LTV hasn&rsquo;t run
-              for that member yet. Showing top {Math.min(50, sortedMemberRevenue.length)} of{' '}
-              {sortedMemberRevenue.length} active members.
+              for that member yet. {sortedMemberRevenue.length} active members.
             </p>
           </CardContent>
         </Card>
       )}
+      {sortedMemberRevenue.length > 0 && <PaginationBar {...memberPager} className="mb-8" />}
 
       {/* Overdue Invoices (only if any exist) */}
       {overduePayments.length > 0 && (
-        <Card className="mb-6 border-accent-warm/20">
+        <Card className={`border-accent-warm/20 ${overduePager.pageCount > 1 ? '' : 'mb-6'}`}>
           <CardHeader>
             <div className="flex items-center gap-2">
               <AlertTriangle size={16} className="text-accent-warm" />
@@ -1087,7 +1094,7 @@ export function FinancePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {overduePayments.map((p) => (
+                {overduePager.pageRows.map((p) => (
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => setSelectedPayment(p)}>
                     <TableCell>
                       <p className="font-medium text-text">
@@ -1120,6 +1127,7 @@ export function FinancePage() {
           </CardContent>
         </Card>
       )}
+      {overduePayments.length > 0 && <PaginationBar {...overduePager} className="mb-6" />}
 
       {/* Recent Payments */}
       <Card>

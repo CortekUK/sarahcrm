@@ -17,6 +17,7 @@ import {
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState'
 import { GmailExtractionsPanel } from '@/components/admin/GmailExtractionsPanel'
+import { PaginationBar, usePagination } from '@/components/admin/Pagination'
 import { formatDateTime, cn } from '@/lib/utils'
 import { Search, Loader2, Mail, Eye } from 'lucide-react'
 
@@ -178,6 +179,7 @@ export function EmailLogPage() {
       )
     })
   }, [rows, search, categoryFilter])
+  const pager = usePagination(filtered, 25, `${search}|${categoryFilter}`)
 
   if (loading) {
     return (
@@ -253,7 +255,7 @@ export function EmailLogPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((r) => (
+                {pager.pageRows.map((r) => (
                   <TableRow
                     key={r.id}
                     className="cursor-pointer group"
@@ -294,6 +296,7 @@ export function EmailLogPage() {
           )}
         </CardContent>
       </Card>
+      <PaginationBar {...pager} />
 
       <Modal open={!!viewing} onClose={() => setViewing(null)} title="Email" size="lg">
         {viewing && (

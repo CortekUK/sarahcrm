@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/providers/AuthProvider'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Camera, Check, Loader2, Save } from 'lucide-react'
+import { Camera, Check, Eye, Loader2, Save } from 'lucide-react'
 import {
   PortalBadge,
   PortalButton,
@@ -16,6 +16,7 @@ import {
   PortalField,
   PortalInput,
   PortalLoading,
+  PortalModal,
   PortalPageHeader,
   PortalSectionTitle,
   PortalTextarea,
@@ -74,6 +75,7 @@ export function PortalProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null | undefined>(undefined)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [avatarError, setAvatarError] = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const avatarInput = useRef<HTMLInputElement>(null)
   const shownAvatar = avatarUrl === undefined ? profile?.avatar_url ?? null : avatarUrl
 
@@ -94,7 +96,10 @@ export function PortalProfilePage() {
       const res = await fetch('/api/portal/profile/avatar', { method: 'POST', body: fd })
       const json = (await res.json().catch(() => ({}))) as { avatar_url?: string; error?: string }
       if (!res.ok || !json.avatar_url) setAvatarError(json.error ?? 'Upload failed. Please try again.')
-      else setAvatarUrl(json.avatar_url)
+      else {
+        setAvatarUrl(json.avatar_url)
+        setPreviewOpen(false)
+      }
     } catch {
       setAvatarError('Upload failed. Please try again.')
     } finally {
@@ -107,8 +112,10 @@ export function PortalProfilePage() {
     setAvatarBusy(true)
     try {
       const res = await fetch('/api/portal/profile/avatar', { method: 'DELETE' })
-      if (res.ok) setAvatarUrl(null)
-      else setAvatarError('Could not remove your photo.')
+      if (res.ok) {
+        setAvatarUrl(null)
+        setPreviewOpen(false)
+      } else setAvatarError('Could not remove your photo.')
     } finally {
       setAvatarBusy(false)
     }
@@ -374,15 +381,17 @@ export function PortalProfilePage() {
             <div className="flex flex-col items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => avatarInput.current?.click()}
+                onClick={() => (shownAvatar ? setPreviewOpen(true) : avatarInput.current?.click())}
                 disabled={avatarBusy}
                 className="group relative rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-bronze"
-                aria-label={shownAvatar ? 'Change profile photo' : 'Add profile photo'}
+                aria-label={shownAvatar ? 'View profile photo' : 'Add profile photo'}
               >
                 <Avatar name={name || profile?.email || '?'} src={shownAvatar} size="xl" />
                 <span className="absolute inset-0 flex items-center justify-center rounded-full bg-ink/60 opacity-0 group-hover:opacity-100 transition-opacity">
                   {avatarBusy ? (
                     <Loader2 size={18} className="animate-spin text-ivory" />
+                  ) : shownAvatar ? (
+                    <Eye size={18} strokeWidth={1.5} className="text-ivory" />
                   ) : (
                     <Camera size={18} strokeWidth={1.5} className="text-ivory" />
                   )}
@@ -651,6 +660,35 @@ export function PortalProfilePage() {
           </PortalButton>
         </div>
       </form>
+
+      {/* Photo preview — outside the card/form so it covers the whole page. */}
+      <PortalModal open={previewOpen && !!shownAvatar} onClose={() => setPreviewOpen(false)} title="Profile photo" size="md">
+        <div className="flex flex-col items-center gap-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={shownAvatar ?? ''}
+            alt={name ? `${name}'s profile photo` : 'Profile photo'}
+            className="w-full max-w-[360px] aspect-square rounded-full object-cover border border-graphite-line/60"
+          />
+          {avatarError && (
+            <p role="alert" className="text-[12px] text-accent-warm italic">
+              {avatarError}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <PortalButton type="button" onClick={() => avatarInput.current?.click()} disabled={avatarBusy}>
+              {avatarBusy ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+              Change photo
+            </PortalButton>
+            <PortalButton type="button" variant="secondary" onClick={removeAvatar} disabled={avatarBusy}>
+              Remove
+            </PortalButton>
+            <PortalButton type="button" variant="ghost" onClick={() => setPreviewOpen(false)}>
+              Close
+            </PortalButton>
+          </div>
+        </div>
+      </PortalModal>
     </div>
   )
 }

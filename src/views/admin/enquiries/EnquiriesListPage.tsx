@@ -156,6 +156,8 @@ function fullName(e: Pick<EnquiryRow, 'first_name' | 'last_name'>): string {
   return `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Unknown'
 }
 
+const PAGE_SIZE = 25
+
 export function EnquiriesListPage() {
   const confirm = useConfirm()
   const [enquiries, setEnquiries] = useState<EnquiryRow[]>([])
@@ -255,6 +257,20 @@ export function EnquiriesListPage() {
       )
     })
   }, [enquiries, statusFilter, ownerFilter, search])
+
+  // Client-side pagination over the filtered list (back to page 1 whenever
+  // the filters change).
+  const [page, setPage] = useState(0)
+  useEffect(() => setPage(0), [statusFilter, ownerFilter, search])
+  const pageCount = Math.ceil(filtered.length / PAGE_SIZE)
+  const pageRows = useMemo(
+    () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filtered, page],
+  )
+  // If rows drop off (e.g. a status change under a filter), stay in range.
+  useEffect(() => {
+    if (page > 0 && page >= pageCount) setPage(Math.max(0, pageCount - 1))
+  }, [page, pageCount])
 
   const counts = useMemo(
     () => ({
@@ -520,7 +536,7 @@ export function EnquiriesListPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((e) => {
+                {pageRows.map((e) => {
                   const name = fullName(e)
                   const intent = e.intent?.[0]
                   return (
@@ -603,6 +619,37 @@ export function EnquiriesListPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between mt-4 text-sm">
+          <p className="text-text-dim">
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of{' '}
+            {filtered.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              Previous
+            </Button>
+            <span className="text-text-dim px-2">
+              {page + 1} / {pageCount}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={page + 1 >= pageCount}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <EnquiryDetailModal

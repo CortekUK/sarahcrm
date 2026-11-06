@@ -2,7 +2,8 @@
 
 // Admin "Calls" — every call answered by the AI phone receptionist
 // (services/voice). Newest first, keyset-paged 25 at a time with TanStack
-// useInfiniteQuery, filter chips by outcome, and a detail modal (summary,
+// useInfiniteQuery (shown one page at a time with a Previous/Next bar; Next
+// fetches the following page on demand), filter chips by outcome, and a detail modal (summary,
 // captured details, call-back request, CRM links, transcript, Mark handled).
 // Deep link: /dashboard/calls?call=<id> (used by admin notifications + tasks).
 //
@@ -10,7 +11,7 @@
 // (voice_calls: admins SELECT + UPDATE). All time formatting happens after
 // mount (data is client-fetched), so there's nothing to mismatch on hydrate.
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Phone, PhoneIncoming, UserRound, ContactRound } from 'lucide-react'
@@ -35,6 +36,7 @@ import {
   INTEREST_LABELS,
   isMissingTable,
   OUTCOME_META,
+  PAGE_SIZE,
   setHandled,
   type CallDetail,
   type CallFilter,
@@ -82,6 +84,9 @@ export function CallsPage() {
   const { profile } = useAuth()
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState<CallFilter>('all')
+  // Index into the loaded keyset pages; back to the first page on a new filter.
+  const [pageIdx, setPageIdx] = useState(0)
+  useEffect(() => setPageIdx(0), [filter])
 
   const list = useInfiniteQuery({
     queryKey: ['voice-calls', 'list', filter],
@@ -116,7 +121,18 @@ export function CallsPage() {
     onError: (e) => toast({ title: 'Could not update the call', description: (e as Error).message, variant: 'destructive' }),
   })
 
-  const rows = list.data?.pages.flatMap((p) => p.rows) ?? []
+  const pages = list.data?.pages ?? []
+  const current = Math.min(pageIdx, Math.max(0, pages.length - 1))
+  const rows = pages[current]?.rows ?? []
+  const hasNext = current + 1 < pages.length || !!list.hasNextPage
+
+  const goNext = async () => {
+    if (current + 1 >= pages.length) {
+      const res = await list.fetchNextPage()
+      if ((res.data?.pages.length ?? 0) <= current + 1) return
+    }
+    setPageIdx(current + 1)
+  }
   const loadError = list.error ? (list.error as Error).message : null
 
   return (
@@ -264,11 +280,26 @@ export function CallsPage() {
             ))}
           </div>
 
-          {list.hasNextPage && (
-            <div className="mt-5 flex justify-center">
-              <Button variant="secondary" loading={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
-                Load more
-              </Button>
+          {(current > 0 || hasNext) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm">
+              <p className="text-text-dim">
+                {current * PAGE_SIZE + 1}–{current * PAGE_SIZE + rows.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" disabled={current === 0} onClick={() => setPageIdx(current - 1)}>
+                  Previous
+                </Button>
+                <span className="text-text-dim px-2">Page {current + 1}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!hasNext}
+                  loading={list.isFetchingNextPage}
+                  onClick={goNext}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           )}
         </>

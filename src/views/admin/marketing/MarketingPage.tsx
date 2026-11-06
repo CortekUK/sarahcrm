@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Megaphone, Plus, Loader2, Upload } from 'lucide-react'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { PaginationBar, usePagination } from '@/components/admin/Pagination'
 import {
   Button,
   Badge,
@@ -99,6 +100,7 @@ export function MarketingPage() {
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const pager = usePagination(campaigns, 25)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -160,7 +162,7 @@ export function MarketingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {campaigns.map((c) => (
+              {pager.pageRows.map((c) => (
                 <TableRow
                   key={c.id}
                   className="cursor-pointer"
@@ -181,6 +183,7 @@ export function MarketingPage() {
           </Table>
         )}
       </Card>
+      <PaginationBar {...pager} />
 
       <NewCampaignModal
         open={modalOpen}

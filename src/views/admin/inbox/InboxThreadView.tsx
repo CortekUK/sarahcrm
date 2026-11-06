@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
-import { ImageOff, ArrowDownLeft, ArrowUpRight, Loader2 } from 'lucide-react'
+import { ImageOff, ArrowDownLeft, ArrowUpRight, Loader2, ArrowLeft } from 'lucide-react'
 import { sanitizeEmailHtml } from '@/lib/inbox/sanitize-email'
 import {
   type InboxMessage,
@@ -141,14 +141,27 @@ export function InboxThreadView({
   subject,
   messages,
   loading,
+  onBack,
 }: {
   subject: string | null
   messages: InboxMessage[]
   loading: boolean
+  /** Phone layout only: back to the thread list. */
+  onBack?: () => void
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-border px-6 py-3.5">
+      <div className="shrink-0 border-b border-border px-4 md:px-6 py-3.5">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="md:hidden mb-2 inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-gold"
+          >
+            <ArrowLeft size={14} />
+            Back to inbox
+          </button>
+        )}
         <h3 className="truncate font-[family-name:var(--font-heading)] text-base font-semibold text-text">
           {subject || '(no subject)'}
         </h3>
@@ -157,7 +170,7 @@ export function InboxThreadView({
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto bg-surface-2/40 px-6 py-5">
+      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto bg-surface-2/40 px-3 md:px-6 py-5">
         {loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-text-dim" role="status">
             <Loader2 size={22} className="animate-spin text-gold" />

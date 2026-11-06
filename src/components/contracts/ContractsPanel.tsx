@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { PaginationBar, usePagination } from '@/components/admin/Pagination'
 import { toast } from '@/lib/hooks/use-toast'
 import { formatDate } from '@/lib/utils'
 import { SendContractModal } from './SendContractModal'
@@ -131,6 +132,7 @@ export function ContractsPanel({ search }: { search?: string }) {
     if (!q) return contracts
     return contracts.filter((c) => c.name.toLowerCase().includes(q))
   }, [contracts, search])
+  const pager = usePagination(filtered, 25, search ?? '')
 
   function edit(c: ContractRow) {
     router.push(`/dashboard/communications/contracts/editor?id=${c.id}`)
@@ -214,6 +216,7 @@ export function ContractsPanel({ search }: { search?: string }) {
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle>
@@ -248,7 +251,7 @@ export function ContractsPanel({ search }: { search?: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((c) => {
+              {pager.pageRows.map((c) => {
                 const req = latest[c.id]
                 const meta = req ? (STATUS[req.status] ?? { label: req.status, variant: 'draft' as BadgeVariant }) : null
                 const busy = busyId === c.id
@@ -315,6 +318,8 @@ export function ContractsPanel({ search }: { search?: string }) {
         onSent={load}
       />
     </Card>
+    <PaginationBar {...pager} />
+    </>
   )
 }
 

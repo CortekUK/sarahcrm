@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { SelectMenu } from '@/components/ui/SelectMenu'
 import { Badge } from '@/components/ui/Badge'
+import { usePagination, PaginationBar } from '@/components/admin/Pagination'
 import {
   Table,
   TableHeader,
@@ -255,6 +256,9 @@ export function CommissionsPage() {
     })
   }, [rows, sourceFilter, directionFilter, statusFilter])
 
+  // Ledger paginates over the filtered rows; stat tiles above still use all rows.
+  const pager = usePagination(filtered, 25, `${sourceFilter}|${directionFilter}|${statusFilter}`)
+
   // Mark a commission paid / unpaid by writing the paid-flag back on the
   // ORIGIN table. Optimistic update + toast; reload on error.
   async function togglePaid(row: CommissionRow) {
@@ -419,7 +423,7 @@ export function CommissionsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((r) => {
+                {pager.pageRows.map((r) => {
                   const src = SOURCE_META[r.source]
                   const dir = DIRECTION_META[r.direction]
                   return (
@@ -477,6 +481,7 @@ export function CommissionsPage() {
           )}
         </CardContent>
       </Card>
+      <PaginationBar {...pager} />
     </div>
   )
 }

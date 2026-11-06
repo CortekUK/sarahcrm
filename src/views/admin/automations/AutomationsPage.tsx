@@ -41,6 +41,50 @@ const FLOW_HELP: Record<string, string> = {
   sponsor_followup: 'Sponsors still in the proposed stage — staged chasers at 3 / 7 / 14 days after the sponsorship was created.',
 }
 
+// Flows can list dozens of people — show the first few, expand on demand.
+const ITEMS_PREVIEW = 10
+
+function FlowItemList({ items }: { items: FlowResult['items'] }) {
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? items : items.slice(0, ITEMS_PREVIEW)
+  return (
+    <>
+      <ul className="space-y-1">
+        {visible.map((it) => (
+          <li
+            key={it.ref_id}
+            className="flex items-center justify-between gap-3 text-[13px] py-1 border-b border-border/50 last:border-0"
+          >
+            <span className="text-text-muted truncate">
+              {it.detail} <span className="text-text-dim">· {it.to}</span>
+            </span>
+            <Badge
+              variant={
+                it.status === 'sent'
+                  ? 'active'
+                  : it.status === 'failed'
+                    ? 'urgent'
+                    : 'info'
+              }
+            >
+              {it.status === 'would_send' ? 'would send' : it.status}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+      {items.length > ITEMS_PREVIEW && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-2 text-xs font-medium text-gold hover:text-text transition-colors"
+        >
+          {showAll ? 'Show fewer' : `Show all (${items.length})`}
+        </button>
+      )}
+    </>
+  )
+}
+
 export function AutomationsPage() {
   const confirm = useConfirm()
   const [busy, setBusy] = useState<null | 'preview' | 'run'>(null)
@@ -186,29 +230,7 @@ export function AutomationsPage() {
                 {f.items.length === 0 ? (
                   <p className="text-xs text-text-dim italic">Nobody due right now.</p>
                 ) : (
-                  <ul className="space-y-1">
-                    {f.items.map((it) => (
-                      <li
-                        key={it.ref_id}
-                        className="flex items-center justify-between gap-3 text-[13px] py-1 border-b border-border/50 last:border-0"
-                      >
-                        <span className="text-text-muted truncate">
-                          {it.detail} <span className="text-text-dim">· {it.to}</span>
-                        </span>
-                        <Badge
-                          variant={
-                            it.status === 'sent'
-                              ? 'active'
-                              : it.status === 'failed'
-                                ? 'urgent'
-                                : 'info'
-                          }
-                        >
-                          {it.status === 'would_send' ? 'would send' : it.status}
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
+                  <FlowItemList items={f.items} />
                 )}
               </CardContent>
             </Card>

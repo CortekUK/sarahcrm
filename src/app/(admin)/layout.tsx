@@ -738,8 +738,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {children}
         {/* Room under the last row so the floating Help button never sits on
             top of it (pagination, footer buttons). Skipped on the full-height
-            Messages / Feed screens, which size themselves to the viewport. */}
-        {!/^\/dashboard\/(messages|feed)(\/|$)/.test(pathname) && <div aria-hidden className="h-20" />}
+            Messages / Feed / Inbox screens, which size themselves to the viewport. */}
+        {!/^\/dashboard\/(messages|feed|inbox)(\/|$)/.test(pathname) && <div aria-hidden className="h-20" />}
       </main>
 
       {/* Floating help assistant — answers "how do I…" questions from the

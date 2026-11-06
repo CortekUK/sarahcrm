@@ -14,6 +14,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { toast } from '@/lib/hooks/use-toast'
+import { PaginationBar, usePagination } from '@/components/admin/Pagination'
 import { Sparkles, UserPlus, Handshake, Check, X, Loader2, EyeOff, MailX } from 'lucide-react'
 
 interface Extraction {
@@ -40,6 +41,8 @@ export function GmailExtractionsPanel() {
   const [showFiltered, setShowFiltered] = useState(false)
   const [filteredLoaded, setFilteredLoaded] = useState(false)
   const [busyEmail, setBusyEmail] = useState<string | null>(null)
+  const itemsPager = usePagination(items, 10)
+  const filteredPager = usePagination(filtered, 10)
 
   async function load() {
     setLoading(true)
@@ -141,8 +144,9 @@ export function GmailExtractionsPanel() {
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
           </div>
         ) : (
+          <>
           <div className="divide-y divide-border">
-            {items.map((x) => (
+            {itemsPager.pageRows.map((x) => (
               <div key={x.id} className="flex items-start gap-3 py-3">
                 <div className="w-9 h-9 rounded-[var(--radius-md)] bg-gold-muted flex items-center justify-center shrink-0">
                   {x.kind === 'new_contact' ? (
@@ -184,6 +188,8 @@ export function GmailExtractionsPanel() {
               </div>
             ))}
           </div>
+          <PaginationBar {...itemsPager} />
+          </>
         )}
 
         {showFiltered && filtered.length > 0 && (
@@ -194,7 +200,7 @@ export function GmailExtractionsPanel() {
               person, add them as a lead to restore them.
             </p>
             <div className="divide-y divide-border">
-              {filtered.map((s) => (
+              {filteredPager.pageRows.map((s) => (
                 <div key={s.email} className="flex items-start gap-3 py-3">
                   <div className="w-9 h-9 rounded-[var(--radius-md)] bg-surface-2 flex items-center justify-center shrink-0">
                     <MailX size={16} className="text-text-muted" />
@@ -220,6 +226,7 @@ export function GmailExtractionsPanel() {
                 </div>
               ))}
             </div>
+            <PaginationBar {...filteredPager} />
           </div>
         )}
       </CardContent>

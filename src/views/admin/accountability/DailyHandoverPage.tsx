@@ -17,7 +17,9 @@ import {
   ChevronRight,
   CheckCircle2,
   CircleDashed,
+  CalendarDays,
 } from 'lucide-react'
+import { DateField } from '@/components/ui/DateField'
 import { personName, type PersonLite } from '@/lib/accountability'
 import {
   type DailyHandoverRow,
@@ -130,12 +132,25 @@ export function DailyHandoverPage() {
           onClick={() => setDate((d) => addDays(d, -1))}
           aria-label="Previous day"
         />
-        <div className="min-w-[220px] text-center">
-          <p className="font-[family-name:var(--font-heading)] text-lg font-semibold text-text">
-            {formatHandoverDate(date)}
-          </p>
-          <p className="text-xs text-text-dim">{isToday(date) ? 'Today' : date}</p>
-        </div>
+        {/* Click the date to pick any day from a calendar. */}
+        <DateField
+          value={date}
+          onChange={(v) => v && setDate(v)}
+          clearable={false}
+          trigger={
+            <button
+              type="button"
+              className="min-w-[220px] text-center rounded-[var(--radius-md)] px-3 py-1 hover:bg-surface-2 transition-colors"
+              title="Pick a date"
+            >
+              <p className="flex items-center justify-center gap-2 font-[family-name:var(--font-heading)] text-lg font-semibold text-text">
+                <CalendarDays size={16} className="text-gold" />
+                {formatHandoverDate(date)}
+              </p>
+              <p className="text-xs text-text-dim">{isToday(date) ? 'Today' : date}</p>
+            </button>
+          }
+        />
         <Button
           variant="secondary"
           size="sm"

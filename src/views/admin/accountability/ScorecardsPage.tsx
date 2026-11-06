@@ -23,7 +23,8 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { toast } from '@/lib/hooks/use-toast'
 import { dbErrorMessage } from '@/lib/form-validation'
 import { cn, formatDateTime } from '@/lib/utils'
-import { Loader2, Plus, Trash2, Pencil, Sparkles, Target, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Loader2, Plus, Trash2, Pencil, Sparkles, Target, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
+import { DateField } from '@/components/ui/DateField'
 import { personName, type PersonLite } from '@/lib/accountability'
 import {
   type ScorecardTargetRow,
@@ -309,14 +310,27 @@ export function ScorecardsPage() {
           onClick={() => setWeekStart((w) => addWeeks(w, -1))}
           aria-label="Previous week"
         />
-        <div className="min-w-[220px] text-center">
-          <p className="font-[family-name:var(--font-heading)] text-lg font-semibold text-text">
-            {formatWeekRange(weekStart)}
-          </p>
-          <p className="text-xs text-text-dim">
-            {isCurrentWeek(weekStart) ? 'This week' : 'Week beginning ' + weekStart}
-          </p>
-        </div>
+        {/* Click the week to pick any day from a calendar — jumps to its week. */}
+        <DateField
+          value={weekStart}
+          onChange={(v) => v && setWeekStart(mondayOf(new Date(`${v}T00:00:00`)))}
+          clearable={false}
+          trigger={
+            <button
+              type="button"
+              className="min-w-[220px] text-center rounded-[var(--radius-md)] px-3 py-1 hover:bg-surface-2 transition-colors"
+              title="Pick a week"
+            >
+              <p className="flex items-center justify-center gap-2 font-[family-name:var(--font-heading)] text-lg font-semibold text-text">
+                <CalendarDays size={16} className="text-gold" />
+                {formatWeekRange(weekStart)}
+              </p>
+              <p className="text-xs text-text-dim">
+                {isCurrentWeek(weekStart) ? 'This week' : 'Week beginning ' + weekStart}
+              </p>
+            </button>
+          }
+        />
         <Button
           variant="secondary"
           size="sm"

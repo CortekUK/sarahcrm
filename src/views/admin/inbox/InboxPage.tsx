@@ -167,9 +167,17 @@ export function InboxPage({ className }: { className?: string } = {}) {
   const noAccess = mailboxesLoaded && mailboxes.length === 0
 
   return (
-    <div className={cn('flex h-screen overflow-hidden', className)}>
-      {/* Left pane */}
-      <div className="flex h-full w-[360px] shrink-0 flex-col border-r border-border bg-surface">
+    // Fill exactly the viewport: below lg the admin layout adds a 56px top
+    // bar, so subtract it (same pattern as Messages / Feed).
+    <div className={cn('flex h-[calc(100dvh-3.5rem)] lg:h-dvh overflow-hidden', className)}>
+      {/* Left pane — full width on phones (hidden while a thread is open),
+          a fixed 360px column from md up. */}
+      <div
+        className={cn(
+          'h-full w-full md:w-[360px] shrink-0 flex-col border-r border-border bg-surface',
+          selectedId ? 'hidden md:flex' : 'flex',
+        )}
+      >
         {/* Header + controls */}
         <div className="shrink-0 space-y-3 border-b border-border px-4 pt-4 pb-3">
           <div className="flex items-center justify-between gap-2">
@@ -257,8 +265,14 @@ export function InboxPage({ className }: { className?: string } = {}) {
         )}
       </div>
 
-      {/* Right pane — min-h-0 lets the inner reading pane actually scroll */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface-2/40">
+      {/* Right pane — min-h-0 lets the inner reading pane actually scroll.
+          On phones it only shows once a thread is open. */}
+      <div
+        className={cn(
+          'min-h-0 min-w-0 flex-1 flex-col bg-surface-2/40',
+          selectedId ? 'flex' : 'hidden md:flex',
+        )}
+      >
         {noAccess ? (
           <div className="flex flex-1 items-center justify-center">
             <AdminEmptyState
@@ -280,6 +294,7 @@ export function InboxPage({ className }: { className?: string } = {}) {
             subject={selectedSubject}
             messages={threadMessages}
             loading={threadLoading}
+            onBack={() => setSelectedId(null)}
           />
         )}
       </div>
