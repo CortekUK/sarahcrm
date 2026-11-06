@@ -54,7 +54,9 @@ interface TagRow {
   category: string
 }
 
-export function SegmentsPage() {
+// `embedded` renders inside the Newsletter page's Segments tab: no page
+// padding or breadcrumb, just the tab's own heading + New segment button.
+export function SegmentsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const confirm = useConfirm()
   const [segments, setSegments] = useState<Segment[]>([])
   const [tags, setTags] = useState<TagRow[]>([])
@@ -100,11 +102,11 @@ export function SegmentsPage() {
   }
 
   return (
-    <div className="p-4 md:p-8">
+    <div className={embedded ? '' : 'p-4 md:p-8'}>
       <AdminPageHeader
         title="Segments"
-        description="Rule-based groups of members that auto-collect everyone matching the filters (tier, status, type, tags). Send a campaign to a segment from the Campaigns wizard — it always reflects the members who match right now."
-        breadcrumbs={[{ label: 'Marketing', href: '/dashboard/marketing' }, { label: 'Segments' }]}
+        description="Rule-based groups of members that auto-collect everyone matching the filters (tier, status, type, tags). Pick a segment as the recipients when sending from the Campaigns tab — it always reflects the members who match right now."
+        breadcrumbs={embedded ? undefined : [{ label: 'Newsletter', href: '/dashboard/newsletter' }, { label: 'Segments' }]}
         actions={
           <Button onClick={() => setEditTarget('new')}>
             <Plus size={14} />

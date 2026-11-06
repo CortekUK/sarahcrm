@@ -1,7 +1,7 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import { SegmentsPage } from '@/views/admin/marketing/SegmentsPage'
-
+// Segments now live as a tab on the Newsletter page (they're the recipient
+// groups for newsletter campaigns).
 export default function Page() {
-  return <SegmentsPage />
+  redirect('/dashboard/newsletter?tab=segments')
 }

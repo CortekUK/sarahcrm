@@ -1,7 +1,13 @@
 'use client'
 
+import { Suspense } from 'react'
 import { NewsletterPage } from '@/views/admin/newsletter/NewsletterPage'
 
+// Suspense: NewsletterPage reads ?tab= with useSearchParams.
 export default function Page() {
-  return <NewsletterPage />
+  return (
+    <Suspense>
+      <NewsletterPage />
+    </Suspense>
+  )
 }

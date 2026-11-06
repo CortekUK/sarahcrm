@@ -1,14 +1,17 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { cn } from '@/lib/utils'
-import { Users, ListChecks, Send } from 'lucide-react'
+import { Users, ListChecks, Send, Filter } from 'lucide-react'
 import { SubscribersTab } from './SubscribersTab'
 import { ListsTab } from './ListsTab'
 import { CampaignsTab } from './CampaignsTab'
+import { SegmentsPage } from '@/views/admin/marketing/SegmentsPage'
 
-type Tab = 'subscribers' | 'lists' | 'campaigns'
+type Tab = 'subscribers' | 'lists' | 'segments' | 'campaigns'
+const TABS: readonly Tab[] = ['subscribers', 'lists', 'segments', 'campaigns']
 
 // Single hub for everything newsletter-related: who's subscribed, the
 // reusable audiences (which can mix subscribers + approved members),
@@ -17,7 +20,10 @@ type Tab = 'subscribers' | 'lists' | 'campaigns'
 // jumping between them via tabs feels more natural than via the
 // sidebar.
 export function NewsletterPage() {
-  const [tab, setTab] = useState<Tab>('subscribers')
+  // ?tab=segments deep-links a tab (the old /dashboard/marketing/segments
+  // URL redirects here).
+  const initial = useSearchParams().get('tab') as Tab | null
+  const [tab, setTab] = useState<Tab>(initial && TABS.includes(initial) ? initial : 'subscribers')
 
   return (
     <div className="p-4 md:p-8">
@@ -40,6 +46,12 @@ export function NewsletterPage() {
           onClick={() => setTab('lists')}
         />
         <TabButton
+          icon={<Filter size={14} />}
+          label="Segments"
+          active={tab === 'segments'}
+          onClick={() => setTab('segments')}
+        />
+        <TabButton
           icon={<Send size={14} />}
           label="Campaigns"
           active={tab === 'campaigns'}
@@ -49,6 +61,7 @@ export function NewsletterPage() {
 
       {tab === 'subscribers' && <SubscribersTab />}
       {tab === 'lists' && <ListsTab />}
+      {tab === 'segments' && <SegmentsPage embedded />}
       {tab === 'campaigns' && <CampaignsTab />}
     </div>
   )
